@@ -60,14 +60,25 @@ export function generateObjectTextures(scene: Phaser.Scene): void {
   obstacleGfx.generateTexture('obj_obstacle', OBJECT_SIZE, OBJECT_SIZE)
   obstacleGfx.destroy()
 
-  // Interactable: blue square with lighter inner highlight
+  // Interactable inactive: muted blue square with lighter inner highlight
   const interactableGfx = scene.make.graphics({ x: 0, y: 0 })
-  interactableGfx.fillStyle(0x4488ff)
+  interactableGfx.fillStyle(0x2255aa)
   interactableGfx.fillRect(0, 0, OBJECT_SIZE, OBJECT_SIZE)
-  interactableGfx.fillStyle(0x66aaff)
+  interactableGfx.fillStyle(0x4477cc)
   interactableGfx.fillRect(4, 4, OBJECT_SIZE - 8, OBJECT_SIZE - 8)
   interactableGfx.generateTexture('obj_interactable', OBJECT_SIZE, OBJECT_SIZE)
   interactableGfx.destroy()
+
+  // Interactable active: amber/gold with bright inner highlight and white border
+  const interactableActiveGfx = scene.make.graphics({ x: 0, y: 0 })
+  interactableActiveGfx.fillStyle(0xffaa00)
+  interactableActiveGfx.fillRect(0, 0, OBJECT_SIZE, OBJECT_SIZE)
+  interactableActiveGfx.fillStyle(0xffdd44)
+  interactableActiveGfx.fillRect(4, 4, OBJECT_SIZE - 8, OBJECT_SIZE - 8)
+  interactableActiveGfx.lineStyle(2, 0xffffff)
+  interactableActiveGfx.strokeRect(1, 1, OBJECT_SIZE - 2, OBJECT_SIZE - 2)
+  interactableActiveGfx.generateTexture('obj_interactable_active', OBJECT_SIZE, OBJECT_SIZE)
+  interactableActiveGfx.destroy()
 
   // Background/decoration: muted green rounded rect
   const backgroundGfx = scene.make.graphics({ x: 0, y: 0 })

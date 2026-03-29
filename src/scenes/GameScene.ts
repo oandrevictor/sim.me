@@ -1,10 +1,17 @@
 import Phaser from 'phaser'
-import { generateObjectTextures, OBJECT_TYPE_REGISTRY, type ObjectType } from '../objects/objectTypes'
+import { generateObjectTextures, OBJECT_TYPE_REGISTRY, GRID_SIZE, type ObjectType } from '../objects/objectTypes'
 import { StoreUI } from '../ui/StoreUI'
 import { PlacementManager } from '../placement/PlacementManager'
 import { loadPlacedObjects, savePlacedObject } from '../storage/persistence'
 
 const PLAYER_SPEED = 200
+// How close the player must be (center-to-center) to activate an interactable
+const INTERACTION_RADIUS = GRID_SIZE
+
+interface WalkTarget {
+  x: number
+  y: number
+}
 
 export class GameScene extends Phaser.Scene {
   private player!: Phaser.Physics.Arcade.Sprite
@@ -22,19 +29,23 @@ export class GameScene extends Phaser.Scene {
   private interactableSprites: Phaser.GameObjects.Sprite[] = []
   private backgroundSprites: Phaser.GameObjects.Sprite[] = []
 
+  // Auto-walk state
+  private walkTarget: WalkTarget | null = null
+
+  // The interactable currently in active state (null = none)
+  private activeInteractable: Phaser.GameObjects.Sprite | null = null
+
   constructor() {
     super({ key: 'GameScene' })
   }
 
   preload(): void {
-    // Player texture
     const playerGfx = this.make.graphics({ x: 0, y: 0 })
     playerGfx.fillStyle(0xe8c547)
     playerGfx.fillRect(0, 0, 32, 32)
     playerGfx.generateTexture('player', 32, 32)
     playerGfx.destroy()
 
-    // All object textures
     generateObjectTextures(this)
   }
 
@@ -89,7 +100,6 @@ export class GameScene extends Phaser.Scene {
       right: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D),
     }
 
-    // Controls hint
     this.add.text(10, 10, 'Move: WASD / Arrows  |  Click bag to place objects  |  ESC to cancel', {
       fontSize: '12px',
       color: '#ffffff',
@@ -105,13 +115,76 @@ export class GameScene extends Phaser.Scene {
     if (this.cursors.up.isDown || this.wasd.up.isDown) vy -= 1
     if (this.cursors.down.isDown || this.wasd.down.isDown) vy += 1
 
-    if (vx !== 0 && vy !== 0) {
-      const INV_SQRT2 = 0.7071
-      vx *= INV_SQRT2
-      vy *= INV_SQRT2
+    // Manual input cancels auto-walk
+    if ((vx !== 0 || vy !== 0) && this.walkTarget !== null) {
+      this.walkTarget = null
     }
 
-    this.player.setVelocity(vx * PLAYER_SPEED, vy * PLAYER_SPEED)
+    if (this.walkTarget !== null) {
+      // Auto-walk toward target
+      const dist = Phaser.Math.Distance.Between(
+        this.player.x, this.player.y,
+        this.walkTarget.x, this.walkTarget.y
+      )
+      if (dist < 18) {
+        this.player.setVelocity(0, 0)
+        this.walkTarget = null
+      } else {
+        const angle = Phaser.Math.Angle.Between(
+          this.player.x, this.player.y,
+          this.walkTarget.x, this.walkTarget.y
+        )
+        this.player.setVelocity(
+          Math.cos(angle) * PLAYER_SPEED,
+          Math.sin(angle) * PLAYER_SPEED
+        )
+      }
+    } else if (vx !== 0 || vy !== 0) {
+      if (vx !== 0 && vy !== 0) {
+        const INV_SQRT2 = 0.7071
+        vx *= INV_SQRT2
+        vy *= INV_SQRT2
+      }
+      this.player.setVelocity(vx * PLAYER_SPEED, vy * PLAYER_SPEED)
+    } else {
+      this.player.setVelocity(0, 0)
+    }
+
+    this.updateInteractableStates()
+  }
+
+  // Each frame: find the closest interactable within range and set it active.
+  // Swap textures and player tint when the active interactable changes.
+  private updateInteractableStates(): void {
+    let closest: Phaser.GameObjects.Sprite | null = null
+    let closestDist = Infinity
+
+    for (const sprite of this.interactableSprites) {
+      const dist = Phaser.Math.Distance.Between(
+        this.player.x, this.player.y,
+        sprite.x, sprite.y
+      )
+      if (dist < INTERACTION_RADIUS && dist < closestDist) {
+        closest = sprite
+        closestDist = dist
+      }
+    }
+
+    if (closest === this.activeInteractable) return
+
+    // Deactivate previous
+    if (this.activeInteractable !== null) {
+      this.activeInteractable.setTexture('obj_interactable')
+      this.activeInteractable = null
+      this.player.clearTint()
+    }
+
+    // Activate new
+    if (closest !== null) {
+      this.activeInteractable = closest
+      this.activeInteractable.setTexture('obj_interactable_active')
+      this.player.setTint(0xffcc44)
+    }
   }
 
   private spawnObject(type: ObjectType, x: number, y: number, persist: boolean): void {
@@ -129,19 +202,9 @@ export class GameScene extends Phaser.Scene {
 
       if (type === 'interactable') {
         this.interactableSprites.push(sprite)
-
-        // Click to interact
         sprite.setInteractive({ useHandCursor: true })
-        sprite.on('pointerdown', () => this.triggerInteraction(sprite))
-
-        // Walk-through overlap
-        this.physics.add.overlap(
-          this.player,
-          sprite,
-          () => this.triggerInteraction(sprite)
-        )
+        sprite.on('pointerdown', () => this.onInteractableClicked(sprite))
       } else {
-        // background
         this.backgroundSprites.push(sprite)
       }
     }
@@ -151,35 +214,18 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private triggerInteraction(sprite: Phaser.GameObjects.Sprite): void {
-    if (sprite.getData('flashing') === true) return
-    sprite.setData('flashing', true)
+  // If the player is already close enough, proximity in updateInteractableStates()
+  // handles activation. Otherwise, auto-walk to the object first.
+  private onInteractableClicked(sprite: Phaser.GameObjects.Sprite): void {
+    if (this.placementManager.isActive()) return
 
-    // Flash the interactable: white fill → back to normal
-    sprite.setTintFill(0xffffff)
-    this.tweens.add({
-      targets: sprite,
-      alpha: 0.35,
-      duration: 120,
-      yoyo: true,
-      onComplete: () => {
-        sprite.clearTint()
-        sprite.setAlpha(1)
-        sprite.setData('flashing', false)
-      },
-    })
+    const dist = Phaser.Math.Distance.Between(
+      this.player.x, this.player.y,
+      sprite.x, sprite.y
+    )
 
-    // Flash the player: brief yellow tint
-    this.tweens.add({
-      targets: this.player,
-      alpha: 0.65,
-      duration: 120,
-      yoyo: true,
-      onStart: () => this.player.setTint(0xffff44),
-      onComplete: () => {
-        this.player.clearTint()
-        this.player.setAlpha(1)
-      },
-    })
+    if (dist >= INTERACTION_RADIUS) {
+      this.walkTarget = { x: sprite.x, y: sprite.y }
+    }
   }
 }
