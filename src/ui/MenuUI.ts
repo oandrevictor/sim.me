@@ -50,6 +50,7 @@ type MenuTab = 'home' | 'shop' | 'work'
 
 export class MenuUI {
   private scene: Phaser.Scene
+  private gameEvents: Phaser.Events.EventEmitter
   private container: Phaser.GameObjects.Container
 
   // Bottom tab bar
@@ -79,10 +80,10 @@ export class MenuUI {
   private getBotNirvs: () => BotNirv[] = () => []
   private isPlayerInRestaurant: () => boolean = () => false
 
-  constructor(scene: Phaser.Scene) {
+  constructor(scene: Phaser.Scene, gameEvents: Phaser.Events.EventEmitter) {
     this.scene = scene
+    this.gameEvents = gameEvents
     this.container = scene.add.container(0, 0)
-    this.container.setDepth(20)
 
     this.buildTabBar()
     this.buildShopPanel()
@@ -98,6 +99,10 @@ export class MenuUI {
   }
 
   isPointerOverUI(pointer: Phaser.Input.Pointer): boolean {
+    // UI is in screen space (scrollFactor 0), so use screen coordinates
+    const px = pointer.x
+    const py = pointer.y
+
     // Check tab bar area (always visible)
     const barBounds = new Phaser.Geom.Rectangle(
       this.container.x - BAR_WIDTH / 2,
@@ -105,7 +110,7 @@ export class MenuUI {
       BAR_WIDTH,
       BAR_HEIGHT,
     )
-    if (barBounds.contains(pointer.worldX, pointer.worldY)) return true
+    if (barBounds.contains(px, py)) return true
 
     // Check panel area when open
     if (this.activeTab === 'shop' || this.activeTab === 'work') {
@@ -115,7 +120,7 @@ export class MenuUI {
         PANEL_WIDTH,
         PANEL_HEIGHT,
       )
-      if (panelBounds.contains(pointer.worldX, pointer.worldY)) return true
+      if (panelBounds.contains(px, py)) return true
     }
 
     return false
@@ -230,9 +235,9 @@ export class MenuUI {
     this.workPanel.setVisible(tab === 'work')
 
     if (tab === 'shop') {
-      this.scene.events.emit('menu:shop-open')
+      this.gameEvents.emit('menu:shop-open')
     } else if (prevTab === 'shop') {
-      this.scene.events.emit('menu:shop-close')
+      this.gameEvents.emit('menu:shop-close')
     }
 
     if (tab === 'work') {
@@ -396,9 +401,9 @@ export class MenuUI {
         zone.setInteractive({ useHandCursor: true })
         zone.on('pointerdown', () => {
           if ((item.type as string) === '__building') {
-            this.scene.events.emit('store:select-building')
+            this.gameEvents.emit('store:select-building')
           } else {
-            this.scene.events.emit('store:select', item.type)
+            this.gameEvents.emit('store:select', item.type)
           }
         })
         zone.on('pointerover', () => {
@@ -496,7 +501,7 @@ export class MenuUI {
       const zone = this.scene.add.zone(cx, cy, CARD_SIZE, CARD_SIZE)
       zone.setInteractive({ useHandCursor: true })
       zone.on('pointerdown', () => {
-        this.scene.events.emit('inventory:select', item.type)
+        this.gameEvents.emit('inventory:select', item.type)
       })
       zone.on('pointerover', () => {
         cardBg.clear()

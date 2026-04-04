@@ -33,6 +33,15 @@ export function removeObjectAt(x: number, y: number): PlacedObjectRecord | null 
   return removed
 }
 
+export function removeObjectByType(x: number, y: number, type: ObjectType): PlacedObjectRecord | null {
+  const records = loadPlacedObjects()
+  const idx = records.findIndex(r => r.x === x && r.y === y && r.type === type)
+  if (idx === -1) return null
+  const [removed] = records.splice(idx, 1)
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(records))
+  return removed
+}
+
 export function clearPlacedObjects(): void {
   localStorage.removeItem(STORAGE_KEY)
 }

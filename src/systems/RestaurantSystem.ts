@@ -53,6 +53,7 @@ export class RestaurantSystem {
   private buildings: Building[]
   private bots: BotNirv[]
   private timeSinceCheck = 0
+  onPlateConsumed: ((tableX: number, tableY: number) => void) | null = null
 
   constructor(buildings: Building[], bots: BotNirv[]) {
     this.buildings = buildings
@@ -105,11 +106,11 @@ export class RestaurantSystem {
     this.timeSinceCheck += delta
 
     this.checkFoodService()
+    this.checkArrivals()
 
     if (this.timeSinceCheck < CHECK_INTERVAL) return
     this.timeSinceCheck = 0
 
-    this.checkArrivals()
     this.tryAssignBots()
   }
 
@@ -135,6 +136,7 @@ export class RestaurantSystem {
 
         foodSlot.plate.sprite.destroy()
         foodSlot.plate = null
+        this.onPlateConsumed?.(table.x, table.y)
         break
       }
     }

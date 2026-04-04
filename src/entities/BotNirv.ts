@@ -1,6 +1,8 @@
 import Phaser from 'phaser'
-import { Nirv } from './Nirv'
+import { Nirv, type NirvVariant } from './Nirv'
 import { type ScheduleWaypoint, gridToPixel } from './NirvSchedule'
+import { GRID_SIZE } from '../config/world'
+import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 
 const BOT_SPEED = 120
 const ARRIVAL_THRESHOLD = 18
@@ -18,6 +20,11 @@ export class BotNirv {
   private statusIcon: Phaser.GameObjects.Graphics | null = null
   private scene: Phaser.Scene
   private eatingColor = 0xffffff
+  private pathfinder: GridPathfinder
+
+  // Path following
+  private path: { gx: number; gy: number }[] = []
+  private pathNodeIndex = 0
 
   get state(): BotState { return this._state }
 
@@ -26,10 +33,13 @@ export class BotNirv {
     name: string,
     colorIndex: number,
     waypoints: ScheduleWaypoint[],
+    variant: NirvVariant = 'm',
+    pathfinder: GridPathfinder,
   ) {
     this.scene = scene
+    this.pathfinder = pathfinder
     const start = gridToPixel(waypoints[0].gridX, waypoints[0].gridY)
-    this.nirv = new Nirv(scene, name, colorIndex, start.x, start.y, false)
+    this.nirv = new Nirv(scene, name, colorIndex, start.x, start.y, false, variant)
     this.waypoints = waypoints
 
     this.state = 'waiting'
@@ -45,6 +55,7 @@ export class BotNirv {
     this.redirectTarget = { x, y }
     this._state = 'walking_to_chair'
     this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToPixel(x, y)
   }
 
   /** Sit down on a chair */
@@ -52,6 +63,7 @@ export class BotNirv {
     this.nirv.sprite.setVelocity(0, 0)
     this.seatTimer = Phaser.Math.Between(5000, 10000)
     this.redirectTarget = null
+    this.path = []
 
     if (nextToTable) {
       this._state = 'awaiting_service'
@@ -66,6 +78,7 @@ export class BotNirv {
     this._state = 'walking'
     this.hideStatusIcon()
     this.currentIndex = (this.currentIndex + 1) % this.waypoints.length
+    this.computePathToWaypoint()
   }
 
   /** Start eating food */
@@ -82,23 +95,29 @@ export class BotNirv {
     switch (this._state) {
       case 'waiting':
         this.waitRemaining -= delta
+        this.nirv.updateAnimation(0, 0)
         if (this.waitRemaining <= 0) {
           this.currentIndex = (this.currentIndex + 1) % this.waypoints.length
           this._state = 'walking'
+          this.computePathToWaypoint()
         }
         return
 
       case 'walking': {
         const target = this.waypoints[this.currentIndex]
         const dest = gridToPixel(target.gridX, target.gridY)
-        this.moveToward(dest.x, dest.y)
+
+        this.followPath()
 
         const sprite = this.nirv.sprite
+        this.nirv.updateAnimation(sprite.body!.velocity.x, sprite.body!.velocity.y)
         const dist = Phaser.Math.Distance.Between(sprite.x, sprite.y, dest.x, dest.y)
         if (dist < ARRIVAL_THRESHOLD) {
           sprite.setVelocity(0, 0)
+          this.nirv.updateAnimation(0, 0)
           this._state = 'waiting'
           this.waitRemaining = target.duration
+          this.path = []
         }
         return
       }
@@ -106,17 +125,23 @@ export class BotNirv {
       case 'walking_to_chair': {
         if (!this.redirectTarget) {
           this._state = 'walking'
+          this.computePathToWaypoint()
           return
         }
-        this.moveToward(this.redirectTarget.x, this.redirectTarget.y)
+
+        this.followPath()
 
         const sprite = this.nirv.sprite
+        this.nirv.updateAnimation(sprite.body!.velocity.x, sprite.body!.velocity.y)
         const dist = Phaser.Math.Distance.Between(
           sprite.x, sprite.y,
           this.redirectTarget.x, this.redirectTarget.y
         )
         if (dist < ARRIVAL_THRESHOLD) {
           sprite.setVelocity(0, 0)
+          sprite.setPosition(this.redirectTarget.x, this.redirectTarget.y)
+          this.nirv.updateAnimation(0, 0)
+          this.path = []
           // RestaurantSystem will call seat() once we arrive
         }
         return
@@ -125,6 +150,7 @@ export class BotNirv {
       case 'seated':
       case 'awaiting_service':
       case 'eating':
+        this.nirv.updateAnimation(0, 0)
         this.seatTimer -= delta
         this.updateStatusIconPosition()
         if (this.seatTimer <= 0) {
@@ -132,6 +158,54 @@ export class BotNirv {
         }
         return
     }
+  }
+
+  private computePathToWaypoint(): void {
+    const target = this.waypoints[this.currentIndex]
+    const sprite = this.nirv.sprite
+    const startGX = Math.round((sprite.x - GRID_SIZE / 2) / GRID_SIZE)
+    const startGY = Math.round((sprite.y - GRID_SIZE / 2) / GRID_SIZE)
+    this.path = this.pathfinder.findPath(startGX, startGY, target.gridX, target.gridY) ?? []
+    this.pathNodeIndex = 0
+  }
+
+  private computePathToPixel(px: number, py: number): void {
+    const sprite = this.nirv.sprite
+    const startGX = Math.round((sprite.x - GRID_SIZE / 2) / GRID_SIZE)
+    const startGY = Math.round((sprite.y - GRID_SIZE / 2) / GRID_SIZE)
+    const endGX = Math.round((px - GRID_SIZE / 2) / GRID_SIZE)
+    const endGY = Math.round((py - GRID_SIZE / 2) / GRID_SIZE)
+    this.path = this.pathfinder.findPath(startGX, startGY, endGX, endGY) ?? []
+    this.pathNodeIndex = 0
+  }
+
+  private followPath(): void {
+    const sprite = this.nirv.sprite
+
+    if (this.pathNodeIndex >= this.path.length) {
+      // Path exhausted — move directly toward final destination
+      if (this._state === 'walking') {
+        const target = this.waypoints[this.currentIndex]
+        const dest = gridToPixel(target.gridX, target.gridY)
+        this.moveToward(dest.x, dest.y)
+      } else if (this._state === 'walking_to_chair' && this.redirectTarget) {
+        this.moveToward(this.redirectTarget.x, this.redirectTarget.y)
+      }
+      return
+    }
+
+    const node = this.path[this.pathNodeIndex]
+    const nodePx = gridToPixel(node.gx, node.gy)
+    const dist = Phaser.Math.Distance.Between(sprite.x, sprite.y, nodePx.x, nodePx.y)
+
+    if (dist < ARRIVAL_THRESHOLD) {
+      this.pathNodeIndex++
+      // Recurse to immediately start toward next node
+      this.followPath()
+      return
+    }
+
+    this.moveToward(nodePx.x, nodePx.y)
   }
 
   private moveToward(tx: number, ty: number): void {

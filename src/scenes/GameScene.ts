@@ -1,9 +1,9 @@
 import Phaser from 'phaser'
 import { generateObjectTextures, OBJECT_TYPE_REGISTRY, GRID_SIZE, type ObjectType } from '../objects/objectTypes'
-import { WORLD_WIDTH, WORLD_HEIGHT, GRID_COLS, GRID_ROWS, CANVAS_WIDTH, CANVAS_HEIGHT } from '../config/world'
+import { WORLD_WIDTH, WORLD_HEIGHT, GRID_COLS, GRID_ROWS } from '../config/world'
 import { MenuUI } from '../ui/MenuUI'
 import { PlacementManager } from '../placement/PlacementManager'
-import { loadPlacedObjects, savePlacedObject, removeObjectAt } from '../storage/persistence'
+import { loadPlacedObjects, savePlacedObject, removeObjectAt, removeObjectByType } from '../storage/persistence'
 import { addToInventory, removeFromInventory } from '../storage/inventoryPersistence'
 import { loadPlacedBuildings, savePlacedBuilding, updateBuildingType } from '../storage/buildingPersistence'
 import { Nirv } from '../entities/Nirv'
@@ -16,6 +16,8 @@ import { RestaurantSystem } from '../systems/RestaurantSystem'
 import { CookingSystem } from '../systems/CookingSystem'
 import { RecipeSelectUI } from '../ui/RecipeSelectUI'
 import { getRecipe } from '../data/recipes'
+import { GridPathfinder } from '../pathfinding/GridPathfinder'
+import { BUILDING_GRID_W, BUILDING_GRID_H } from '../entities/Building'
 
 const PLAYER_SPEED = 200
 const INTERACTION_RADIUS = GRID_SIZE
@@ -36,7 +38,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   private menuUI!: MenuUI
-  private helpText!: Phaser.GameObjects.Text
   private placementManager!: PlacementManager
   private obstacleGroup!: Phaser.Physics.Arcade.StaticGroup
   private nirvGroup!: Phaser.Physics.Arcade.Group
@@ -49,6 +50,7 @@ export class GameScene extends Phaser.Scene {
   private restaurantSystem!: RestaurantSystem
   private cookingSystem!: CookingSystem
   private recipeSelectUI!: RecipeSelectUI
+  private pathfinder!: GridPathfinder
 
   private tableSprites: { sprite: Phaser.Physics.Arcade.Sprite; x: number; y: number }[] = []
   private counterSprites: { sprite: Phaser.Physics.Arcade.Sprite; x: number; y: number }[] = []
@@ -71,6 +73,12 @@ export class GameScene extends Phaser.Scene {
 
   preload(): void {
     generateObjectTextures(this)
+
+    const frameConfig = { frameWidth: 48, frameHeight: 48 }
+    this.load.spritesheet('m_idle', 'assets/Player/MPlayer 1 idle.png', frameConfig)
+    this.load.spritesheet('m_walk', 'assets/Player/MPlayer 1 walking.png', frameConfig)
+    this.load.spritesheet('f_idle', 'assets/Player/FPlayer 1 idle.png', frameConfig)
+    this.load.spritesheet('f_walk', 'assets/Player/FPlayer 1 walking.png', frameConfig)
   }
 
   create(): void {
@@ -85,6 +93,9 @@ export class GameScene extends Phaser.Scene {
     for (let x = 0; x <= WORLD_WIDTH; x += GRID_SIZE) bg.lineBetween(x, 0, x, WORLD_HEIGHT)
     for (let y = 0; y <= WORLD_HEIGHT; y += GRID_SIZE) bg.lineBetween(0, y, WORLD_WIDTH, y)
     bg.setDepth(0)
+
+    // Create Nirv animations
+    this.createNirvAnimations()
 
     // Player Nirv at world center
     const startX = Math.round(WORLD_WIDTH / 2 / GRID_SIZE) * GRID_SIZE
@@ -112,7 +123,12 @@ export class GameScene extends Phaser.Scene {
 
     // Systems (created early so objects can register during restore)
     this.restaurantSystem = new RestaurantSystem(this.buildings, this.botNirvs)
+    this.restaurantSystem.onPlateConsumed = (x, y) => {
+      removeObjectByType(x, y, 'food_plate')
+      this.plateSprites = this.plateSprites.filter(p => !(p.tableX === x && p.tableY === y))
+    }
     this.cookingSystem = new CookingSystem(this)
+    this.pathfinder = new GridPathfinder(GRID_COLS, GRID_ROWS)
 
     // Restore persisted buildings
     loadPlacedBuildings().forEach(r => {
@@ -120,42 +136,52 @@ export class GameScene extends Phaser.Scene {
       building.createWalls(this, this.obstacleGroup)
       this.buildings.push(building)
       this.createSign(building)
+      this.blockBuildingCells(building)
     })
 
     // Restore persisted objects
     loadPlacedObjects().forEach(r => this.spawnObject(r.type, r.x, r.y, false, r.recipeId))
 
-    // Menu UI
-    this.menuUI = new MenuUI(this)
-    this.menuUI.setProviders(
-      () => this.botNirvs,
-      () => this.isPlayerInsideRestaurant(),
-    )
+    // Launch UI scene on top
+    this.scene.launch('UIScene')
+    const uiScene = this.scene.get('UIScene') as import('./UIScene').UIScene
 
-    // Placement manager
-    this.placementManager = new PlacementManager(
-      this,
-      this.menuUI,
-      (type, x, y) => this.spawnObject(type, x, y, true),
-      (gridX, gridY) => this.placeBuilding(gridX, gridY),
-    )
+    // UIScene.create runs synchronously during launch in Phaser,
+    // but the scene might not be ready yet — wait for its 'create' event
+    const initUI = () => {
+      this.menuUI = uiScene.menuUI
 
-    // Wire menu events
-    this.events.on('store:select', (type: ObjectType) => {
-      this.placementManager.enter(type)
-    })
-    this.events.on('store:select-building', () => {
-      this.placementManager.enterBuildingPlacement()
-    })
-    this.events.on('inventory:select', (type: ObjectType) => {
-      if (!removeFromInventory(type)) return
-      this.menuUI.refreshInventoryGrid()
-      this.placementManager.enterFromInventory(type)
-    })
-    this.events.on('menu:shop-close', () => {
-      if (this.placementManager.isActive()) this.placementManager.exit()
-      this.game.canvas.style.cursor = ''
-    })
+      // Placement manager
+      this.placementManager = new PlacementManager(
+        this,
+        this.menuUI,
+        (type, x, y) => this.spawnObject(type, x, y, true),
+        (gridX, gridY) => this.placeBuilding(gridX, gridY),
+      )
+
+      // Wire menu events (MenuUI emits on this scene's events)
+      this.events.on('store:select', (type: ObjectType) => {
+        this.placementManager.enter(type)
+      })
+      this.events.on('store:select-building', () => {
+        this.placementManager.enterBuildingPlacement()
+      })
+      this.events.on('inventory:select', (type: ObjectType) => {
+        if (!removeFromInventory(type)) return
+        this.menuUI.refreshInventoryGrid()
+        this.placementManager.enterFromInventory(type)
+      })
+      this.events.on('menu:shop-close', () => {
+        if (this.placementManager.isActive()) this.placementManager.exit()
+        this.game.canvas.style.cursor = ''
+      })
+    }
+
+    if (uiScene.menuUI) {
+      initUI()
+    } else {
+      uiScene.events.once('create', () => initUI())
+    }
 
     // Scene-level click for food placement
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
@@ -170,13 +196,6 @@ export class GameScene extends Phaser.Scene {
       left: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.A),
       right: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D),
     }
-
-    // Help text (positioned each frame to follow camera)
-    this.helpText = this.add.text(0, 0, 'Move: WASD / Arrows  |  Shop: place & move objects  |  ESC to cancel', {
-      fontSize: '12px',
-      color: '#ffffff',
-    })
-    this.helpText.setAlpha(0.6).setDepth(20)
 
     // Spawn bot Nirvs
     this.spawnBots()
@@ -235,6 +254,8 @@ export class GameScene extends Phaser.Scene {
       player.setVelocity(0, 0)
     }
 
+    this.playerNirv.updateAnimation(player.body!.velocity.x, player.body!.velocity.y)
+
     this.updateInteractableStates()
 
     // Update bot Nirvs
@@ -252,19 +273,8 @@ export class GameScene extends Phaser.Scene {
     // Carry indicator
     this.updateCarryIndicator()
 
-    // Update work panel data
-    this.menuUI.updateWorkPanel()
-
     // Update cursor for shop mode hover
     this.updateShopCursor()
-
-    // Keep UI pinned to camera viewport
-    const cam = this.cameras.main
-    this.menuUI.setPosition(
-      cam.scrollX + CANVAS_WIDTH / 2,
-      cam.scrollY + CANVAS_HEIGHT,
-    )
-    this.helpText.setPosition(cam.scrollX + 10, cam.scrollY + 10)
   }
 
   private updateInteractableStates(): void {
@@ -308,6 +318,13 @@ export class GameScene extends Phaser.Scene {
       sprite.setDepth(config.depth)
       sprite.refreshBody()
       this.placedSprites.push({ sprite, type, x, y })
+
+      // Block cell in pathfinder (only for generic obstacles, not furniture)
+      if (this.pathfinder && type === 'obstacle') {
+        const gx = Math.round(x / GRID_SIZE)
+        const gy = Math.round(y / GRID_SIZE)
+        this.pathfinder.blockCell(gx, gy)
+      }
 
       if (type === 'table2' || type === 'table4') {
         this.tableSprites.push({ sprite, x, y })
@@ -377,6 +394,7 @@ export class GameScene extends Phaser.Scene {
     building.createWalls(this, this.obstacleGroup)
     this.buildings.push(building)
     this.createSign(building)
+    this.blockBuildingCells(building)
     savePlacedBuilding({ id, gridX, gridY, type: 'empty' })
     return true
   }
@@ -491,7 +509,7 @@ export class GameScene extends Phaser.Scene {
 
     entry.sprite.destroy()
     this.plateSprites = this.plateSprites.filter(p => p !== entry)
-    removeObjectAt(entry.tableX, entry.tableY)
+    removeObjectByType(entry.tableX, entry.tableY, 'food_plate')
 
     this.carriedPlate = { recipeId: entry.recipeId }
     this.createCarryIndicator()
@@ -558,6 +576,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onWorldClicked(pointer: Phaser.Input.Pointer): void {
+    if (!this.menuUI || !this.placementManager) return
     if (this.placementManager.isActive()) return
 
     // In Shop mode, clicking a placed object picks it up for repositioning
@@ -664,6 +683,13 @@ export class GameScene extends Phaser.Scene {
     // Remove from persistence
     removeObjectAt(x, y)
 
+    // Unblock cell in pathfinder (only for generic obstacles)
+    if (type === 'obstacle') {
+      const gx = Math.round(x / GRID_SIZE)
+      const gy = Math.round(y / GRID_SIZE)
+      this.pathfinder.unblockCell(gx, gy)
+    }
+
     if (this.menuUI.isInventoryMode()) {
       // Store in inventory
       addToInventory(type)
@@ -676,6 +702,7 @@ export class GameScene extends Phaser.Scene {
 
   /** In shop mode, show grab cursor when hovering over a placed object. */
   private updateShopCursor(): void {
+    if (!this.menuUI) return
     if (!this.menuUI.isShopMode() || this.placementManager.isActive()) {
       return
     }
@@ -691,7 +718,11 @@ export class GameScene extends Phaser.Scene {
     this.game.canvas.style.cursor = overObject ? 'grab' : ''
   }
 
-  private isPlayerInsideRestaurant(): boolean {
+  getBotNirvs(): BotNirv[] {
+    return this.botNirvs
+  }
+
+  isPlayerInsideRestaurant(): boolean {
     const player = this.playerNirv.sprite
     for (const b of this.buildings) {
       if (b.type === 'restaurant' && b.containsPixel(player.x, player.y)) {
@@ -701,18 +732,70 @@ export class GameScene extends Phaser.Scene {
     return false
   }
 
+  private createNirvAnimations(): void {
+    const directions: { dir: string; startFrame: number }[] = [
+      { dir: 'down', startFrame: 8 },
+      { dir: 'up', startFrame: 12 },
+      { dir: 'left', startFrame: 0 },
+      { dir: 'right', startFrame: 4 },
+    ]
+
+    for (const variant of ['m', 'f'] as const) {
+      for (const { dir, startFrame } of directions) {
+        this.anims.create({
+          key: `${variant}_idle_${dir}`,
+          frames: this.anims.generateFrameNumbers(`${variant}_idle`, {
+            start: startFrame,
+            end: startFrame + 3,
+          }),
+          frameRate: 4,
+          repeat: -1,
+        })
+
+        this.anims.create({
+          key: `${variant}_walk_${dir}`,
+          frames: this.anims.generateFrameNumbers(`${variant}_walk`, {
+            start: startFrame,
+            end: startFrame + 3,
+          }),
+          frameRate: 8,
+          repeat: -1,
+        })
+      }
+    }
+  }
+
+  private blockBuildingCells(building: Building): void {
+    const gx = building.gridX
+    const gy = building.gridY
+    const w = BUILDING_GRID_W
+    const h = BUILDING_GRID_H
+
+    // Top wall row
+    for (let x = gx; x < gx + w; x++) this.pathfinder.blockCell(x, gy)
+    // Bottom wall row (except door: cells gx+3 and gx+4)
+    for (let x = gx; x < gx + w; x++) {
+      if (x === gx + 3 || x === gx + 4) continue // door gap
+      this.pathfinder.blockCell(x, gy + h - 1)
+    }
+    // Left wall column
+    for (let y = gy; y < gy + h; y++) this.pathfinder.blockCell(gx, y)
+    // Right wall column
+    for (let y = gy; y < gy + h; y++) this.pathfinder.blockCell(gx + w - 1, y)
+  }
+
   private spawnBots(): void {
     const schedules = generateDefaultSchedules(GRID_COLS, GRID_ROWS)
 
     for (const config of schedules) {
-      const bot = new BotNirv(this, config.name, config.colorIndex, config.waypoints)
+      const variant = config.colorIndex % 2 === 0 ? 'f' as const : 'm' as const
+      const bot = new BotNirv(this, config.name, config.colorIndex, config.waypoints, variant, this.pathfinder)
       bot.nirv.sprite.setCollideWorldBounds(true)
       this.nirvGroup.add(bot.nirv.sprite)
       this.botNirvs.push(bot)
     }
 
-    // All Nirvs collide with each other and with obstacles
-    this.physics.add.collider(this.nirvGroup, this.nirvGroup)
+    // Nirvs collide with obstacles (but not with each other)
     this.physics.add.collider(this.nirvGroup, this.obstacleGroup)
   }
 }

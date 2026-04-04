@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
-import { OBJECT_SIZE } from '../config/world'
+
+export type NirvVariant = 'm' | 'f'
 
 export const NIRV_COLORS = [
   0xe8c547, // gold (player)
@@ -17,6 +18,9 @@ export class Nirv {
   readonly name: string
   readonly color: number
   readonly isPlayer: boolean
+  private variant: NirvVariant
+  private lastDir = 'down'
+  private isMoving = false
 
   constructor(
     scene: Phaser.Scene,
@@ -25,25 +29,43 @@ export class Nirv {
     x: number,
     y: number,
     isPlayer: boolean,
+    variant: NirvVariant = 'm',
   ) {
     this.name = name
     this.color = NIRV_COLORS[colorIndex] ?? NIRV_COLORS[0]
     this.isPlayer = isPlayer
+    this.variant = variant
 
-    const textureKey = `nirv_${colorIndex}`
-    if (!scene.textures.exists(textureKey)) {
-      const gfx = scene.make.graphics({ x: 0, y: 0 })
-      gfx.fillStyle(this.color)
-      gfx.fillRect(0, 0, OBJECT_SIZE, OBJECT_SIZE)
-      // darker border
-      gfx.lineStyle(2, Phaser.Display.Color.ValueToColor(this.color).darken(30).color)
-      gfx.strokeRect(1, 1, OBJECT_SIZE - 2, OBJECT_SIZE - 2)
-      gfx.generateTexture(textureKey, OBJECT_SIZE, OBJECT_SIZE)
-      gfx.destroy()
-    }
-
-    this.sprite = scene.physics.add.sprite(x, y, textureKey)
+    const textureKey = `${variant}_idle`
+    this.sprite = scene.physics.add.sprite(x, y, textureKey, 16)
     this.sprite.setDepth(4)
+    this.sprite.body!.setSize(20, 24)
+    this.sprite.body!.setOffset(14, 20)
+  }
+
+  updateAnimation(vx: number, vy: number): void {
+    const moving = Math.abs(vx) > 10 || Math.abs(vy) > 10
+
+    if (moving) {
+      // Determine direction from dominant axis
+      let dir: string
+      if (Math.abs(vx) > Math.abs(vy)) {
+        dir = vx > 0 ? 'right' : 'left'
+      } else {
+        dir = vy > 0 ? 'down' : 'up'
+      }
+      this.lastDir = dir
+
+      const walkKey = `${this.variant}_walk_${dir}`
+      if (this.sprite.anims.currentAnim?.key !== walkKey) {
+        this.sprite.anims.play(walkKey, true)
+      }
+      this.isMoving = true
+    } else if (this.isMoving) {
+      const idleKey = `${this.variant}_idle_${this.lastDir}`
+      this.sprite.anims.play(idleKey, true)
+      this.isMoving = false
+    }
   }
 
   getPosition(): { x: number; y: number } {
