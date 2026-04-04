@@ -24,6 +24,15 @@ export function savePlacedObject(record: PlacedObjectRecord): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records))
 }
 
+export function removeObjectAt(x: number, y: number): PlacedObjectRecord | null {
+  const records = loadPlacedObjects()
+  const idx = records.findIndex(r => r.x === x && r.y === y)
+  if (idx === -1) return null
+  const [removed] = records.splice(idx, 1)
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(records))
+  return removed
+}
+
 export function clearPlacedObjects(): void {
   localStorage.removeItem(STORAGE_KEY)
 }

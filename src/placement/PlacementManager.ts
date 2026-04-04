@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { GRID_SIZE, OBJECT_TYPE_REGISTRY, type ObjectType } from '../objects/objectTypes'
 import { BUILDING_GRID_W, BUILDING_GRID_H } from '../entities/Building'
-import type { StoreUI } from '../ui/StoreUI'
+import type { MenuUI } from '../ui/MenuUI'
 
 type PlacementMode = 'object' | 'building'
 
@@ -10,21 +10,24 @@ export class PlacementManager {
   private activeType: ObjectType | null = null
   private mode: PlacementMode | null = null
   private escKey: Phaser.Input.Keyboard.Key | null = null
+  private repositionMode = false
 
   private boundOnPointerMove: (pointer: Phaser.Input.Pointer) => void
   private boundOnPointerDown: (
     pointer: Phaser.Input.Pointer,
     _gameObjects: Phaser.GameObjects.GameObject[]
   ) => void
+  private boundOnPointerUp: (pointer: Phaser.Input.Pointer) => void
 
   constructor(
     private readonly scene: Phaser.Scene,
-    private readonly storeUI: StoreUI,
+    private readonly menuUI: MenuUI,
     private readonly onPlace: (type: ObjectType, x: number, y: number) => void,
     private readonly onPlaceBuilding: (gridX: number, gridY: number) => boolean,
   ) {
     this.boundOnPointerMove = this.onPointerMove.bind(this)
     this.boundOnPointerDown = this.onPointerDown.bind(this)
+    this.boundOnPointerUp = this.onPointerUp.bind(this)
   }
 
   enter(type: ObjectType): void {
@@ -40,6 +43,25 @@ export class PlacementManager {
     sprite.setDepth(10)
     this.ghost = sprite
 
+    this.bindInput()
+  }
+
+  /** Enter single-place reposition mode: ghost follows pointer, placed on pointerup, then auto-exits. */
+  enterReposition(type: ObjectType, startX: number, startY: number): void {
+    if (this.mode !== null) this.exit()
+
+    this.mode = 'object'
+    this.activeType = type
+    this.repositionMode = true
+    const config = OBJECT_TYPE_REGISTRY[type]
+
+    const sprite = this.scene.add.sprite(startX, startY, 'obj_ghost')
+    sprite.setTint(config.previewColor)
+    sprite.setAlpha(0.55)
+    sprite.setDepth(10)
+    this.ghost = sprite
+
+    this.scene.game.canvas.style.cursor = 'grabbing'
     this.bindInput()
   }
 
@@ -70,6 +92,7 @@ export class PlacementManager {
 
     this.scene.input.off('pointermove', this.boundOnPointerMove)
     this.scene.input.off('pointerdown', this.boundOnPointerDown)
+    this.scene.input.off('pointerup', this.boundOnPointerUp)
 
     if (this.escKey) {
       this.escKey.removeAllListeners()
@@ -78,6 +101,8 @@ export class PlacementManager {
 
     this.activeType = null
     this.mode = null
+    this.repositionMode = false
+    this.scene.game.canvas.style.cursor = ''
   }
 
   isActive(): boolean {
@@ -87,6 +112,7 @@ export class PlacementManager {
   private bindInput(): void {
     this.scene.input.on('pointermove', this.boundOnPointerMove)
     this.scene.input.on('pointerdown', this.boundOnPointerDown)
+    this.scene.input.on('pointerup', this.boundOnPointerUp)
     this.escKey = this.scene.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC)
     this.escKey.on('down', () => this.exit())
   }
@@ -108,7 +134,6 @@ export class PlacementManager {
         this.snapToGrid(pointer.worldY),
       )
     } else {
-      // Building ghost: snap to grid corner, center the ghost on the 8x8 area
       const gx = this.snapToGridCorner(pointer.worldX)
       const gy = this.snapToGridCorner(pointer.worldY)
       const cx = gx + (BUILDING_GRID_W * GRID_SIZE) / 2
@@ -122,7 +147,10 @@ export class PlacementManager {
     _gameObjects: Phaser.GameObjects.GameObject[]
   ): void {
     if (!pointer.leftButtonDown()) return
-    if (this.storeUI.isPointerOverUI(pointer)) return
+    if (this.menuUI.isPointerOverUI(pointer)) return
+
+    // In reposition mode, placement happens on pointerup
+    if (this.repositionMode) return
 
     if (this.mode === 'object' && this.activeType) {
       this.onPlace(this.activeType, this.snapToGrid(pointer.worldX), this.snapToGrid(pointer.worldY))
@@ -132,5 +160,14 @@ export class PlacementManager {
       const placed = this.onPlaceBuilding(gridX, gridY)
       if (placed) this.exit()
     }
+  }
+
+  private onPointerUp(pointer: Phaser.Input.Pointer): void {
+    if (!this.repositionMode) return
+    if (!this.activeType) return
+    if (this.menuUI.isPointerOverUI(pointer)) return
+
+    this.onPlace(this.activeType, this.snapToGrid(pointer.worldX), this.snapToGrid(pointer.worldY))
+    this.exit()
   }
 }

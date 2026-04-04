@@ -1,9 +1,9 @@
 import Phaser from 'phaser'
 import { generateObjectTextures, OBJECT_TYPE_REGISTRY, GRID_SIZE, type ObjectType } from '../objects/objectTypes'
 import { WORLD_WIDTH, WORLD_HEIGHT, GRID_COLS, GRID_ROWS, CANVAS_WIDTH, CANVAS_HEIGHT } from '../config/world'
-import { StoreUI } from '../ui/StoreUI'
+import { MenuUI } from '../ui/MenuUI'
 import { PlacementManager } from '../placement/PlacementManager'
-import { loadPlacedObjects, savePlacedObject } from '../storage/persistence'
+import { loadPlacedObjects, savePlacedObject, removeObjectAt } from '../storage/persistence'
 import { loadPlacedBuildings, savePlacedBuilding, updateBuildingType } from '../storage/buildingPersistence'
 import { Nirv } from '../entities/Nirv'
 import { BotNirv } from '../entities/BotNirv'
@@ -34,7 +34,7 @@ export class GameScene extends Phaser.Scene {
     right: Phaser.Input.Keyboard.Key
   }
 
-  private storeUI!: StoreUI
+  private menuUI!: MenuUI
   private helpText!: Phaser.GameObjects.Text
   private placementManager!: PlacementManager
   private obstacleGroup!: Phaser.Physics.Arcade.StaticGroup
@@ -51,6 +51,8 @@ export class GameScene extends Phaser.Scene {
 
   private tableSprites: { sprite: Phaser.Physics.Arcade.Sprite; x: number; y: number }[] = []
   private counterSprites: { sprite: Phaser.Physics.Arcade.Sprite; x: number; y: number }[] = []
+  // Track all placed object sprites for repositioning
+  private placedSprites: { sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite; type: ObjectType; x: number; y: number }[] = []
 
   private walkTarget: WalkTarget | null = null
   private activeInteractable: Phaser.GameObjects.Sprite | null = null
@@ -119,28 +121,31 @@ export class GameScene extends Phaser.Scene {
     // Restore persisted objects
     loadPlacedObjects().forEach(r => this.spawnObject(r.type, r.x, r.y, false, r.recipeId))
 
-    // Store UI (positioned each frame to follow camera)
-    this.storeUI = new StoreUI(this, 0, 0)
-    this.add.existing(this.storeUI)
-    this.storeUI.setDepth(20)
+    // Menu UI
+    this.menuUI = new MenuUI(this)
+    this.menuUI.setProviders(
+      () => this.botNirvs,
+      () => this.isPlayerInsideRestaurant(),
+    )
 
     // Placement manager
     this.placementManager = new PlacementManager(
       this,
-      this.storeUI,
+      this.menuUI,
       (type, x, y) => this.spawnObject(type, x, y, true),
       (gridX, gridY) => this.placeBuilding(gridX, gridY),
     )
 
-    // Wire store events
+    // Wire menu events
     this.events.on('store:select', (type: ObjectType) => {
       this.placementManager.enter(type)
     })
     this.events.on('store:select-building', () => {
       this.placementManager.enterBuildingPlacement()
     })
-    this.events.on('store:open', () => {
+    this.events.on('menu:shop-close', () => {
       if (this.placementManager.isActive()) this.placementManager.exit()
+      this.game.canvas.style.cursor = ''
     })
 
     // Scene-level click for food placement
@@ -158,7 +163,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     // Help text (positioned each frame to follow camera)
-    this.helpText = this.add.text(0, 0, 'Move: WASD / Arrows  |  Click bag to place objects  |  ESC to cancel', {
+    this.helpText = this.add.text(0, 0, 'Move: WASD / Arrows  |  Shop: place & move objects  |  ESC to cancel', {
       fontSize: '12px',
       color: '#ffffff',
     })
@@ -236,11 +241,17 @@ export class GameScene extends Phaser.Scene {
     // Carry indicator
     this.updateCarryIndicator()
 
+    // Update work panel data
+    this.menuUI.updateWorkPanel()
+
+    // Update cursor for shop mode hover
+    this.updateShopCursor()
+
     // Keep UI pinned to camera viewport
     const cam = this.cameras.main
-    this.storeUI.setPosition(
+    this.menuUI.setPosition(
       cam.scrollX + CANVAS_WIDTH / 2,
-      cam.scrollY + CANVAS_HEIGHT - 24,
+      cam.scrollY + CANVAS_HEIGHT,
     )
     this.helpText.setPosition(cam.scrollX + 10, cam.scrollY + 10)
   }
@@ -285,6 +296,7 @@ export class GameScene extends Phaser.Scene {
       ) as Phaser.Physics.Arcade.Sprite
       sprite.setDepth(config.depth)
       sprite.refreshBody()
+      this.placedSprites.push({ sprite, type, x, y })
 
       if (type === 'table2' || type === 'table4') {
         this.tableSprites.push({ sprite, x, y })
@@ -303,6 +315,9 @@ export class GameScene extends Phaser.Scene {
     } else {
       const sprite = this.add.sprite(x, y, config.textureKey)
       sprite.setDepth(config.depth)
+      if (type !== 'food_plate') {
+        this.placedSprites.push({ sprite, type, x, y })
+      }
 
       if (type === 'interactable') {
         this.interactableSprites.push(sprite)
@@ -313,7 +328,6 @@ export class GameScene extends Phaser.Scene {
           this.restaurantSystem.registerChair(sprite, x, y)
         }
       } else if (type === 'food_plate') {
-        // Food plates on tables — register with restaurant system
         if (recipeId && this.restaurantSystem) {
           this.restaurantSystem.placeFoodOnTable(x, y, recipeId, sprite)
         }
@@ -459,7 +473,17 @@ export class GameScene extends Phaser.Scene {
 
   private onWorldClicked(pointer: Phaser.Input.Pointer): void {
     if (this.placementManager.isActive()) return
-    if (this.storeUI.isPointerOverUI(pointer)) return
+
+    // In Shop mode, clicking a placed object picks it up for repositioning
+    // (checked before isPointerOverUI so objects behind the panel can be picked up)
+    if (this.menuUI.isShopMode() && !this.carriedPlate) {
+      if (this.menuUI.isPointerOverUI(pointer)) return
+      this.tryPickUpObject(pointer)
+      return
+    }
+
+    if (this.menuUI.isPointerOverUI(pointer)) return
+
     if (!this.carriedPlate) return
 
     // Check if clicking near a table or counter to place food
@@ -514,6 +538,65 @@ export class GameScene extends Phaser.Scene {
       this.carryIndicator.destroy()
       this.carryIndicator = null
     }
+  }
+
+  private tryPickUpObject(pointer: Phaser.Input.Pointer): void {
+    const wx = pointer.worldX
+    const wy = pointer.worldY
+    const snappedX = Math.round(wx / GRID_SIZE) * GRID_SIZE
+    const snappedY = Math.round(wy / GRID_SIZE) * GRID_SIZE
+
+    // Find a placed sprite at the snapped position
+    const idx = this.placedSprites.findIndex(
+      p => Math.abs(p.x - snappedX) < 2 && Math.abs(p.y - snappedY) < 2
+    )
+    if (idx === -1) return
+
+    const entry = this.placedSprites[idx]
+    const { sprite, type, x, y } = entry
+
+    // Remove from scene
+    sprite.destroy()
+    this.placedSprites.splice(idx, 1)
+
+    // Remove from tracking arrays
+    this.interactableSprites = this.interactableSprites.filter(s => s !== sprite)
+    this.backgroundSprites = this.backgroundSprites.filter(s => s !== sprite)
+    this.tableSprites = this.tableSprites.filter(t => t.sprite !== sprite)
+    this.counterSprites = this.counterSprites.filter(c => c.sprite !== sprite)
+
+    // Remove from persistence
+    removeObjectAt(x, y)
+
+    // Enter reposition mode: ghost follows cursor, placed on mouse-up, then auto-exits
+    this.placementManager.enterReposition(type, snappedX, snappedY)
+  }
+
+  /** In shop mode, show grab cursor when hovering over a placed object. */
+  private updateShopCursor(): void {
+    if (!this.menuUI.isShopMode() || this.placementManager.isActive()) {
+      return
+    }
+
+    const pointer = this.input.activePointer
+    const snappedX = Math.round(pointer.worldX / GRID_SIZE) * GRID_SIZE
+    const snappedY = Math.round(pointer.worldY / GRID_SIZE) * GRID_SIZE
+
+    const overObject = this.placedSprites.some(
+      p => Math.abs(p.x - snappedX) < 2 && Math.abs(p.y - snappedY) < 2
+    )
+
+    this.game.canvas.style.cursor = overObject ? 'grab' : ''
+  }
+
+  private isPlayerInsideRestaurant(): boolean {
+    const player = this.playerNirv.sprite
+    for (const b of this.buildings) {
+      if (b.type === 'restaurant' && b.containsPixel(player.x, player.y)) {
+        return true
+      }
+    }
+    return false
   }
 
   private spawnBots(): void {
