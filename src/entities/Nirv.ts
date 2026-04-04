@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 
-export type NirvVariant = 'm' | 'f'
+export type NirvVariant = 'm' | 'f' | 'f2' | 'f3'
 
 export const NIRV_COLORS = [
   0xe8c547, // gold (player)

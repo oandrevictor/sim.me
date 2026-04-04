@@ -6,7 +6,7 @@ import { PlacementManager } from '../placement/PlacementManager'
 import { loadPlacedObjects, savePlacedObject, removeObjectAt, removeObjectByType } from '../storage/persistence'
 import { addToInventory, removeFromInventory } from '../storage/inventoryPersistence'
 import { loadPlacedBuildings, savePlacedBuilding, updateBuildingType } from '../storage/buildingPersistence'
-import { Nirv } from '../entities/Nirv'
+import { Nirv, NirvVariant } from '../entities/Nirv'
 import { BotNirv } from '../entities/BotNirv'
 import { generateDefaultSchedules } from '../entities/NirvSchedule'
 import { Building } from '../entities/Building'
@@ -21,6 +21,8 @@ import { BUILDING_GRID_W, BUILDING_GRID_H } from '../entities/Building'
 
 const PLAYER_SPEED = 200
 const INTERACTION_RADIUS = GRID_SIZE
+const ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2]
+const DEFAULT_ZOOM_INDEX = 2 // 1x
 
 interface WalkTarget {
   x: number
@@ -57,6 +59,7 @@ export class GameScene extends Phaser.Scene {
   // Track all placed object sprites for repositioning
   private placedSprites: { sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite; type: ObjectType; x: number; y: number }[] = []
 
+  private zoomIndex = DEFAULT_ZOOM_INDEX
   private walkTarget: WalkTarget | null = null
   private activeInteractable: Phaser.GameObjects.Sprite | null = null
   private pendingStoveSprite: Phaser.Physics.Arcade.Sprite | null = null
@@ -79,6 +82,10 @@ export class GameScene extends Phaser.Scene {
     this.load.spritesheet('m_walk', 'assets/Player/MPlayer 1 walking.png', frameConfig)
     this.load.spritesheet('f_idle', 'assets/Player/FPlayer 1 idle.png', frameConfig)
     this.load.spritesheet('f_walk', 'assets/Player/FPlayer 1 walking.png', frameConfig)
+    this.load.spritesheet('f2_idle', 'assets/Player/FPlayer 1 idle.png', frameConfig)
+    this.load.spritesheet('f2_walk', 'assets/Player/FPlayer 2 walking.png', frameConfig)
+    this.load.spritesheet('f3_idle', 'assets/Player/FPlayer 3 idle.png', frameConfig)
+    this.load.spritesheet('f3_walk', 'assets/Player/FPlayer 3 walking.png', frameConfig)
   }
 
   create(): void {
@@ -196,6 +203,15 @@ export class GameScene extends Phaser.Scene {
       left: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.A),
       right: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D),
     }
+
+    // Zoom controls
+    this.input.on('wheel', (_pointer: Phaser.Input.Pointer, _gos: Phaser.GameObjects.GameObject[], _dx: number, dy: number) => {
+      this.changeZoom(dy > 0 ? -1 : 1)
+    })
+    this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.PLUS).on('down', () => this.changeZoom(1))
+    this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.MINUS).on('down', () => this.changeZoom(-1))
+    this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.NUMPAD_ADD).on('down', () => this.changeZoom(1))
+    this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.NUMPAD_SUBTRACT).on('down', () => this.changeZoom(-1))
 
     // Spawn bot Nirvs
     this.spawnBots()
@@ -718,6 +734,11 @@ export class GameScene extends Phaser.Scene {
     this.game.canvas.style.cursor = overObject ? 'grab' : ''
   }
 
+  private changeZoom(direction: number): void {
+    this.zoomIndex = Phaser.Math.Clamp(this.zoomIndex + direction, 0, ZOOM_LEVELS.length - 1)
+    this.cameras.main.setZoom(ZOOM_LEVELS[this.zoomIndex])
+  }
+
   getBotNirvs(): BotNirv[] {
     return this.botNirvs
   }
@@ -740,7 +761,7 @@ export class GameScene extends Phaser.Scene {
       { dir: 'right', startFrame: 4 },
     ]
 
-    for (const variant of ['m', 'f'] as const) {
+    for (const variant of ['m', 'f', 'f2', 'f3'] as NirvVariant[]) {
       for (const { dir, startFrame } of directions) {
         this.anims.create({
           key: `${variant}_idle_${dir}`,
@@ -788,7 +809,9 @@ export class GameScene extends Phaser.Scene {
     const schedules = generateDefaultSchedules(GRID_COLS, GRID_ROWS)
 
     for (const config of schedules) {
-      const variant = config.colorIndex % 2 === 0 ? 'f' as const : 'm' as const
+      let variant = config.colorIndex % 2 === 0 ? 'f' as NirvVariant : 'm' as NirvVariant
+      if (config.colorIndex === 2) variant = 'f2' as NirvVariant
+      if (config.colorIndex === 3) variant = 'f3' as NirvVariant
       const bot = new BotNirv(this, config.name, config.colorIndex, config.waypoints, variant, this.pathfinder)
       bot.nirv.sprite.setCollideWorldBounds(true)
       this.nirvGroup.add(bot.nirv.sprite)

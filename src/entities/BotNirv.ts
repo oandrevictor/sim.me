@@ -25,6 +25,9 @@ export class BotNirv {
   // Path following
   private path: { gx: number; gy: number }[] = []
   private pathNodeIndex = 0
+  private prevX = 0
+  private prevY = 0
+  private stuckFrames = 0
 
   get state(): BotState { return this._state }
 
@@ -182,6 +185,22 @@ export class BotNirv {
   private followPath(): void {
     const sprite = this.nirv.sprite
 
+    // Stuck detection: if barely moved, skip current path node
+    const moved = Phaser.Math.Distance.Between(sprite.x, sprite.y, this.prevX, this.prevY)
+    if (moved < 1) {
+      this.stuckFrames++
+    } else {
+      this.stuckFrames = 0
+    }
+    this.prevX = sprite.x
+    this.prevY = sprite.y
+
+    if (this.stuckFrames > 15 && this.pathNodeIndex < this.path.length) {
+      // Skip current node — it's likely blocked by furniture
+      this.pathNodeIndex++
+      this.stuckFrames = 0
+    }
+
     if (this.pathNodeIndex >= this.path.length) {
       // Path exhausted — move directly toward final destination
       if (this._state === 'walking') {
@@ -200,7 +219,7 @@ export class BotNirv {
 
     if (dist < ARRIVAL_THRESHOLD) {
       this.pathNodeIndex++
-      // Recurse to immediately start toward next node
+      this.stuckFrames = 0
       this.followPath()
       return
     }
