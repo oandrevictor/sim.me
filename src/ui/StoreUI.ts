@@ -25,6 +25,14 @@ export class StoreUI extends Phaser.GameObjects.Container {
   }
 
   isPointerOverUI(pointer: Phaser.Input.Pointer): boolean {
+    // Only check against the bag icon area when panel is closed,
+    // since getBounds() includes invisible children
+    if (!this.isPanelOpen) {
+      const bx = this.x
+      const by = this.y
+      const r = ICON_RADIUS + 4
+      return Phaser.Math.Distance.Between(pointer.worldX, pointer.worldY, bx, by) < r
+    }
     return this.getBounds().contains(pointer.worldX, pointer.worldY)
   }
 
@@ -71,12 +79,14 @@ export class StoreUI extends Phaser.GameObjects.Container {
 
   private buildPanel(): void {
     // Combine object types + building into a single list
-    const entries: StoreEntry[] = Object.values(OBJECT_TYPE_REGISTRY).map(config => ({
-      label: config.label,
-      description: config.description,
-      previewColor: config.previewColor,
-      action: () => this.selectType(config.type),
-    }))
+    const entries: StoreEntry[] = Object.values(OBJECT_TYPE_REGISTRY)
+      .filter(config => config.type !== 'food_plate')
+      .map(config => ({
+        label: config.label,
+        description: config.description,
+        previewColor: config.previewColor,
+        action: () => this.selectType(config.type),
+      }))
 
     // Add building entry
     entries.push({

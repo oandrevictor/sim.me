@@ -1,11 +1,16 @@
 import Phaser from 'phaser'
 import { GRID_SIZE } from '../config/world'
+import type { BuildingType } from '../storage/buildingPersistence'
+
+export { type BuildingType }
 
 const BUILDING_GRID_W = 8
 const BUILDING_GRID_H = 8
-const FLOOR_COLOR = 0x6b5b3a
-const WALL_COLOR = 0x4a3d28
-const DOOR_COLOR = 0x8b7355
+
+const THEME = {
+  empty: { floor: 0x6b5b3a, wall: 0x4a3d28, door: 0x8b7355, grid: 0x5a4c30 },
+  restaurant: { floor: 0x7a4a3a, wall: 0x5a2a1a, door: 0x9b6b4b, grid: 0x6a3a2a },
+} as const
 
 export { BUILDING_GRID_W, BUILDING_GRID_H }
 
@@ -14,40 +19,55 @@ export class Building {
   readonly gridX: number
   readonly gridY: number
   readonly graphics: Phaser.GameObjects.Graphics
+  private _type: BuildingType
 
-  constructor(scene: Phaser.Scene, id: string, gridX: number, gridY: number) {
+  get type(): BuildingType { return this._type }
+
+  constructor(scene: Phaser.Scene, id: string, gridX: number, gridY: number, type: BuildingType = 'empty') {
     this.id = id
     this.gridX = gridX
     this.gridY = gridY
+    this._type = type
+    this.graphics = scene.add.graphics()
+    this.draw()
+  }
 
+  setType(type: BuildingType): void {
+    this._type = type
+    this.draw()
+  }
+
+  private draw(): void {
+    const { gridX, gridY } = this
+    const theme = THEME[this._type]
     const px = gridX * GRID_SIZE
     const py = gridY * GRID_SIZE
     const pw = BUILDING_GRID_W * GRID_SIZE
     const ph = BUILDING_GRID_H * GRID_SIZE
 
-    const gfx = scene.add.graphics()
+    const gfx = this.graphics
+    gfx.clear()
 
     // Floor
-    gfx.fillStyle(FLOOR_COLOR, 0.85)
+    gfx.fillStyle(theme.floor, 0.85)
     gfx.fillRect(px, py, pw, ph)
 
     // Inner grid lines (subtle)
-    gfx.lineStyle(1, 0x5a4c30, 0.3)
+    gfx.lineStyle(1, theme.grid, 0.3)
     for (let x = px; x <= px + pw; x += GRID_SIZE) gfx.lineBetween(x, py, x, py + ph)
     for (let y = py; y <= py + ph; y += GRID_SIZE) gfx.lineBetween(px, y, px + pw, y)
 
     // Wall border
-    gfx.lineStyle(3, WALL_COLOR)
+    gfx.lineStyle(3, theme.wall)
     gfx.strokeRect(px, py, pw, ph)
 
     // Door marker (centered on bottom wall)
     const doorW = GRID_SIZE * 2
     const doorX = px + (pw - doorW) / 2
-    gfx.fillStyle(DOOR_COLOR)
+    gfx.fillStyle(theme.door)
     gfx.fillRect(doorX, py + ph - 3, doorW, 6)
 
-    gfx.setDepth(1.5) // between background(1) and obstacles(2)
-    this.graphics = gfx
+    gfx.setDepth(1.5)
   }
 
   /** Check if a pixel coordinate is inside this building */

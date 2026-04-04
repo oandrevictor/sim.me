@@ -1,10 +1,11 @@
-export type ObjectType = 'obstacle' | 'interactable' | 'background'
+export type ObjectType = 'obstacle' | 'interactable' | 'background' | 'table2' | 'table4' | 'chair' | 'stove' | 'counter' | 'food_plate'
 
 export interface PlacedObjectRecord {
   id: string
   type: ObjectType
   x: number
   y: number
+  recipeId?: string
 }
 
 const STORAGE_KEY = 'simme_placed_objects'
