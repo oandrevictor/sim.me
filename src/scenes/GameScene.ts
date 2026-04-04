@@ -111,6 +111,7 @@ export class GameScene extends Phaser.Scene {
     // Restore persisted buildings
     loadPlacedBuildings().forEach(r => {
       const building = new Building(this, r.id, r.gridX, r.gridY, r.type)
+      building.createWalls(this, this.obstacleGroup)
       this.buildings.push(building)
       this.createSign(building)
     })
@@ -339,6 +340,7 @@ export class GameScene extends Phaser.Scene {
 
     const id = crypto.randomUUID()
     const building = new Building(this, id, gridX, gridY, 'empty')
+    building.createWalls(this, this.obstacleGroup)
     this.buildings.push(building)
     this.createSign(building)
     savePlacedBuilding({ id, gridX, gridY, type: 'empty' })

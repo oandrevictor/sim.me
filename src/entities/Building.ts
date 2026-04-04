@@ -14,12 +14,15 @@ const THEME = {
 
 export { BUILDING_GRID_W, BUILDING_GRID_H }
 
+const WALL_THICKNESS = 12
+
 export class Building {
   readonly id: string
   readonly gridX: number
   readonly gridY: number
   readonly graphics: Phaser.GameObjects.Graphics
   private _type: BuildingType
+  private wallBodies: Phaser.Physics.Arcade.Sprite[] = []
 
   get type(): BuildingType { return this._type }
 
@@ -30,6 +33,47 @@ export class Building {
     this._type = type
     this.graphics = scene.add.graphics()
     this.draw()
+  }
+
+  /** Create wall collision bodies and add them to the given static group */
+  createWalls(scene: Phaser.Scene, obstacleGroup: Phaser.Physics.Arcade.StaticGroup): void {
+    const px = this.gridX * GRID_SIZE
+    const py = this.gridY * GRID_SIZE
+    const pw = BUILDING_GRID_W * GRID_SIZE
+    const ph = BUILDING_GRID_H * GRID_SIZE
+
+    // Door gap (centered on bottom wall, 2 grid cells wide)
+    const doorW = GRID_SIZE * 2
+    const sideW = (pw - doorW) / 2
+
+    // Helper: generate a texture of exact wall dimensions, then create a
+    // static sprite whose physics body automatically matches the texture size.
+    // This avoids unreliable setSize/setOffset on a tiny placeholder texture.
+    const addWall = (cx: number, cy: number, w: number, h: number) => {
+      const key = `__wall_${w}x${h}`
+      if (!scene.textures.exists(key)) {
+        const gfx = scene.make.graphics({ x: 0, y: 0 })
+        gfx.fillStyle(0x000000, 0) // fully transparent
+        gfx.fillRect(0, 0, w, h)
+        gfx.generateTexture(key, w, h)
+        gfx.destroy()
+      }
+      const wall = obstacleGroup.create(cx, cy, key) as Phaser.Physics.Arcade.Sprite
+      wall.setVisible(false)
+      wall.refreshBody()
+      this.wallBodies.push(wall)
+    }
+
+    // Top wall — full width
+    addWall(px + pw / 2, py + WALL_THICKNESS / 2, pw, WALL_THICKNESS)
+    // Left wall — full height
+    addWall(px + WALL_THICKNESS / 2, py + ph / 2, WALL_THICKNESS, ph)
+    // Right wall — full height
+    addWall(px + pw - WALL_THICKNESS / 2, py + ph / 2, WALL_THICKNESS, ph)
+    // Bottom-left wall segment
+    addWall(px + sideW / 2, py + ph - WALL_THICKNESS / 2, sideW, WALL_THICKNESS)
+    // Bottom-right wall segment
+    addWall(px + pw - sideW / 2, py + ph - WALL_THICKNESS / 2, sideW, WALL_THICKNESS)
   }
 
   setType(type: BuildingType): void {
