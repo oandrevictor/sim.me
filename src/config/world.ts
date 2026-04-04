@@ -1,13 +1,18 @@
 import { GRID_SIZE, OBJECT_SIZE } from '../objects/objectTypes'
+import { getWorldBounds, setWorldOffset } from '../utils/isoGrid'
 
 export { GRID_SIZE, OBJECT_SIZE }
 
-export const CANVAS_WIDTH = 800
-export const CANVAS_HEIGHT = 600
+// Grid dimensions (in cells)
+export const GRID_COLS = 52
+export const GRID_ROWS = 47
 
-// Original grid was 20x15; expanded by 16 squares on each side
-export const GRID_COLS = 52 // 20 + 16*2
-export const GRID_ROWS = 47 // 15 + 16*2
+// Isometric world bounds (in pixels)
+const bounds = getWorldBounds(GRID_COLS, GRID_ROWS)
+export const WORLD_WIDTH = bounds.width
+export const WORLD_HEIGHT = bounds.height
+export const WORLD_OFFSET_X = bounds.offsetX
+export const WORLD_OFFSET_Y = bounds.offsetY
 
-export const WORLD_WIDTH = GRID_COLS * GRID_SIZE  // 2080
-export const WORLD_HEIGHT = GRID_ROWS * GRID_SIZE // 1880
+// Apply offset so all gridToScreen calls produce positive coordinates
+setWorldOffset(WORLD_OFFSET_X, WORLD_OFFSET_Y)

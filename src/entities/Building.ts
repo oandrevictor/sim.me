@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
-import { GRID_SIZE } from '../config/world'
 import type { BuildingType } from '../storage/buildingPersistence'
+import { gridToScreen, TILE_W, TILE_H } from '../utils/isoGrid'
 
 export { type BuildingType }
 
@@ -13,8 +13,6 @@ const THEME = {
 } as const
 
 export { BUILDING_GRID_W, BUILDING_GRID_H }
-
-const WALL_THICKNESS = 12
 
 export class Building {
   readonly id: string
@@ -35,27 +33,22 @@ export class Building {
     this.draw()
   }
 
-  /** Create wall collision bodies and add them to the given static group */
+  /** Create wall collision bodies along the isometric edges */
   createWalls(scene: Phaser.Scene, obstacleGroup: Phaser.Physics.Arcade.StaticGroup): void {
-    const px = this.gridX * GRID_SIZE
-    const py = this.gridY * GRID_SIZE
-    const pw = BUILDING_GRID_W * GRID_SIZE
-    const ph = BUILDING_GRID_H * GRID_SIZE
+    const gx = this.gridX
+    const gy = this.gridY
+    const w = BUILDING_GRID_W
+    const h = BUILDING_GRID_H
 
-    // Door gap (centered on bottom wall, 2 grid cells wide)
-    const doorW = GRID_SIZE * 2
-    const sideW = (pw - doorW) / 2
+    const WALL_THICK = 8
 
-    // Helper: generate a texture of exact wall dimensions, then create a
-    // static sprite whose physics body automatically matches the texture size.
-    // This avoids unreliable setSize/setOffset on a tiny placeholder texture.
-    const addWall = (cx: number, cy: number, w: number, h: number) => {
-      const key = `__wall_${w}x${h}`
+    const addWall = (cx: number, cy: number, bw: number, bh: number) => {
+      const key = `__wall_${bw}x${bh}`
       if (!scene.textures.exists(key)) {
         const gfx = scene.make.graphics({ x: 0, y: 0 })
-        gfx.fillStyle(0x000000, 0) // fully transparent
-        gfx.fillRect(0, 0, w, h)
-        gfx.generateTexture(key, w, h)
+        gfx.fillStyle(0x000000, 0)
+        gfx.fillRect(0, 0, bw, bh)
+        gfx.generateTexture(key, bw, bh)
         gfx.destroy()
       }
       const wall = obstacleGroup.create(cx, cy, key) as Phaser.Physics.Arcade.Sprite
@@ -64,16 +57,28 @@ export class Building {
       this.wallBodies.push(wall)
     }
 
-    // Top wall — full width
-    addWall(px + pw / 2, py + WALL_THICKNESS / 2, pw, WALL_THICKNESS)
-    // Left wall — full height
-    addWall(px + WALL_THICKNESS / 2, py + ph / 2, WALL_THICKNESS, ph)
-    // Right wall — full height
-    addWall(px + pw - WALL_THICKNESS / 2, py + ph / 2, WALL_THICKNESS, ph)
-    // Bottom-left wall segment
-    addWall(px + sideW / 2, py + ph - WALL_THICKNESS / 2, sideW, WALL_THICKNESS)
-    // Bottom-right wall segment
-    addWall(px + pw - sideW / 2, py + ph - WALL_THICKNESS / 2, sideW, WALL_THICKNESS)
+    // Place wall bodies along each edge of the building perimeter
+    // Top-right edge (gridX varies, gridY fixed at gy)
+    for (let x = gx; x < gx + w; x++) {
+      const pos = gridToScreen(x, gy)
+      addWall(pos.x, pos.y, TILE_W * 0.6, WALL_THICK)
+    }
+    // Top-left edge (gridX fixed at gx, gridY varies)
+    for (let y = gy; y < gy + h; y++) {
+      const pos = gridToScreen(gx, y)
+      addWall(pos.x, pos.y, WALL_THICK, TILE_H * 0.6)
+    }
+    // Bottom-right edge (gridX fixed at gx+w-1, gridY varies)
+    for (let y = gy; y < gy + h; y++) {
+      const pos = gridToScreen(gx + w - 1, y)
+      addWall(pos.x, pos.y, WALL_THICK, TILE_H * 0.6)
+    }
+    // Bottom-left edge (gridX varies, gridY fixed at gy+h-1) — with door gap
+    for (let x = gx; x < gx + w; x++) {
+      if (x === gx + 3 || x === gx + 4) continue // door gap
+      const pos = gridToScreen(x, gy + h - 1)
+      addWall(pos.x, pos.y, TILE_W * 0.6, WALL_THICK)
+    }
   }
 
   setType(type: BuildingType): void {
@@ -84,46 +89,68 @@ export class Building {
   private draw(): void {
     const { gridX, gridY } = this
     const theme = THEME[this._type]
-    const px = gridX * GRID_SIZE
-    const py = gridY * GRID_SIZE
-    const pw = BUILDING_GRID_W * GRID_SIZE
-    const ph = BUILDING_GRID_H * GRID_SIZE
-
     const gfx = this.graphics
     gfx.clear()
 
-    // Floor
-    gfx.fillStyle(theme.floor, 0.85)
-    gfx.fillRect(px, py, pw, ph)
+    // Draw filled floor as isometric diamond
+    const topLeft = gridToScreen(gridX, gridY)
+    const topRight = gridToScreen(gridX + BUILDING_GRID_W, gridY)
+    const bottomRight = gridToScreen(gridX + BUILDING_GRID_W, gridY + BUILDING_GRID_H)
+    const bottomLeft = gridToScreen(gridX, gridY + BUILDING_GRID_H)
 
-    // Inner grid lines (subtle)
+    gfx.fillStyle(theme.floor, 0.85)
+    gfx.beginPath()
+    gfx.moveTo(topLeft.x, topLeft.y)
+    gfx.lineTo(topRight.x, topRight.y)
+    gfx.lineTo(bottomRight.x, bottomRight.y)
+    gfx.lineTo(bottomLeft.x, bottomLeft.y)
+    gfx.closePath()
+    gfx.fillPath()
+
+    // Inner grid lines
     gfx.lineStyle(1, theme.grid, 0.3)
-    for (let x = px; x <= px + pw; x += GRID_SIZE) gfx.lineBetween(x, py, x, py + ph)
-    for (let y = py; y <= py + ph; y += GRID_SIZE) gfx.lineBetween(px, y, px + pw, y)
+    for (let x = gridX; x <= gridX + BUILDING_GRID_W; x++) {
+      const from = gridToScreen(x, gridY)
+      const to = gridToScreen(x, gridY + BUILDING_GRID_H)
+      gfx.lineBetween(from.x, from.y, to.x, to.y)
+    }
+    for (let y = gridY; y <= gridY + BUILDING_GRID_H; y++) {
+      const from = gridToScreen(gridX, y)
+      const to = gridToScreen(gridX + BUILDING_GRID_W, y)
+      gfx.lineBetween(from.x, from.y, to.x, to.y)
+    }
 
     // Wall border
     gfx.lineStyle(3, theme.wall)
-    gfx.strokeRect(px, py, pw, ph)
+    gfx.beginPath()
+    gfx.moveTo(topLeft.x, topLeft.y)
+    gfx.lineTo(topRight.x, topRight.y)
+    gfx.lineTo(bottomRight.x, bottomRight.y)
+    gfx.lineTo(bottomLeft.x, bottomLeft.y)
+    gfx.closePath()
+    gfx.strokePath()
 
-    // Door marker (centered on bottom wall)
-    const doorW = GRID_SIZE * 2
-    const doorX = px + (pw - doorW) / 2
-    gfx.fillStyle(theme.door)
-    gfx.fillRect(doorX, py + ph - 3, doorW, 6)
+    // Door marker on bottom-left edge (between gridX+3 and gridX+5)
+    const doorStart = gridToScreen(gridX + 3, gridY + BUILDING_GRID_H)
+    const doorEnd = gridToScreen(gridX + 5, gridY + BUILDING_GRID_H)
+    gfx.lineStyle(4, theme.door)
+    gfx.lineBetween(doorStart.x, doorStart.y, doorEnd.x, doorEnd.y)
 
     gfx.setDepth(1.5)
   }
 
-  /** Check if a pixel coordinate is inside this building */
+  /** Check if a screen coordinate is inside this building */
   containsPixel(x: number, y: number): boolean {
-    const px = this.gridX * GRID_SIZE
-    const py = this.gridY * GRID_SIZE
-    const pw = BUILDING_GRID_W * GRID_SIZE
-    const ph = BUILDING_GRID_H * GRID_SIZE
-    return x >= px && x <= px + pw && y >= py && y <= py + ph
+    const { gridX, gridY } = this
+    const topLeft = gridToScreen(gridX, gridY)
+    const topRight = gridToScreen(gridX + BUILDING_GRID_W, gridY)
+    const bottomRight = gridToScreen(gridX + BUILDING_GRID_W, gridY + BUILDING_GRID_H)
+    const bottomLeft = gridToScreen(gridX, gridY + BUILDING_GRID_H)
+
+    // Point-in-diamond test using cross products
+    return this.isInsideQuad(x, y, topLeft, topRight, bottomRight, bottomLeft)
   }
 
-  /** Check if another building's grid area overlaps with this one */
   overlaps(otherGridX: number, otherGridY: number): boolean {
     const ax = this.gridX, ay = this.gridY
     const bx = otherGridX, by = otherGridY
@@ -133,5 +160,23 @@ export class Building {
       ay < by + BUILDING_GRID_H &&
       ay + BUILDING_GRID_H > by
     )
+  }
+
+  private isInsideQuad(
+    px: number, py: number,
+    a: {x:number,y:number}, b: {x:number,y:number},
+    c: {x:number,y:number}, d: {x:number,y:number},
+  ): boolean {
+    const cross = (ox: number, oy: number, ax: number, ay: number, bx: number, by: number) =>
+      (ax - ox) * (by - oy) - (ay - oy) * (bx - ox)
+
+    const d1 = cross(px, py, a.x, a.y, b.x, b.y)
+    const d2 = cross(px, py, b.x, b.y, c.x, c.y)
+    const d3 = cross(px, py, c.x, c.y, d.x, d.y)
+    const d4 = cross(px, py, d.x, d.y, a.x, a.y)
+
+    const hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0) || (d4 < 0)
+    const hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0) || (d4 > 0)
+    return !(hasNeg && hasPos)
   }
 }

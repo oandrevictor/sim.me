@@ -322,7 +322,7 @@ export class MenuUI {
     const gridLeft = -PANEL_WIDTH / 2 + 16
 
     // Group items by category
-    const itemsByCategory = new Map<Category, { type: ObjectType; label: string; textureKey: string; previewColor: number }[]>()
+    const itemsByCategory = new Map<Category, { type: ObjectType; label: string; textureKey: string; frame?: number; previewColor: number }[]>()
     for (const cat of CATEGORIES) {
       itemsByCategory.set(cat.key, [])
     }
@@ -334,6 +334,7 @@ export class MenuUI {
         type: type as ObjectType,
         label: config.label,
         textureKey: config.textureKey,
+        frame: config.frame,
         previewColor: config.previewColor,
       })
     }
@@ -375,7 +376,7 @@ export class MenuUI {
         // Item preview (icon)
         let icon: Phaser.GameObjects.Sprite | Phaser.GameObjects.Graphics
         if (item.textureKey && this.scene.textures.exists(item.textureKey)) {
-          icon = this.scene.add.sprite(cx, cy - 6, item.textureKey)
+          icon = this.scene.add.sprite(cx, cy - 6, item.textureKey, item.frame ?? 0)
           icon.setDisplaySize(OBJECT_SIZE * 1.1, OBJECT_SIZE * 1.1)
         } else {
           // Building: draw a small building icon

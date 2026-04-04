@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { GRID_SIZE } from '../config/world'
+import { TILE_W } from '../utils/isoGrid'
 import { getRecipe } from '../data/recipes'
 import type { Building } from '../entities/Building'
 import type { BotNirv } from '../entities/BotNirv'
@@ -126,7 +126,7 @@ export class RestaurantSystem {
 
         const dx = Math.abs(chair.x - table.x)
         const dy = Math.abs(chair.y - table.y)
-        if (!((dx === GRID_SIZE && dy === 0) || (dx === 0 && dy === GRID_SIZE))) continue
+        if (dx + dy > TILE_W) continue
 
         const recipe = getRecipe(foodSlot.plate.recipeId)
         const eatTime = recipe?.eatTimeMs ?? 5000
@@ -181,7 +181,7 @@ export class RestaurantSystem {
           bot.nirv.sprite.x, bot.nirv.sprite.y,
           chair.x, chair.y
         )
-        if (dist < GRID_SIZE * 15 && dist < bestDist) {
+        if (dist < TILE_W * 15 && dist < bestDist) {
           bestDist = dist
           bestChair = chair
         }
@@ -219,7 +219,7 @@ export class RestaurantSystem {
     for (const table of this.tables) {
       const dx = Math.abs(cx - table.x)
       const dy = Math.abs(cy - table.y)
-      if ((dx === GRID_SIZE && dy === 0) || (dx === 0 && dy === GRID_SIZE)) {
+      if (dx + dy <= TILE_W) {
         return true
       }
     }

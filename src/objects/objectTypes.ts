@@ -11,6 +11,7 @@ export interface ObjectTypeConfig {
   label: string
   description: string
   textureKey: string
+  frame?: number
   previewColor: number
   depth: number
   hasPhysicsBody: boolean
@@ -52,7 +53,8 @@ export const OBJECT_TYPE_REGISTRY: Record<ObjectType, ObjectTypeConfig> = {
     type: 'table2',
     label: 'Table (2)',
     description: '2-seat table',
-    textureKey: 'obj_table2',
+    textureKey: 'furniture_table',
+    frame: 0,
     previewColor: 0x8b6914,
     depth: 2,
     hasPhysicsBody: true,
@@ -62,7 +64,8 @@ export const OBJECT_TYPE_REGISTRY: Record<ObjectType, ObjectTypeConfig> = {
     type: 'table4',
     label: 'Table (4)',
     description: '4-seat table',
-    textureKey: 'obj_table4',
+    textureKey: 'furniture_table',
+    frame: 1,
     previewColor: 0x8b6914,
     depth: 2,
     hasPhysicsBody: true,
@@ -157,33 +160,7 @@ export function generateObjectTextures(scene: Phaser.Scene): void {
   backgroundGfx.generateTexture('obj_background', OBJECT_SIZE, OBJECT_SIZE)
   backgroundGfx.destroy()
 
-  // Table for 2: brown rectangle, 4 corner legs
-  const table2Gfx = scene.make.graphics({ x: 0, y: 0 })
-  table2Gfx.fillStyle(0x5a4510)
-  table2Gfx.fillRect(4, 8, 3, 3)
-  table2Gfx.fillRect(25, 8, 3, 3)
-  table2Gfx.fillRect(4, 21, 3, 3)
-  table2Gfx.fillRect(25, 21, 3, 3)
-  table2Gfx.fillStyle(0x8b6914)
-  table2Gfx.fillRect(4, 8, 24, 16)
-  table2Gfx.lineStyle(1, 0x6b5010)
-  table2Gfx.strokeRect(4, 8, 24, 16)
-  table2Gfx.generateTexture('obj_table2', OBJECT_SIZE, OBJECT_SIZE)
-  table2Gfx.destroy()
-
-  // Table for 4: larger brown square, 4 corner legs
-  const table4Gfx = scene.make.graphics({ x: 0, y: 0 })
-  table4Gfx.fillStyle(0x5a4510)
-  table4Gfx.fillRect(2, 2, 3, 3)
-  table4Gfx.fillRect(27, 2, 3, 3)
-  table4Gfx.fillRect(2, 27, 3, 3)
-  table4Gfx.fillRect(27, 27, 3, 3)
-  table4Gfx.fillStyle(0x8b6914)
-  table4Gfx.fillRect(2, 2, 28, 28)
-  table4Gfx.lineStyle(1, 0x6b5010)
-  table4Gfx.strokeRect(2, 2, 28, 28)
-  table4Gfx.generateTexture('obj_table4', OBJECT_SIZE, OBJECT_SIZE)
-  table4Gfx.destroy()
+  // Table textures loaded from spritesheet in GameScene.preload()
 
   // Chair: wood seat with backrest bar on top
   const chairGfx = scene.make.graphics({ x: 0, y: 0 })

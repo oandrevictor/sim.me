@@ -1,7 +1,8 @@
 import Phaser from 'phaser'
-import { GRID_SIZE, OBJECT_TYPE_REGISTRY, type ObjectType } from '../objects/objectTypes'
+import { OBJECT_TYPE_REGISTRY, type ObjectType } from '../objects/objectTypes'
 import { BUILDING_GRID_W, BUILDING_GRID_H } from '../entities/Building'
 import type { MenuUI } from '../ui/MenuUI'
+import { snapToIsoGrid, screenToGrid, gridToScreen, TILE_W, TILE_H } from '../utils/isoGrid'
 
 type PlacementMode = 'object' | 'building'
 
@@ -47,7 +48,6 @@ export class PlacementManager {
     this.bindInput()
   }
 
-  /** Enter single-place reposition mode: ghost follows pointer, placed on pointerup, then auto-exits. */
   enterReposition(type: ObjectType, startX: number, startY: number): void {
     if (this.mode !== null) this.exit()
 
@@ -66,7 +66,6 @@ export class PlacementManager {
     this.bindInput()
   }
 
-  /** Enter placement from inventory: single placement, then auto-exits. */
   enterFromInventory(type: ObjectType): void {
     if (this.mode !== null) this.exit()
 
@@ -90,13 +89,21 @@ export class PlacementManager {
     this.mode = 'building'
     this.activeType = null
 
-    const pw = BUILDING_GRID_W * GRID_SIZE
-    const ph = BUILDING_GRID_H * GRID_SIZE
+    // Draw isometric building preview
     const gfx = this.scene.add.graphics()
     gfx.fillStyle(0x6b5b3a, 0.4)
-    gfx.fillRect(-pw / 2, -ph / 2, pw, ph)
     gfx.lineStyle(2, 0x4a3d28, 0.6)
-    gfx.strokeRect(-pw / 2, -ph / 2, pw, ph)
+    // Draw a diamond shape for the building footprint
+    const hw = BUILDING_GRID_W * TILE_W / 2
+    const hh = BUILDING_GRID_H * TILE_H / 2
+    gfx.beginPath()
+    gfx.moveTo(0, -hh)
+    gfx.lineTo(hw, 0)
+    gfx.lineTo(0, hh)
+    gfx.lineTo(-hw, 0)
+    gfx.closePath()
+    gfx.fillPath()
+    gfx.strokePath()
     gfx.setDepth(10)
     this.ghost = gfx
 
@@ -137,28 +144,23 @@ export class PlacementManager {
     this.escKey.on('down', () => this.exit())
   }
 
-  private snapToGrid(val: number): number {
-    return Math.round(val / GRID_SIZE) * GRID_SIZE
-  }
-
-  private snapToGridCorner(val: number): number {
-    return Math.floor(val / GRID_SIZE) * GRID_SIZE
-  }
-
   private onPointerMove(pointer: Phaser.Input.Pointer): void {
     if (!this.ghost) return
 
     if (this.mode === 'object') {
-      (this.ghost as Phaser.GameObjects.Sprite).setPosition(
-        this.snapToGrid(pointer.worldX),
-        this.snapToGrid(pointer.worldY),
-      )
+      const snapped = snapToIsoGrid(pointer.worldX, pointer.worldY)
+      ;(this.ghost as Phaser.GameObjects.Sprite).setPosition(snapped.x, snapped.y)
     } else {
-      const gx = this.snapToGridCorner(pointer.worldX)
-      const gy = this.snapToGridCorner(pointer.worldY)
-      const cx = gx + (BUILDING_GRID_W * GRID_SIZE) / 2
-      const cy = gy + (BUILDING_GRID_H * GRID_SIZE) / 2
-      ;(this.ghost as Phaser.GameObjects.Graphics).setPosition(cx, cy)
+      // Building: snap to grid corner and center the building footprint
+      const g = screenToGrid(pointer.worldX, pointer.worldY)
+      const cornerGX = Math.floor(g.gx)
+      const cornerGY = Math.floor(g.gy)
+      // Center of the building footprint
+      const center = gridToScreen(
+        cornerGX + BUILDING_GRID_W / 2,
+        cornerGY + BUILDING_GRID_H / 2,
+      )
+      ;(this.ghost as Phaser.GameObjects.Graphics).setPosition(center.x, center.y)
     }
   }
 
@@ -169,18 +171,19 @@ export class PlacementManager {
     if (!pointer.leftButtonDown()) return
     if (this.menuUI.isPointerOverUI(pointer)) return
 
-    // In reposition mode, placement happens on pointerup
     if (this.repositionMode) return
 
     if (this.mode === 'object' && this.activeType) {
-      this.onPlace(this.activeType, this.snapToGrid(pointer.worldX), this.snapToGrid(pointer.worldY))
+      const snapped = snapToIsoGrid(pointer.worldX, pointer.worldY)
+      this.onPlace(this.activeType, snapped.x, snapped.y)
       if (this.inventoryMode) {
         this.exit()
         return
       }
     } else if (this.mode === 'building') {
-      const gridX = Math.floor(pointer.worldX / GRID_SIZE)
-      const gridY = Math.floor(pointer.worldY / GRID_SIZE)
+      const g = screenToGrid(pointer.worldX, pointer.worldY)
+      const gridX = Math.floor(g.gx)
+      const gridY = Math.floor(g.gy)
       const placed = this.onPlaceBuilding(gridX, gridY)
       if (placed) this.exit()
     }
@@ -191,7 +194,8 @@ export class PlacementManager {
     if (!this.activeType) return
     if (this.menuUI.isPointerOverUI(pointer)) return
 
-    this.onPlace(this.activeType, this.snapToGrid(pointer.worldX), this.snapToGrid(pointer.worldY))
+    const snapped = snapToIsoGrid(pointer.worldX, pointer.worldY)
+    this.onPlace(this.activeType, snapped.x, snapped.y)
     this.exit()
   }
 }

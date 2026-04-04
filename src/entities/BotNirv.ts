@@ -1,8 +1,8 @@
 import Phaser from 'phaser'
 import { Nirv, type NirvVariant } from './Nirv'
-import { type ScheduleWaypoint, gridToPixel } from './NirvSchedule'
-import { GRID_SIZE } from '../config/world'
+import { type ScheduleWaypoint } from './NirvSchedule'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
+import { gridToScreen, screenToGrid } from '../utils/isoGrid'
 
 const BOT_SPEED = 120
 const ARRIVAL_THRESHOLD = 18
@@ -41,7 +41,7 @@ export class BotNirv {
   ) {
     this.scene = scene
     this.pathfinder = pathfinder
-    const start = gridToPixel(waypoints[0].gridX, waypoints[0].gridY)
+    const start = gridToScreen(waypoints[0].gridX, waypoints[0].gridY)
     this.nirv = new Nirv(scene, name, colorIndex, start.x, start.y, false, variant)
     this.waypoints = waypoints
 
@@ -108,7 +108,7 @@ export class BotNirv {
 
       case 'walking': {
         const target = this.waypoints[this.currentIndex]
-        const dest = gridToPixel(target.gridX, target.gridY)
+        const dest = gridToScreen(target.gridX, target.gridY)
 
         this.followPath()
 
@@ -166,19 +166,16 @@ export class BotNirv {
   private computePathToWaypoint(): void {
     const target = this.waypoints[this.currentIndex]
     const sprite = this.nirv.sprite
-    const startGX = Math.round((sprite.x - GRID_SIZE / 2) / GRID_SIZE)
-    const startGY = Math.round((sprite.y - GRID_SIZE / 2) / GRID_SIZE)
-    this.path = this.pathfinder.findPath(startGX, startGY, target.gridX, target.gridY) ?? []
+    const start = screenToGrid(sprite.x, sprite.y)
+    this.path = this.pathfinder.findPath(Math.round(start.gx), Math.round(start.gy), target.gridX, target.gridY) ?? []
     this.pathNodeIndex = 0
   }
 
   private computePathToPixel(px: number, py: number): void {
     const sprite = this.nirv.sprite
-    const startGX = Math.round((sprite.x - GRID_SIZE / 2) / GRID_SIZE)
-    const startGY = Math.round((sprite.y - GRID_SIZE / 2) / GRID_SIZE)
-    const endGX = Math.round((px - GRID_SIZE / 2) / GRID_SIZE)
-    const endGY = Math.round((py - GRID_SIZE / 2) / GRID_SIZE)
-    this.path = this.pathfinder.findPath(startGX, startGY, endGX, endGY) ?? []
+    const start = screenToGrid(sprite.x, sprite.y)
+    const end = screenToGrid(px, py)
+    this.path = this.pathfinder.findPath(Math.round(start.gx), Math.round(start.gy), Math.round(end.gx), Math.round(end.gy)) ?? []
     this.pathNodeIndex = 0
   }
 
@@ -205,7 +202,7 @@ export class BotNirv {
       // Path exhausted — move directly toward final destination
       if (this._state === 'walking') {
         const target = this.waypoints[this.currentIndex]
-        const dest = gridToPixel(target.gridX, target.gridY)
+        const dest = gridToScreen(target.gridX, target.gridY)
         this.moveToward(dest.x, dest.y)
       } else if (this._state === 'walking_to_chair' && this.redirectTarget) {
         this.moveToward(this.redirectTarget.x, this.redirectTarget.y)
@@ -214,7 +211,7 @@ export class BotNirv {
     }
 
     const node = this.path[this.pathNodeIndex]
-    const nodePx = gridToPixel(node.gx, node.gy)
+    const nodePx = gridToScreen(node.gx, node.gy)
     const dist = Phaser.Math.Distance.Between(sprite.x, sprite.y, nodePx.x, nodePx.y)
 
     if (dist < ARRIVAL_THRESHOLD) {

@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
-import { generateObjectTextures, OBJECT_TYPE_REGISTRY, GRID_SIZE, type ObjectType } from '../objects/objectTypes'
+import { generateObjectTextures, OBJECT_TYPE_REGISTRY, OBJECT_SIZE, type ObjectType } from '../objects/objectTypes'
 import { WORLD_WIDTH, WORLD_HEIGHT, GRID_COLS, GRID_ROWS } from '../config/world'
+import { gridToScreen, screenToGrid, snapToIsoGrid, getTileCorners, TILE_W } from '../utils/isoGrid'
 import { MenuUI } from '../ui/MenuUI'
 import { PlacementManager } from '../placement/PlacementManager'
 import { loadPlacedObjects, savePlacedObject, removeObjectAt, removeObjectByType } from '../storage/persistence'
@@ -20,7 +21,7 @@ import { GridPathfinder } from '../pathfinding/GridPathfinder'
 import { BUILDING_GRID_W, BUILDING_GRID_H } from '../entities/Building'
 
 const PLAYER_SPEED = 200
-const INTERACTION_RADIUS = GRID_SIZE
+const INTERACTION_RADIUS = TILE_W
 const ZOOM_LEVELS = [0.5, 0.75, 1, 1.25, 1.5, 2]
 const DEFAULT_ZOOM_INDEX = 2 // 1x
 
@@ -86,28 +87,39 @@ export class GameScene extends Phaser.Scene {
     this.load.spritesheet('f2_walk', 'assets/Player/FPlayer 2 walking.png', frameConfig)
     this.load.spritesheet('f3_idle', 'assets/Player/FPlayer 3 idle.png', frameConfig)
     this.load.spritesheet('f3_walk', 'assets/Player/FPlayer 3 walking.png', frameConfig)
+
+    // Furniture
+    this.load.spritesheet('furniture_table', 'assets/Furniture/ModernTable1.png', { frameWidth: 250, frameHeight: 250 })
   }
 
   create(): void {
     // Expand physics world
     this.physics.world.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT)
 
-    // Background grid covering full world
+    // Background: fill and draw isometric grid
     const bg = this.add.graphics()
     bg.fillStyle(0x4a7c59)
     bg.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT)
     bg.lineStyle(1, 0x3d6b4a, 0.4)
-    for (let x = 0; x <= WORLD_WIDTH; x += GRID_SIZE) bg.lineBetween(x, 0, x, WORLD_HEIGHT)
-    for (let y = 0; y <= WORLD_HEIGHT; y += GRID_SIZE) bg.lineBetween(0, y, WORLD_WIDTH, y)
+    for (let gx = 0; gx < GRID_COLS; gx++) {
+      for (let gy = 0; gy < GRID_ROWS; gy++) {
+        const c = getTileCorners(gx, gy)
+        bg.lineBetween(c.top.x, c.top.y, c.right.x, c.right.y)
+        bg.lineBetween(c.right.x, c.right.y, c.bottom.x, c.bottom.y)
+        bg.lineBetween(c.bottom.x, c.bottom.y, c.left.x, c.left.y)
+        bg.lineBetween(c.left.x, c.left.y, c.top.x, c.top.y)
+      }
+    }
     bg.setDepth(0)
 
     // Create Nirv animations
     this.createNirvAnimations()
 
     // Player Nirv at world center
-    const startX = Math.round(WORLD_WIDTH / 2 / GRID_SIZE) * GRID_SIZE
-    const startY = Math.round(WORLD_HEIGHT / 2 / GRID_SIZE) * GRID_SIZE
-    this.playerNirv = new Nirv(this, 'Player', 0, startX, startY, true)
+    const centerGX = Math.floor(GRID_COLS / 2)
+    const centerGY = Math.floor(GRID_ROWS / 2)
+    const startPos = gridToScreen(centerGX, centerGY)
+    this.playerNirv = new Nirv(this, 'Player', 0, startPos.x, startPos.y, true)
     this.playerNirv.sprite.setCollideWorldBounds(true)
 
     // Camera
@@ -329,17 +341,25 @@ export class GameScene extends Phaser.Scene {
 
     if (config.hasPhysicsBody) {
       const sprite = this.obstacleGroup.create(
-        x, y, config.textureKey
+        x, y, config.textureKey, config.frame ?? 0
       ) as Phaser.Physics.Arcade.Sprite
       sprite.setDepth(config.depth)
+      if (config.frame !== undefined) {
+        const displaySize = OBJECT_SIZE * 1.6
+        sprite.setDisplaySize(displaySize, displaySize)
+        sprite.body!.setSize(OBJECT_SIZE, OBJECT_SIZE)
+        sprite.body!.setOffset(
+          (sprite.width - OBJECT_SIZE) / 2,
+          (sprite.height - OBJECT_SIZE) / 2,
+        )
+      }
       sprite.refreshBody()
       this.placedSprites.push({ sprite, type, x, y })
 
       // Block cell in pathfinder (only for generic obstacles, not furniture)
       if (this.pathfinder && type === 'obstacle') {
-        const gx = Math.round(x / GRID_SIZE)
-        const gy = Math.round(y / GRID_SIZE)
-        this.pathfinder.blockCell(gx, gy)
+        const g = screenToGrid(x, y)
+        this.pathfinder.blockCell(Math.round(g.gx), Math.round(g.gy))
       }
 
       if (type === 'table2' || type === 'table4') {
@@ -378,7 +398,8 @@ export class GameScene extends Phaser.Scene {
         if (recipeId) {
           const plateEntry = { sprite, tableX: x, tableY: y, recipeId }
           this.plateSprites.push(plateEntry)
-          sprite.setInteractive({ useHandCursor: true })
+          sprite.setInteractive({ useHandCursor: true, pixelPerfect: false })
+          sprite.setDepth(5)
           sprite.on('pointerdown', () => this.onPlateClicked(plateEntry))
           if (this.restaurantSystem) {
             this.restaurantSystem.placeFoodOnTable(x, y, recipeId, sprite)
@@ -501,6 +522,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onPlateClicked(entry: { sprite: Phaser.GameObjects.Sprite; tableX: number; tableY: number; recipeId: string }): void {
+    if (!this.menuUI || !this.placementManager) return
     if (this.placementManager.isActive()) return
     if (this.menuUI.isShopMode()) return
     if (this.carriedPlate) return
@@ -608,23 +630,20 @@ export class GameScene extends Phaser.Scene {
     if (!this.carriedPlate) return
 
     // Check if clicking near a table or counter to place food
-    const worldX = pointer.worldX
-    const worldY = pointer.worldY
-    const snappedX = Math.round(worldX / GRID_SIZE) * GRID_SIZE
-    const snappedY = Math.round(worldY / GRID_SIZE) * GRID_SIZE
+    const snapped = snapToIsoGrid(pointer.worldX, pointer.worldY)
 
     let target: { x: number; y: number } | null = null
-    let bestDist = GRID_SIZE // Must click within 1 grid cell
+    let bestDist = TILE_W // Must click within 1 tile
 
     for (const t of this.tableSprites) {
-      const d = Phaser.Math.Distance.Between(snappedX, snappedY, t.x, t.y)
+      const d = Phaser.Math.Distance.Between(snapped.x, snapped.y, t.x, t.y)
       if (d < bestDist) {
         bestDist = d
         target = { x: t.x, y: t.y }
       }
     }
     for (const c of this.counterSprites) {
-      const d = Phaser.Math.Distance.Between(snappedX, snappedY, c.x, c.y)
+      const d = Phaser.Math.Distance.Between(snapped.x, snapped.y, c.x, c.y)
       if (d < bestDist) {
         bestDist = d
         target = { x: c.x, y: c.y }
@@ -661,14 +680,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   private tryPickUpObject(pointer: Phaser.Input.Pointer): void {
-    const wx = pointer.worldX
-    const wy = pointer.worldY
-    const snappedX = Math.round(wx / GRID_SIZE) * GRID_SIZE
-    const snappedY = Math.round(wy / GRID_SIZE) * GRID_SIZE
+    const snapped = snapToIsoGrid(pointer.worldX, pointer.worldY)
 
     // Find a placed sprite at the snapped position
     const idx = this.placedSprites.findIndex(
-      p => Math.abs(p.x - snappedX) < 2 && Math.abs(p.y - snappedY) < 2
+      p => Math.abs(p.x - snapped.x) < 2 && Math.abs(p.y - snapped.y) < 2
     )
     if (idx === -1) return
 
@@ -701,9 +717,8 @@ export class GameScene extends Phaser.Scene {
 
     // Unblock cell in pathfinder (only for generic obstacles)
     if (type === 'obstacle') {
-      const gx = Math.round(x / GRID_SIZE)
-      const gy = Math.round(y / GRID_SIZE)
-      this.pathfinder.unblockCell(gx, gy)
+      const g = screenToGrid(x, y)
+      this.pathfinder.unblockCell(Math.round(g.gx), Math.round(g.gy))
     }
 
     if (this.menuUI.isInventoryMode()) {
@@ -712,7 +727,7 @@ export class GameScene extends Phaser.Scene {
       this.menuUI.refreshInventoryGrid()
     } else {
       // Enter reposition mode: ghost follows cursor, placed on mouse-up, then auto-exits
-      this.placementManager.enterReposition(type, snappedX, snappedY)
+      this.placementManager.enterReposition(type, snapped.x, snapped.y)
     }
   }
 
@@ -724,11 +739,10 @@ export class GameScene extends Phaser.Scene {
     }
 
     const pointer = this.input.activePointer
-    const snappedX = Math.round(pointer.worldX / GRID_SIZE) * GRID_SIZE
-    const snappedY = Math.round(pointer.worldY / GRID_SIZE) * GRID_SIZE
+    const snapped = snapToIsoGrid(pointer.worldX, pointer.worldY)
 
     const overObject = this.placedSprites.some(
-      p => Math.abs(p.x - snappedX) < 2 && Math.abs(p.y - snappedY) < 2
+      p => Math.abs(p.x - snapped.x) < 2 && Math.abs(p.y - snapped.y) < 2
     )
 
     this.game.canvas.style.cursor = overObject ? 'grab' : ''

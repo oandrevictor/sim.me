@@ -1,4 +1,4 @@
-import { GRID_SIZE } from '../config/world'
+import { gridToScreen } from '../utils/isoGrid'
 
 export interface ScheduleWaypoint {
   gridX: number
@@ -44,10 +44,7 @@ export function generateDefaultSchedules(
   return schedules
 }
 
-/** Convert grid coordinates to pixel center position */
+/** Convert grid coordinates to screen pixel position (isometric) */
 export function gridToPixel(gridX: number, gridY: number): { x: number; y: number } {
-  return {
-    x: gridX * GRID_SIZE + GRID_SIZE / 2,
-    y: gridY * GRID_SIZE + GRID_SIZE / 2,
-  }
+  return gridToScreen(gridX, gridY)
 }

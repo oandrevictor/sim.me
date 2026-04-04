@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 import { RECIPES } from '../data/recipes'
-import { CANVAS_WIDTH, CANVAS_HEIGHT } from '../config/world'
+// Uses scene.scale for dynamic screen dimensions
 
 const PANEL_WIDTH = 220
 const ROW_HEIGHT = 48
@@ -34,8 +34,8 @@ export class RecipeSelectUI extends Phaser.GameObjects.Container {
   private build(): void {
     // Dark overlay
     this.overlay = this.scene.add.rectangle(
-      CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2,
-      CANVAS_WIDTH, CANVAS_HEIGHT,
+      this.scene.scale.width / 2, this.scene.scale.height / 2,
+      this.scene.scale.width, this.scene.scale.height,
       0x000000, 0.5
     )
     this.overlay.setInteractive()
@@ -44,7 +44,7 @@ export class RecipeSelectUI extends Phaser.GameObjects.Container {
 
     // Panel
     const panelHeight = RECIPES.length * ROW_HEIGHT + PANEL_PADDING * 2 + 32
-    this.panel = this.scene.add.container(CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2)
+    this.panel = this.scene.add.container(this.scene.scale.width / 2, this.scene.scale.height / 2)
 
     // Background
     const bg = this.scene.add.graphics()
