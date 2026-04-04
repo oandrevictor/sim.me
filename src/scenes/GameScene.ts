@@ -1,11 +1,16 @@
 import Phaser from 'phaser'
 import { generateObjectTextures, OBJECT_TYPE_REGISTRY, GRID_SIZE, type ObjectType } from '../objects/objectTypes'
+import { WORLD_WIDTH, WORLD_HEIGHT, GRID_COLS, GRID_ROWS, CANVAS_WIDTH, CANVAS_HEIGHT } from '../config/world'
 import { StoreUI } from '../ui/StoreUI'
 import { PlacementManager } from '../placement/PlacementManager'
 import { loadPlacedObjects, savePlacedObject } from '../storage/persistence'
+import { loadPlacedBuildings, savePlacedBuilding } from '../storage/buildingPersistence'
+import { Nirv } from '../entities/Nirv'
+import { BotNirv } from '../entities/BotNirv'
+import { generateDefaultSchedules } from '../entities/NirvSchedule'
+import { Building } from '../entities/Building'
 
 const PLAYER_SPEED = 200
-// How close the player must be (center-to-center) to activate an interactable
 const INTERACTION_RADIUS = GRID_SIZE
 
 interface WalkTarget {
@@ -14,7 +19,7 @@ interface WalkTarget {
 }
 
 export class GameScene extends Phaser.Scene {
-  private player!: Phaser.Physics.Arcade.Sprite
+  private playerNirv!: Nirv
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys
   private wasd!: {
     up: Phaser.Input.Keyboard.Key
@@ -24,15 +29,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   private storeUI!: StoreUI
+  private helpText!: Phaser.GameObjects.Text
   private placementManager!: PlacementManager
   private obstacleGroup!: Phaser.Physics.Arcade.StaticGroup
+  private nirvGroup!: Phaser.Physics.Arcade.Group
   private interactableSprites: Phaser.GameObjects.Sprite[] = []
   private backgroundSprites: Phaser.GameObjects.Sprite[] = []
+  private botNirvs: BotNirv[] = []
+  private buildings: Building[] = []
 
-  // Auto-walk state
   private walkTarget: WalkTarget | null = null
-
-  // The interactable currently in active state (null = none)
   private activeInteractable: Phaser.GameObjects.Sprite | null = null
 
   constructor() {
@@ -40,39 +46,50 @@ export class GameScene extends Phaser.Scene {
   }
 
   preload(): void {
-    const playerGfx = this.make.graphics({ x: 0, y: 0 })
-    playerGfx.fillStyle(0xe8c547)
-    playerGfx.fillRect(0, 0, 32, 32)
-    playerGfx.generateTexture('player', 32, 32)
-    playerGfx.destroy()
-
     generateObjectTextures(this)
   }
 
   create(): void {
-    // Background
+    // Expand physics world
+    this.physics.world.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT)
+
+    // Background grid covering full world
     const bg = this.add.graphics()
     bg.fillStyle(0x4a7c59)
-    bg.fillRect(0, 0, 800, 600)
+    bg.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT)
     bg.lineStyle(1, 0x3d6b4a, 0.4)
-    for (let x = 0; x <= 800; x += 40) bg.lineBetween(x, 0, x, 600)
-    for (let y = 0; y <= 600; y += 40) bg.lineBetween(0, y, 800, y)
+    for (let x = 0; x <= WORLD_WIDTH; x += GRID_SIZE) bg.lineBetween(x, 0, x, WORLD_HEIGHT)
+    for (let y = 0; y <= WORLD_HEIGHT; y += GRID_SIZE) bg.lineBetween(0, y, WORLD_WIDTH, y)
     bg.setDepth(0)
 
-    // Player
-    this.player = this.physics.add.sprite(400, 300, 'player')
-    this.player.setCollideWorldBounds(true)
-    this.player.setDepth(4)
+    // Player Nirv at world center
+    const startX = Math.round(WORLD_WIDTH / 2 / GRID_SIZE) * GRID_SIZE
+    const startY = Math.round(WORLD_HEIGHT / 2 / GRID_SIZE) * GRID_SIZE
+    this.playerNirv = new Nirv(this, 'Player', 0, startX, startY, true)
+    this.playerNirv.sprite.setCollideWorldBounds(true)
+
+    // Camera
+    this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT)
+    this.cameras.main.startFollow(this.playerNirv.sprite, true, 0.08, 0.08)
 
     // Obstacle group + collider
     this.obstacleGroup = this.physics.add.staticGroup()
-    this.physics.add.collider(this.player, this.obstacleGroup)
+    this.physics.add.collider(this.playerNirv.sprite, this.obstacleGroup)
+
+    // Nirv group for inter-Nirv collisions
+    this.nirvGroup = this.physics.add.group()
+    this.nirvGroup.add(this.playerNirv.sprite)
+
+    // Restore persisted buildings
+    loadPlacedBuildings().forEach(r => {
+      this.buildings.push(new Building(this, r.id, r.gridX, r.gridY))
+    })
 
     // Restore persisted objects
     loadPlacedObjects().forEach(r => this.spawnObject(r.type, r.x, r.y, false))
 
-    // Store UI
-    this.storeUI = new StoreUI(this, 400, 576)
+    // Store UI (positioned each frame to follow camera)
+    this.storeUI = new StoreUI(this, 0, 0)
     this.add.existing(this.storeUI)
     this.storeUI.setDepth(20)
 
@@ -80,12 +97,16 @@ export class GameScene extends Phaser.Scene {
     this.placementManager = new PlacementManager(
       this,
       this.storeUI,
-      (type, x, y) => this.spawnObject(type, x, y, true)
+      (type, x, y) => this.spawnObject(type, x, y, true),
+      (gridX, gridY) => this.placeBuilding(gridX, gridY),
     )
 
     // Wire store events
     this.events.on('store:select', (type: ObjectType) => {
       this.placementManager.enter(type)
+    })
+    this.events.on('store:select-building', () => {
+      this.placementManager.enterBuildingPlacement()
     })
     this.events.on('store:open', () => {
       if (this.placementManager.isActive()) this.placementManager.exit()
@@ -100,13 +121,19 @@ export class GameScene extends Phaser.Scene {
       right: this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.D),
     }
 
-    this.add.text(10, 10, 'Move: WASD / Arrows  |  Click bag to place objects  |  ESC to cancel', {
+    // Help text (positioned each frame to follow camera)
+    this.helpText = this.add.text(0, 0, 'Move: WASD / Arrows  |  Click bag to place objects  |  ESC to cancel', {
       fontSize: '12px',
       color: '#ffffff',
-    }).setAlpha(0.6).setDepth(20)
+    })
+    this.helpText.setAlpha(0.6).setDepth(20)
+
+    // Spawn bot Nirvs
+    this.spawnBots()
   }
 
-  update(): void {
+  update(_time: number, delta: number): void {
+    const player = this.playerNirv.sprite
     let vx = 0
     let vy = 0
 
@@ -121,20 +148,19 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.walkTarget !== null) {
-      // Auto-walk toward target
       const dist = Phaser.Math.Distance.Between(
-        this.player.x, this.player.y,
+        player.x, player.y,
         this.walkTarget.x, this.walkTarget.y
       )
       if (dist < 18) {
-        this.player.setVelocity(0, 0)
+        player.setVelocity(0, 0)
         this.walkTarget = null
       } else {
         const angle = Phaser.Math.Angle.Between(
-          this.player.x, this.player.y,
+          player.x, player.y,
           this.walkTarget.x, this.walkTarget.y
         )
-        this.player.setVelocity(
+        player.setVelocity(
           Math.cos(angle) * PLAYER_SPEED,
           Math.sin(angle) * PLAYER_SPEED
         )
@@ -145,23 +171,35 @@ export class GameScene extends Phaser.Scene {
         vx *= INV_SQRT2
         vy *= INV_SQRT2
       }
-      this.player.setVelocity(vx * PLAYER_SPEED, vy * PLAYER_SPEED)
+      player.setVelocity(vx * PLAYER_SPEED, vy * PLAYER_SPEED)
     } else {
-      this.player.setVelocity(0, 0)
+      player.setVelocity(0, 0)
     }
 
     this.updateInteractableStates()
+
+    // Update bot Nirvs
+    for (const bot of this.botNirvs) {
+      bot.update(delta)
+    }
+
+    // Keep UI pinned to camera viewport
+    const cam = this.cameras.main
+    this.storeUI.setPosition(
+      cam.scrollX + CANVAS_WIDTH / 2,
+      cam.scrollY + CANVAS_HEIGHT - 24,
+    )
+    this.helpText.setPosition(cam.scrollX + 10, cam.scrollY + 10)
   }
 
-  // Each frame: find the closest interactable within range and set it active.
-  // Swap textures and player tint when the active interactable changes.
   private updateInteractableStates(): void {
+    const player = this.playerNirv.sprite
     let closest: Phaser.GameObjects.Sprite | null = null
     let closestDist = Infinity
 
     for (const sprite of this.interactableSprites) {
       const dist = Phaser.Math.Distance.Between(
-        this.player.x, this.player.y,
+        player.x, player.y,
         sprite.x, sprite.y
       )
       if (dist < INTERACTION_RADIUS && dist < closestDist) {
@@ -172,18 +210,16 @@ export class GameScene extends Phaser.Scene {
 
     if (closest === this.activeInteractable) return
 
-    // Deactivate previous
     if (this.activeInteractable !== null) {
       this.activeInteractable.setTexture('obj_interactable')
       this.activeInteractable = null
-      this.player.clearTint()
+      player.clearTint()
     }
 
-    // Activate new
     if (closest !== null) {
       this.activeInteractable = closest
       this.activeInteractable.setTexture('obj_interactable_active')
-      this.player.setTint(0xffcc44)
+      player.setTint(0xffcc44)
     }
   }
 
@@ -214,18 +250,50 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  // If the player is already close enough, proximity in updateInteractableStates()
-  // handles activation. Otherwise, auto-walk to the object first.
+  private placeBuilding(gridX: number, gridY: number): boolean {
+    // Validate: no overlap with existing buildings
+    for (const b of this.buildings) {
+      if (b.overlaps(gridX, gridY)) return false
+    }
+
+    // Validate: within world bounds
+    const maxGridX = GRID_COLS - 8
+    const maxGridY = GRID_ROWS - 8
+    if (gridX < 0 || gridY < 0 || gridX > maxGridX || gridY > maxGridY) return false
+
+    const id = crypto.randomUUID()
+    const building = new Building(this, id, gridX, gridY)
+    this.buildings.push(building)
+    savePlacedBuilding({ id, gridX, gridY })
+    return true
+  }
+
   private onInteractableClicked(sprite: Phaser.GameObjects.Sprite): void {
     if (this.placementManager.isActive()) return
 
+    const player = this.playerNirv.sprite
     const dist = Phaser.Math.Distance.Between(
-      this.player.x, this.player.y,
+      player.x, player.y,
       sprite.x, sprite.y
     )
 
     if (dist >= INTERACTION_RADIUS) {
       this.walkTarget = { x: sprite.x, y: sprite.y }
     }
+  }
+
+  private spawnBots(): void {
+    const schedules = generateDefaultSchedules(GRID_COLS, GRID_ROWS)
+
+    for (const config of schedules) {
+      const bot = new BotNirv(this, config.name, config.colorIndex, config.waypoints)
+      bot.nirv.sprite.setCollideWorldBounds(true)
+      this.nirvGroup.add(bot.nirv.sprite)
+      this.botNirvs.push(bot)
+    }
+
+    // All Nirvs collide with each other and with obstacles
+    this.physics.add.collider(this.nirvGroup, this.nirvGroup)
+    this.physics.add.collider(this.nirvGroup, this.obstacleGroup)
   }
 }

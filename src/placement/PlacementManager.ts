@@ -1,10 +1,14 @@
 import Phaser from 'phaser'
 import { GRID_SIZE, OBJECT_TYPE_REGISTRY, type ObjectType } from '../objects/objectTypes'
+import { BUILDING_GRID_W, BUILDING_GRID_H } from '../entities/Building'
 import type { StoreUI } from '../ui/StoreUI'
 
+type PlacementMode = 'object' | 'building'
+
 export class PlacementManager {
-  private ghost: Phaser.GameObjects.Sprite | null = null
+  private ghost: Phaser.GameObjects.GameObject | null = null
   private activeType: ObjectType | null = null
+  private mode: PlacementMode | null = null
   private escKey: Phaser.Input.Keyboard.Key | null = null
 
   private boundOnPointerMove: (pointer: Phaser.Input.Pointer) => void
@@ -16,28 +20,46 @@ export class PlacementManager {
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly storeUI: StoreUI,
-    private readonly onPlace: (type: ObjectType, x: number, y: number) => void
+    private readonly onPlace: (type: ObjectType, x: number, y: number) => void,
+    private readonly onPlaceBuilding: (gridX: number, gridY: number) => boolean,
   ) {
     this.boundOnPointerMove = this.onPointerMove.bind(this)
     this.boundOnPointerDown = this.onPointerDown.bind(this)
   }
 
   enter(type: ObjectType): void {
-    if (this.activeType !== null) this.exit()
+    if (this.mode !== null) this.exit()
 
+    this.mode = 'object'
     this.activeType = type
     const config = OBJECT_TYPE_REGISTRY[type]
 
-    this.ghost = this.scene.add.sprite(0, 0, 'obj_ghost')
-    this.ghost.setTint(config.previewColor)
-    this.ghost.setAlpha(0.55)
-    this.ghost.setDepth(10)
+    const sprite = this.scene.add.sprite(0, 0, 'obj_ghost')
+    sprite.setTint(config.previewColor)
+    sprite.setAlpha(0.55)
+    sprite.setDepth(10)
+    this.ghost = sprite
 
-    this.scene.input.on('pointermove', this.boundOnPointerMove)
-    this.scene.input.on('pointerdown', this.boundOnPointerDown)
+    this.bindInput()
+  }
 
-    this.escKey = this.scene.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC)
-    this.escKey.on('down', () => this.exit())
+  enterBuildingPlacement(): void {
+    if (this.mode !== null) this.exit()
+
+    this.mode = 'building'
+    this.activeType = null
+
+    const pw = BUILDING_GRID_W * GRID_SIZE
+    const ph = BUILDING_GRID_H * GRID_SIZE
+    const gfx = this.scene.add.graphics()
+    gfx.fillStyle(0x6b5b3a, 0.4)
+    gfx.fillRect(-pw / 2, -ph / 2, pw, ph)
+    gfx.lineStyle(2, 0x4a3d28, 0.6)
+    gfx.strokeRect(-pw / 2, -ph / 2, pw, ph)
+    gfx.setDepth(10)
+    this.ghost = gfx
+
+    this.bindInput()
   }
 
   exit(): void {
@@ -55,19 +77,44 @@ export class PlacementManager {
     }
 
     this.activeType = null
+    this.mode = null
   }
 
   isActive(): boolean {
-    return this.activeType !== null
+    return this.mode !== null
   }
 
-  private snap(val: number): number {
+  private bindInput(): void {
+    this.scene.input.on('pointermove', this.boundOnPointerMove)
+    this.scene.input.on('pointerdown', this.boundOnPointerDown)
+    this.escKey = this.scene.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC)
+    this.escKey.on('down', () => this.exit())
+  }
+
+  private snapToGrid(val: number): number {
     return Math.round(val / GRID_SIZE) * GRID_SIZE
+  }
+
+  private snapToGridCorner(val: number): number {
+    return Math.floor(val / GRID_SIZE) * GRID_SIZE
   }
 
   private onPointerMove(pointer: Phaser.Input.Pointer): void {
     if (!this.ghost) return
-    this.ghost.setPosition(this.snap(pointer.worldX), this.snap(pointer.worldY))
+
+    if (this.mode === 'object') {
+      (this.ghost as Phaser.GameObjects.Sprite).setPosition(
+        this.snapToGrid(pointer.worldX),
+        this.snapToGrid(pointer.worldY),
+      )
+    } else {
+      // Building ghost: snap to grid corner, center the ghost on the 8x8 area
+      const gx = this.snapToGridCorner(pointer.worldX)
+      const gy = this.snapToGridCorner(pointer.worldY)
+      const cx = gx + (BUILDING_GRID_W * GRID_SIZE) / 2
+      const cy = gy + (BUILDING_GRID_H * GRID_SIZE) / 2
+      ;(this.ghost as Phaser.GameObjects.Graphics).setPosition(cx, cy)
+    }
   }
 
   private onPointerDown(
@@ -76,8 +123,14 @@ export class PlacementManager {
   ): void {
     if (!pointer.leftButtonDown()) return
     if (this.storeUI.isPointerOverUI(pointer)) return
-    if (!this.activeType) return
 
-    this.onPlace(this.activeType, this.snap(pointer.worldX), this.snap(pointer.worldY))
+    if (this.mode === 'object' && this.activeType) {
+      this.onPlace(this.activeType, this.snapToGrid(pointer.worldX), this.snapToGrid(pointer.worldY))
+    } else if (this.mode === 'building') {
+      const gridX = Math.floor(pointer.worldX / GRID_SIZE)
+      const gridY = Math.floor(pointer.worldY / GRID_SIZE)
+      const placed = this.onPlaceBuilding(gridX, gridY)
+      if (placed) this.exit()
+    }
   }
 }
