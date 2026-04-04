@@ -87,6 +87,20 @@ export class RestaurantSystem {
     return true
   }
 
+  /** Remove a food plate from a table at (tableX, tableY). Destroys the sprite. Returns the recipeId if found. */
+  removePlateFromTable(tableX: number, tableY: number): string | null {
+    const table = this.tables.find(t => t.x === tableX && t.y === tableY)
+    if (!table) return null
+
+    const slot = table.slots.find(s => s.plate !== null)
+    if (!slot || !slot.plate) return null
+
+    const recipeId = slot.plate.recipeId
+    slot.plate.sprite.destroy()
+    slot.plate = null
+    return recipeId
+  }
+
   update(delta: number): void {
     this.timeSinceCheck += delta
 

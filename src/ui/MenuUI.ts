@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { OBJECT_TYPE_REGISTRY, OBJECT_SIZE, type ObjectType } from '../objects/objectTypes'
 import type { BotNirv } from '../entities/BotNirv'
+import { loadInventory } from '../storage/inventoryPersistence'
 
 // ── Layout constants ──
 const BAR_WIDTH = 360
@@ -20,13 +21,14 @@ const CAT_TAB_H = 28
 const CAT_GAP = 4
 
 // ── Item categories ──
-type Category = 'build' | 'dine' | 'decoration' | 'misc'
+type Category = 'build' | 'dine' | 'decoration' | 'misc' | 'inventory'
 
 const CATEGORIES: { key: Category; label: string }[] = [
   { key: 'build', label: 'Build' },
   { key: 'dine', label: 'Dine' },
   { key: 'decoration', label: 'Decoration' },
   { key: 'misc', label: 'Misc' },
+  { key: 'inventory', label: 'Inventory' },
 ]
 
 const CATEGORY_MAP: Record<string, Category> = {
@@ -38,6 +40,7 @@ const CATEGORY_MAP: Record<string, Category> = {
   counter: 'dine',
   background: 'decoration',
   interactable: 'misc',
+  trash: 'misc',
 }
 
 // Items hidden from the shop
@@ -58,6 +61,7 @@ export class MenuUI {
   private activeCategory: Category = 'build'
   private categoryContainers = new Map<Category, Phaser.GameObjects.Container>()
   private categoryTabGraphics = new Map<Category, { bg: Phaser.GameObjects.Graphics; label: Phaser.GameObjects.Text }>()
+  private inventoryContainer!: Phaser.GameObjects.Container
 
   // Work panel
   private workPanel!: Phaser.GameObjects.Container
@@ -337,7 +341,14 @@ export class MenuUI {
       previewColor: 0x6b5b3a,
     })
 
+    // Create inventory container (populated dynamically)
+    this.inventoryContainer = this.scene.add.container(0, 0)
+    this.inventoryContainer.setVisible(false)
+    this.shopPanel.add(this.inventoryContainer)
+    this.categoryContainers.set('inventory', this.inventoryContainer)
+
     for (const [cat, items] of itemsByCategory) {
+      if (cat === 'inventory') continue
       const catContainer = this.scene.add.container(0, 0)
       catContainer.setVisible(false)
       this.shopPanel.add(catContainer)
@@ -412,6 +423,98 @@ export class MenuUI {
 
   private showCategory(cat: Category): void {
     this.categoryContainers.forEach((c, key) => c.setVisible(key === cat))
+    if (cat === 'inventory') {
+      this.refreshInventoryGrid()
+    }
+  }
+
+  isInventoryMode(): boolean {
+    return this.activeTab === 'shop' && this.activeCategory === 'inventory'
+  }
+
+  refreshInventoryGrid(): void {
+    this.inventoryContainer.removeAll(true)
+
+    const gridTop = -PANEL_HEIGHT + 40
+    const gridLeft = -PANEL_WIDTH / 2 + 16
+
+    const items = loadInventory()
+
+    if (items.length === 0) {
+      const emptyText = this.scene.add.text(0, -PANEL_HEIGHT / 2, 'Inventory is empty — drag objects from the map here', {
+        fontSize: '11px',
+        color: '#666688',
+      }).setOrigin(0.5)
+      this.inventoryContainer.add(emptyText)
+      return
+    }
+
+    items.forEach((item, idx) => {
+      const config = OBJECT_TYPE_REGISTRY[item.type]
+      if (!config) return
+
+      const col = idx % CARDS_PER_ROW
+      const row = Math.floor(idx / CARDS_PER_ROW)
+      const cx = gridLeft + col * (CARD_SIZE + CARD_GAP) + CARD_SIZE / 2
+      const cy = gridTop + row * (CARD_SIZE + CARD_GAP + 14) + CARD_SIZE / 2
+
+      // Card background
+      const cardBg = this.scene.add.graphics()
+      cardBg.fillStyle(0x2a2a44, 0.8)
+      cardBg.fillRoundedRect(cx - CARD_SIZE / 2, cy - CARD_SIZE / 2, CARD_SIZE, CARD_SIZE, 6)
+      cardBg.lineStyle(1, 0x444466, 0.6)
+      cardBg.strokeRoundedRect(cx - CARD_SIZE / 2, cy - CARD_SIZE / 2, CARD_SIZE, CARD_SIZE, 6)
+
+      // Item preview
+      let icon: Phaser.GameObjects.Sprite | Phaser.GameObjects.Graphics
+      if (config.textureKey && this.scene.textures.exists(config.textureKey)) {
+        icon = this.scene.add.sprite(cx, cy - 6, config.textureKey)
+        icon.setDisplaySize(OBJECT_SIZE * 1.1, OBJECT_SIZE * 1.1)
+      } else {
+        const g = this.scene.add.graphics()
+        g.fillStyle(config.previewColor)
+        g.fillRect(cx - 10, cy - 10, 20, 20)
+        icon = g
+      }
+
+      // Count badge
+      const countText = this.scene.add.text(cx + CARD_SIZE / 2 - 6, cy - CARD_SIZE / 2 + 2, `${item.count}`, {
+        fontSize: '10px',
+        color: '#ffffff',
+        fontStyle: 'bold',
+        backgroundColor: '#555577',
+        padding: { x: 3, y: 1 },
+      }).setOrigin(1, 0)
+
+      // Label
+      const label = this.scene.add.text(cx, cy + CARD_SIZE / 2 - 8, config.label, {
+        fontSize: '9px',
+        color: '#ccccdd',
+      }).setOrigin(0.5)
+
+      // Hit zone
+      const zone = this.scene.add.zone(cx, cy, CARD_SIZE, CARD_SIZE)
+      zone.setInteractive({ useHandCursor: true })
+      zone.on('pointerdown', () => {
+        this.scene.events.emit('inventory:select', item.type)
+      })
+      zone.on('pointerover', () => {
+        cardBg.clear()
+        cardBg.fillStyle(0x3a3a5e, 0.9)
+        cardBg.fillRoundedRect(cx - CARD_SIZE / 2, cy - CARD_SIZE / 2, CARD_SIZE, CARD_SIZE, 6)
+        cardBg.lineStyle(1, 0xffd700, 0.8)
+        cardBg.strokeRoundedRect(cx - CARD_SIZE / 2, cy - CARD_SIZE / 2, CARD_SIZE, CARD_SIZE, 6)
+      })
+      zone.on('pointerout', () => {
+        cardBg.clear()
+        cardBg.fillStyle(0x2a2a44, 0.8)
+        cardBg.fillRoundedRect(cx - CARD_SIZE / 2, cy - CARD_SIZE / 2, CARD_SIZE, CARD_SIZE, 6)
+        cardBg.lineStyle(1, 0x444466, 0.6)
+        cardBg.strokeRoundedRect(cx - CARD_SIZE / 2, cy - CARD_SIZE / 2, CARD_SIZE, CARD_SIZE, 6)
+      })
+
+      this.inventoryContainer.add([cardBg, icon, countText, label, zone])
+    })
   }
 
   // ── Work Panel ──

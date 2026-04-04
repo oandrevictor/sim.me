@@ -11,6 +11,7 @@ export class PlacementManager {
   private mode: PlacementMode | null = null
   private escKey: Phaser.Input.Keyboard.Key | null = null
   private repositionMode = false
+  private inventoryMode = false
 
   private boundOnPointerMove: (pointer: Phaser.Input.Pointer) => void
   private boundOnPointerDown: (
@@ -65,6 +66,24 @@ export class PlacementManager {
     this.bindInput()
   }
 
+  /** Enter placement from inventory: single placement, then auto-exits. */
+  enterFromInventory(type: ObjectType): void {
+    if (this.mode !== null) this.exit()
+
+    this.mode = 'object'
+    this.activeType = type
+    this.inventoryMode = true
+    const config = OBJECT_TYPE_REGISTRY[type]
+
+    const sprite = this.scene.add.sprite(0, 0, 'obj_ghost')
+    sprite.setTint(config.previewColor)
+    sprite.setAlpha(0.55)
+    sprite.setDepth(10)
+    this.ghost = sprite
+
+    this.bindInput()
+  }
+
   enterBuildingPlacement(): void {
     if (this.mode !== null) this.exit()
 
@@ -102,6 +121,7 @@ export class PlacementManager {
     this.activeType = null
     this.mode = null
     this.repositionMode = false
+    this.inventoryMode = false
     this.scene.game.canvas.style.cursor = ''
   }
 
@@ -154,6 +174,10 @@ export class PlacementManager {
 
     if (this.mode === 'object' && this.activeType) {
       this.onPlace(this.activeType, this.snapToGrid(pointer.worldX), this.snapToGrid(pointer.worldY))
+      if (this.inventoryMode) {
+        this.exit()
+        return
+      }
     } else if (this.mode === 'building') {
       const gridX = Math.floor(pointer.worldX / GRID_SIZE)
       const gridY = Math.floor(pointer.worldY / GRID_SIZE)

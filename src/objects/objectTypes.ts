@@ -108,6 +108,16 @@ export const OBJECT_TYPE_REGISTRY: Record<ObjectType, ObjectTypeConfig> = {
     hasPhysicsBody: false,
     isInteractable: false,
   },
+  trash: {
+    type: 'trash',
+    label: 'Trash',
+    description: 'Discard carried items',
+    textureKey: 'obj_trash',
+    previewColor: 0x4a5a4a,
+    depth: 2,
+    hasPhysicsBody: true,
+    isInteractable: true,
+  },
 }
 
 export function generateObjectTextures(scene: Phaser.Scene): void {
@@ -257,6 +267,21 @@ export function generateObjectTextures(scene: Phaser.Scene): void {
   plateGfx.fillCircle(16, 16, 3)
   plateGfx.generateTexture('obj_food_plate', OBJECT_SIZE, OBJECT_SIZE)
   plateGfx.destroy()
+
+  // Trash: dark bin with open top
+  const trashGfx = scene.make.graphics({ x: 0, y: 0 })
+  trashGfx.fillStyle(0x4a5a4a)
+  trashGfx.fillRect(6, 8, 20, 22)
+  trashGfx.lineStyle(1, 0x333a33)
+  trashGfx.strokeRect(6, 8, 20, 22)
+  // Lid rim
+  trashGfx.fillStyle(0x3a4a3a)
+  trashGfx.fillRect(4, 6, 24, 4)
+  // Open top highlight
+  trashGfx.fillStyle(0x2a2a2a)
+  trashGfx.fillRect(8, 10, 16, 4)
+  trashGfx.generateTexture('obj_trash', OBJECT_SIZE, OBJECT_SIZE)
+  trashGfx.destroy()
 
   // Ghost: white semi-transparent square (tinted at runtime per type)
   const ghostGfx = scene.make.graphics({ x: 0, y: 0 })

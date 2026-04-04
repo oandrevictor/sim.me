@@ -4,6 +4,7 @@ import { WORLD_WIDTH, WORLD_HEIGHT, GRID_COLS, GRID_ROWS, CANVAS_WIDTH, CANVAS_H
 import { MenuUI } from '../ui/MenuUI'
 import { PlacementManager } from '../placement/PlacementManager'
 import { loadPlacedObjects, savePlacedObject, removeObjectAt } from '../storage/persistence'
+import { addToInventory, removeFromInventory } from '../storage/inventoryPersistence'
 import { loadPlacedBuildings, savePlacedBuilding, updateBuildingType } from '../storage/buildingPersistence'
 import { Nirv } from '../entities/Nirv'
 import { BotNirv } from '../entities/BotNirv'
@@ -57,6 +58,9 @@ export class GameScene extends Phaser.Scene {
   private walkTarget: WalkTarget | null = null
   private activeInteractable: Phaser.GameObjects.Sprite | null = null
   private pendingStoveSprite: Phaser.Physics.Arcade.Sprite | null = null
+  private pendingTrashSprite: Phaser.Physics.Arcade.Sprite | null = null
+  private pendingPlatePickup: { sprite: Phaser.GameObjects.Sprite; tableX: number; tableY: number; recipeId: string } | null = null
+  private plateSprites: { sprite: Phaser.GameObjects.Sprite; tableX: number; tableY: number; recipeId: string }[] = []
   private carriedPlate: { recipeId: string } | null = null
   private carryIndicator: Phaser.GameObjects.Graphics | null = null
   private pendingFoodTarget: { x: number; y: number } | null = null
@@ -143,6 +147,11 @@ export class GameScene extends Phaser.Scene {
     this.events.on('store:select-building', () => {
       this.placementManager.enterBuildingPlacement()
     })
+    this.events.on('inventory:select', (type: ObjectType) => {
+      if (!removeFromInventory(type)) return
+      this.menuUI.refreshInventoryGrid()
+      this.placementManager.enterFromInventory(type)
+    })
     this.events.on('menu:shop-close', () => {
       if (this.placementManager.isActive()) this.placementManager.exit()
       this.game.canvas.style.cursor = ''
@@ -191,6 +200,8 @@ export class GameScene extends Phaser.Scene {
     // Manual input also cancels pending interactions
     if (vx !== 0 || vy !== 0) {
       this.pendingStoveSprite = null
+      this.pendingTrashSprite = null
+      this.pendingPlatePickup = null
       this.pendingFoodTarget = null
     }
 
@@ -311,6 +322,9 @@ export class GameScene extends Phaser.Scene {
         if (this.cookingSystem) {
           this.cookingSystem.registerStove(sprite, x, y)
         }
+      } else if (type === 'trash') {
+        sprite.setInteractive({ useHandCursor: true })
+        sprite.on('pointerdown', () => this.onTrashClicked(sprite))
       }
     } else {
       const sprite = this.add.sprite(x, y, config.textureKey)
@@ -328,8 +342,14 @@ export class GameScene extends Phaser.Scene {
           this.restaurantSystem.registerChair(sprite, x, y)
         }
       } else if (type === 'food_plate') {
-        if (recipeId && this.restaurantSystem) {
-          this.restaurantSystem.placeFoodOnTable(x, y, recipeId, sprite)
+        if (recipeId) {
+          const plateEntry = { sprite, tableX: x, tableY: y, recipeId }
+          this.plateSprites.push(plateEntry)
+          sprite.setInteractive({ useHandCursor: true })
+          sprite.on('pointerdown', () => this.onPlateClicked(plateEntry))
+          if (this.restaurantSystem) {
+            this.restaurantSystem.placeFoodOnTable(x, y, recipeId, sprite)
+          }
         }
       } else {
         this.backgroundSprites.push(sprite)
@@ -429,11 +449,77 @@ export class GameScene extends Phaser.Scene {
     // If 'cooking', do nothing — progress bar is visible
   }
 
+  private onTrashClicked(sprite: Phaser.Physics.Arcade.Sprite): void {
+    if (this.placementManager.isActive()) return
+    if (!this.carriedPlate) return
+
+    const player = this.playerNirv.sprite
+    const dist = Phaser.Math.Distance.Between(player.x, player.y, sprite.x, sprite.y)
+
+    if (dist >= INTERACTION_RADIUS * 1.5) {
+      this.walkTarget = { x: sprite.x, y: sprite.y }
+      this.pendingTrashSprite = sprite
+      this.pendingStoveSprite = null
+      this.pendingFoodTarget = null
+    } else {
+      this.discardCarriedItem()
+    }
+  }
+
+  private onPlateClicked(entry: { sprite: Phaser.GameObjects.Sprite; tableX: number; tableY: number; recipeId: string }): void {
+    if (this.placementManager.isActive()) return
+    if (this.menuUI.isShopMode()) return
+    if (this.carriedPlate) return
+
+    const player = this.playerNirv.sprite
+    const dist = Phaser.Math.Distance.Between(player.x, player.y, entry.sprite.x, entry.sprite.y)
+
+    if (dist >= INTERACTION_RADIUS * 1.5) {
+      this.walkTarget = { x: entry.sprite.x, y: entry.sprite.y }
+      this.pendingPlatePickup = entry
+      this.pendingStoveSprite = null
+      this.pendingTrashSprite = null
+      this.pendingFoodTarget = null
+    } else {
+      this.pickUpPlate(entry)
+    }
+  }
+
+  private pickUpPlate(entry: { sprite: Phaser.GameObjects.Sprite; tableX: number; tableY: number; recipeId: string }): void {
+    // Remove from restaurant system (best effort — table may have been removed)
+    this.restaurantSystem.removePlateFromTable(entry.tableX, entry.tableY)
+
+    entry.sprite.destroy()
+    this.plateSprites = this.plateSprites.filter(p => p !== entry)
+    removeObjectAt(entry.tableX, entry.tableY)
+
+    this.carriedPlate = { recipeId: entry.recipeId }
+    this.createCarryIndicator()
+  }
+
+  private discardCarriedItem(): void {
+    if (!this.carriedPlate) return
+    this.carriedPlate = null
+    if (this.carryIndicator) {
+      this.carryIndicator.destroy()
+      this.carryIndicator = null
+    }
+  }
+
   private handlePendingInteractions(): void {
     if (this.pendingStoveSprite) {
       const sprite = this.pendingStoveSprite
       this.pendingStoveSprite = null
       this.interactWithStove(sprite)
+    }
+    if (this.pendingTrashSprite) {
+      this.pendingTrashSprite = null
+      this.discardCarriedItem()
+    }
+    if (this.pendingPlatePickup) {
+      const entry = this.pendingPlatePickup
+      this.pendingPlatePickup = null
+      this.pickUpPlate(entry)
     }
     if (this.pendingFoodTarget && this.carriedPlate) {
       const target = this.pendingFoodTarget
@@ -492,7 +578,6 @@ export class GameScene extends Phaser.Scene {
     const snappedX = Math.round(worldX / GRID_SIZE) * GRID_SIZE
     const snappedY = Math.round(worldY / GRID_SIZE) * GRID_SIZE
 
-    // Find closest table or counter to the clicked position
     let target: { x: number; y: number } | null = null
     let bestDist = GRID_SIZE // Must click within 1 grid cell
 
@@ -565,11 +650,28 @@ export class GameScene extends Phaser.Scene {
     this.tableSprites = this.tableSprites.filter(t => t.sprite !== sprite)
     this.counterSprites = this.counterSprites.filter(c => c.sprite !== sprite)
 
+    // If removing a table/counter, also remove any plates on it
+    if (type === 'table2' || type === 'table4' || type === 'counter') {
+      const orphanedPlates = this.plateSprites.filter(p => p.tableX === x && p.tableY === y)
+      for (const plate of orphanedPlates) {
+        plate.sprite.destroy()
+        removeObjectAt(plate.tableX, plate.tableY)
+        this.restaurantSystem.removePlateFromTable(plate.tableX, plate.tableY)
+      }
+      this.plateSprites = this.plateSprites.filter(p => p.tableX !== x || p.tableY !== y)
+    }
+
     // Remove from persistence
     removeObjectAt(x, y)
 
-    // Enter reposition mode: ghost follows cursor, placed on mouse-up, then auto-exits
-    this.placementManager.enterReposition(type, snappedX, snappedY)
+    if (this.menuUI.isInventoryMode()) {
+      // Store in inventory
+      addToInventory(type)
+      this.menuUI.refreshInventoryGrid()
+    } else {
+      // Enter reposition mode: ghost follows cursor, placed on mouse-up, then auto-exits
+      this.placementManager.enterReposition(type, snappedX, snappedY)
+    }
   }
 
   /** In shop mode, show grab cursor when hovering over a placed object. */
