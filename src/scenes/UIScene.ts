@@ -19,6 +19,8 @@ export class UIScene extends Phaser.Scene {
     this.menuUI.setProviders(
       () => gameScene.getBotNirvs(),
       () => gameScene.isPlayerInsideRestaurant(),
+      () => gameScene.getPlayerStage(),
+      (stageId) => gameScene.getStageWatchers(stageId),
     )
 
     this.helpText = this.add.text(10, 10, 'Move: WASD / Arrows  |  Shop: place & move objects  |  R: rotate  |  ESC to cancel', {

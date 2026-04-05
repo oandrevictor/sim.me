@@ -8,7 +8,7 @@ const BOT_SPEED = 120
 const ARRIVAL_THRESHOLD = 24
 const CHAIR_ARRIVAL_THRESHOLD = 32
 
-export type BotState = 'walking' | 'waiting' | 'walking_to_chair' | 'seated' | 'awaiting_service' | 'eating'
+export type BotState = 'walking' | 'waiting' | 'walking_to_chair' | 'seated' | 'awaiting_service' | 'eating' | 'walking_to_stage' | 'watching_stage'
 
 export class BotNirv {
   readonly nirv: Nirv
@@ -29,6 +29,9 @@ export class BotNirv {
   private prevX = 0
   private prevY = 0
   private stuckFrames = 0
+
+  /** ID of the stage this bot is walking to or watching (null otherwise) */
+  stageId: string | null = null
 
   get state(): BotState { return this._state }
 
@@ -52,6 +55,25 @@ export class BotNirv {
 
   private set state(s: BotState) {
     this._state = s
+  }
+
+  /** Redirect bot to walk to a stage watch position */
+  redirectToStage(x: number, y: number, stageId: string): void {
+    this.redirectTarget = { x, y }
+    this.stageId = stageId
+    this._state = 'walking_to_stage'
+    this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToPixel(x, y)
+  }
+
+  /** Leave stage and resume normal schedule */
+  leaveStage(): void {
+    this._state = 'walking'
+    this.stageId = null
+    this.redirectTarget = null
+    this.path = []
+    this.currentIndex = (this.currentIndex + 1) % this.waypoints.length
+    this.computePathToWaypoint()
   }
 
   /** Redirect bot to walk to a chair position */
@@ -161,6 +183,39 @@ export class BotNirv {
           this.unseat()
         }
         return
+
+      case 'walking_to_stage': {
+        if (!this.redirectTarget) {
+          this._state = 'walking'
+          this.computePathToWaypoint()
+          return
+        }
+
+        this.followPath()
+
+        const sprite = this.nirv.sprite
+        this.nirv.updateAnimation(sprite.body!.velocity.x, sprite.body!.velocity.y)
+        const dist = Phaser.Math.Distance.Between(
+          sprite.x, sprite.y,
+          this.redirectTarget.x, this.redirectTarget.y,
+        )
+        if (dist < ARRIVAL_THRESHOLD) {
+          sprite.setVelocity(0, 0)
+          this.nirv.updateAnimation(0, 0)
+          this.path = []
+          this._state = 'watching_stage'
+          this.seatTimer = Phaser.Math.Between(15000, 40000)
+        }
+        return
+      }
+
+      case 'watching_stage':
+        this.nirv.updateAnimation(0, 0)
+        this.seatTimer -= delta
+        if (this.seatTimer <= 0) {
+          this.leaveStage()
+        }
+        return
     }
   }
 
@@ -203,7 +258,7 @@ export class BotNirv {
       this.stuckFrames = 0
       if (this._state === 'walking') {
         this.computePathToWaypoint()
-      } else if (this._state === 'walking_to_chair' && this.redirectTarget) {
+      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_stage') && this.redirectTarget) {
         this.computePathToPixel(this.redirectTarget.x, this.redirectTarget.y)
       }
     }
@@ -214,7 +269,7 @@ export class BotNirv {
         const target = this.waypoints[this.currentIndex]
         const dest = gridToScreen(target.gridX, target.gridY)
         this.moveToward(dest.x, dest.y)
-      } else if (this._state === 'walking_to_chair' && this.redirectTarget) {
+      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_stage') && this.redirectTarget) {
         this.moveToward(this.redirectTarget.x, this.redirectTarget.y)
       }
       return
