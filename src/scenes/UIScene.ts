@@ -26,6 +26,7 @@ export class UIScene extends Phaser.Scene {
       getBands: () => gameScene.getBandsForUI(),
       getPerformerBots: () => gameScene.getPerformerBotsForUI(),
       formBandFromFirstTwoPerformers: () => gameScene.formBandFromFirstTwoPerformers(),
+      stageAllowsBand: id => gameScene.stageAllowsBandForStage(id),
     }
 
     this.menuUI.setProviders(

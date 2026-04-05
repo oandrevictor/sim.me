@@ -2,7 +2,7 @@ import type { Stage } from '../entities/Stage'
 import type { BotNirv } from '../entities/BotNirv'
 import type { StageAttraction } from '../storage/stagePersistence'
 import type { BandRecord } from '../storage/bandPersistence'
-import { computeStagePerformPlacement } from '../utils/stagePerformLayout'
+import { computeSoloPlatformPerformPlacement, computeStagePerformPlacement } from '../utils/stagePerformLayout'
 import { gridToScreen } from '../utils/isoGrid'
 import { getPerformerBotIdsForAttraction } from './stagePerformerIds'
 
@@ -17,13 +17,13 @@ export function placeBotsAsStagePerformers(
   attraction: StageAttraction,
   getBands: () => BandRecord[],
 ): void {
-  const ids = getPerformerBotIdsForAttraction(attraction, getBands)
+  const ids = getPerformerBotIdsForAttraction(attraction, getBands).slice(0, stage.maxPerformerCount)
   if (ids.length === 0) return
 
   const { gridX, gridY, gridW, gridH } = stage
-  const { cells, interior: stageInterior } = computeStagePerformPlacement(
-    gridX, gridY, gridW, gridH, ids.length,
-  )
+  const { cells, interior: stageInterior } = stage.soloOnly
+    ? computeSoloPlatformPerformPlacement(gridX, gridY, gridW, gridH)
+    : computeStagePerformPlacement(gridX, gridY, gridW, gridH, ids.length)
   ids.forEach((id, i) => {
     const bot = bots.find(b => b.id === id)
     if (!bot) return

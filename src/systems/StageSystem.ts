@@ -71,6 +71,8 @@ export class StageSystem {
   }
 
   setStageAttraction(stageId: string, attraction: StageAttraction | null): void {
+    const stage = this.stages.find(s => s.id === stageId)
+    if (attraction?.kind === 'band' && stage?.soloOnly) return
     this.ensureRuntimeForStage(stageId)
     const st = this.runtimeByStageId.get(stageId)!
     this.kickWatchersForStage(stageId)
@@ -89,6 +91,10 @@ export class StageSystem {
     for (const stage of this.stages) {
       const att = this.getStageAttraction(stage.id)
       if (!att) continue
+      if (stage.soloOnly && att.kind === 'band') {
+        this.setStageAttraction(stage.id, null)
+        continue
+      }
       const ids = getPerformerBotIdsForAttraction(att, this.getBands)
       if (ids.length === 0) {
         this.setStageAttraction(stage.id, null)

@@ -78,6 +78,7 @@ export class GameScene extends Phaser.Scene {
     this.load.spritesheet('furniture_table', 'assets/Furniture/ModernTable1.png', { frameWidth: 250, frameHeight: 250 })
     this.load.spritesheet('furniture_chair', 'assets/Furniture/chair sprite.png', { frameWidth: 250, frameHeight: 250 })
     this.load.spritesheet('furniture_stove', 'assets/Furniture/new-oven.png', { frameWidth: 528, frameHeight: 288 })
+    this.load.spritesheet('furniture_stage_solo', 'assets/Furniture/stage-variant.png', { frameWidth: 382, frameHeight: 382 })
   }
 
   create(): void {
@@ -137,7 +138,7 @@ export class GameScene extends Phaser.Scene {
     this.stagePlacer = new StagePlacer(
       this, this.stages, this.buildings,
       this.obstacleGroup, this.pathfinder,
-      (rotation) => this.placementManager?.enterStagePlacement(rotation),
+      (rotation, variant) => this.placementManager?.enterStagePlacement(rotation, variant),
       (id) => this.stageSystem.removeRuntime(id),
     )
 
@@ -243,7 +244,7 @@ export class GameScene extends Phaser.Scene {
     })
     const stageRecords = loadPlacedStages()
     stageRecords.forEach(r => {
-      const st = new Stage(this, r.id, r.gridX, r.gridY, r.rotation ?? 0)
+      const st = new Stage(this, r.id, r.gridX, r.gridY, r.rotation ?? 0, r.variant ?? 'default')
       this.stages.push(st)
       installStageBarrier(st, this.pathfinder, this, this.obstacleGroup)
     })
@@ -262,11 +263,12 @@ export class GameScene extends Phaser.Scene {
         this, this.menuUI,
         (type, x, y, rotation) => this.objectSpawner.spawn(type, x, y, true, undefined, rotation),
         (gx, gy) => this.buildingPlacer.place(gx, gy),
-        (gx, gy, rot) => this.stagePlacer.place(gx, gy, rot),
+        (gx, gy, rot, variant) => this.stagePlacer.place(gx, gy, rot, variant),
       )
       this.events.on('store:select', (type: ObjectType) => this.placementManager.enter(type))
       this.events.on('store:select-building', () => this.placementManager.enterBuildingPlacement())
-      this.events.on('store:select-stage', () => this.placementManager.enterStagePlacement())
+      this.events.on('store:select-stage', () => this.placementManager.enterStagePlacement(0, 'default'))
+      this.events.on('store:select-stage-solo', () => this.placementManager.enterStagePlacement(0, 'solo_platform'))
       this.events.on('inventory:select', (type: ObjectType) => {
         if (!removeFromInventory(type)) return
         this.menuUI.refreshInventoryGrid()
@@ -370,8 +372,15 @@ export class GameScene extends Phaser.Scene {
     return this.stageSystem.getPerformanceView(stageId)
   }
 
+  stageAllowsBandForStage(stageId: string): boolean {
+    const s = this.stages.find(x => x.id === stageId)
+    return s ? !s.soloOnly : true
+  }
+
   /** Returns false if attraction is invalid (missing bot/band). */
   setStageAttraction(stageId: string, attraction: StageAttraction | null): boolean {
+    const st = this.stages.find(s => s.id === stageId)
+    if (attraction?.kind === 'band' && st?.soloOnly) return false
     if (attraction?.kind === 'solo') {
       const b = this.botNirvs.find(x => x.id === attraction.botId)
       if (!b || !isPerformerProfession(b.profession)) return false

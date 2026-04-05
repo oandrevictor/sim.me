@@ -10,6 +10,8 @@ export interface StageWorkBridge {
   getBands(): BandRecord[]
   getPerformerBots(): { id: string; label: string }[]
   formBandFromFirstTwoPerformers(): boolean
+  /** False on solo-only stages (sprite deck) — hide band line-up controls. */
+  stageAllowsBand(stageId: string): boolean
 }
 
 export interface StagePickCounters {
@@ -58,9 +60,12 @@ export function addStageWorkSection(
     attrLabel = `band (${bands.find(b => b.id === att.bandId)?.name ?? '?'})`
   }
 
+  const allowsBand = bridge.stageAllowsBand(stageId)
   const statStr = view.attraction
     ? `This cycle: ${view.currentUnique} unique • max ${view.maxConcurrent} at once • ${fmtTime(view.cycleRemainingMs)} left`
-    : 'No line-up — bots will not gather here until you assign solo or band.'
+    : allowsBand
+      ? 'No line-up — bots will not gather here until you assign solo or band.'
+      : 'No line-up — assign a solo act (this stage holds one performer).'
 
   parent.add(scene.add.text(-PANEL_W / 2 + 14, y, statStr, {
     fontSize: '11px', color: '#aabbaa',
@@ -105,7 +110,7 @@ export function addStageWorkSection(
       picks.bumpSolo()
     })
   }
-  if (bands.length > 0) {
+  if (bands.length > 0 && allowsBand) {
     addBtn('[Band ▶]', () => {
       const i = picks.getBandIndex() % bands.length
       bridge.setStageAttraction(stageId, { kind: 'band', bandId: bands[i]!.id })
@@ -113,15 +118,17 @@ export function addStageWorkSection(
     })
   }
   addBtn('[Clear]', () => { bridge.setStageAttraction(stageId, null) })
-  addBtn('[Form band]', () => { bridge.formBandFromFirstTwoPerformers() })
+  if (allowsBand) {
+    addBtn('[Form band]', () => { bridge.formBandFromFirstTwoPerformers() })
+  }
 
   const hintY = y + 30
-  if (performers.length < 2) {
+  if (allowsBand && performers.length < 2) {
     parent.add(scene.add.text(-PANEL_W / 2 + 14, hintY,
       'Form band needs at least 2 performer bots (singer / musician / performer).',
       { fontSize: '10px', color: '#886644' },
     ).setOrigin(0, 0))
   }
 
-  return performers.length < 2 ? hintY + 36 : y + 22
+  return allowsBand && performers.length < 2 ? hintY + 36 : y + 22
 }

@@ -1,9 +1,10 @@
 import Phaser from 'phaser'
+import { stageFootprint, type StageVariant } from '../config/stageVariants'
 import { OBJECT_TYPE_REGISTRY, type ObjectType } from '../objects/objectTypes'
 import { BUILDING_GRID_W, BUILDING_GRID_H } from '../entities/Building'
-import { STAGE_GRID_W, STAGE_GRID_H } from '../entities/Stage'
 import type { MenuUI } from '../ui/MenuUI'
 import { snapToIsoGrid, screenToGrid, gridToScreen } from '../utils/isoGrid'
+import { layoutSoloStageSprite } from '../utils/soloStageSpriteLayout'
 import { createObjectGhost, createBuildingGhost, createStageGhost, ROTATABLE_TYPES } from './GhostFactory'
 
 type PlacementMode = 'object' | 'building' | 'stage'
@@ -18,6 +19,7 @@ export class PlacementManager {
   private inventoryMode = false
   private rotation = 0
   private stageRotation: 0 | 1 = 0
+  private stagePlacingVariant: StageVariant = 'default'
 
   private boundOnPointerMove: (pointer: Phaser.Input.Pointer) => void
   private boundOnPointerDown: (pointer: Phaser.Input.Pointer, _gos: Phaser.GameObjects.GameObject[]) => void
@@ -28,7 +30,7 @@ export class PlacementManager {
     private readonly menuUI: MenuUI,
     private readonly onPlace: (type: ObjectType, x: number, y: number, rotation?: number) => void,
     private readonly onPlaceBuilding: (gridX: number, gridY: number) => boolean,
-    private readonly onPlaceStage: (gridX: number, gridY: number, rotation: 0 | 1) => boolean = () => false,
+    private readonly onPlaceStage: (gridX: number, gridY: number, rotation: 0 | 1, variant: StageVariant) => boolean = () => false,
   ) {
     this.boundOnPointerMove = this.onPointerMove.bind(this)
     this.boundOnPointerDown = this.onPointerDown.bind(this)
@@ -65,10 +67,10 @@ export class PlacementManager {
     this.bindInput()
   }
 
-  enterStagePlacement(initialRotation: 0 | 1 = 0): void {
+  enterStagePlacement(initialRotation: 0 | 1 = 0, variant: StageVariant = 'default'): void {
     if (this.mode !== null) this.exit()
-    this.mode = 'stage'; this.activeType = null; this.stageRotation = initialRotation
-    this.ghost = createStageGhost(this.scene, initialRotation)
+    this.mode = 'stage'; this.activeType = null; this.stageRotation = initialRotation; this.stagePlacingVariant = variant
+    this.ghost = createStageGhost(this.scene, initialRotation, variant)
     this.bindInput()
   }
 
@@ -81,7 +83,7 @@ export class PlacementManager {
     this.rotateKey?.removeAllListeners(); this.rotateKey = null
     this.activeType = null; this.mode = null
     this.repositionMode = false; this.inventoryMode = false
-    this.rotation = 0; this.stageRotation = 0
+    this.rotation = 0; this.stageRotation = 0; this.stagePlacingVariant = 'default'
     this.scene.game.canvas.style.cursor = ''
   }
 
@@ -89,11 +91,10 @@ export class PlacementManager {
 
   private cycleRotation(): void {
     if (this.mode === 'stage') {
-      const oldPos = { x: (this.ghost as Phaser.GameObjects.Graphics).x, y: (this.ghost as Phaser.GameObjects.Graphics).y }
       this.ghost?.destroy()
       this.stageRotation = this.stageRotation === 0 ? 1 : 0
-      this.ghost = createStageGhost(this.scene, this.stageRotation)
-      ;(this.ghost as Phaser.GameObjects.Graphics).setPosition(oldPos.x, oldPos.y)
+      this.ghost = createStageGhost(this.scene, this.stageRotation, this.stagePlacingVariant)
+      this.onPointerMove(this.scene.input.activePointer)
       return
     }
     if (!this.activeType || !ROTATABLE_TYPES.has(this.activeType)) return
@@ -115,8 +116,8 @@ export class PlacementManager {
     this.rotateKey.on('down', () => this.cycleRotation())
   }
 
-  private stageGW(): number { return this.stageRotation === 0 ? STAGE_GRID_W : STAGE_GRID_H }
-  private stageGH(): number { return this.stageRotation === 0 ? STAGE_GRID_H : STAGE_GRID_W }
+  private stageGW(): number { return stageFootprint(this.stagePlacingVariant, this.stageRotation).w }
+  private stageGH(): number { return stageFootprint(this.stagePlacingVariant, this.stageRotation).h }
 
   private onPointerMove(pointer: Phaser.Input.Pointer): void {
     if (!this.ghost) return
@@ -129,8 +130,16 @@ export class PlacementManager {
       ;(this.ghost as Phaser.GameObjects.Graphics).setPosition(center.x, center.y)
     } else if (this.mode === 'stage') {
       const g = screenToGrid(pointer.worldX, pointer.worldY)
-      const center = gridToScreen(Math.floor(g.gx) + this.stageGW() / 2, Math.floor(g.gy) + this.stageGH() / 2)
-      ;(this.ghost as Phaser.GameObjects.Graphics).setPosition(center.x, center.y)
+      const gx = Math.floor(g.gx)
+      const gy = Math.floor(g.gy)
+      const gw = this.stageGW()
+      const gh = this.stageGH()
+      if (this.stagePlacingVariant === 'solo_platform' && this.ghost instanceof Phaser.GameObjects.Sprite) {
+        layoutSoloStageSprite(this.ghost, gx, gy, gw, gh)
+      } else {
+        const center = gridToScreen(gx + gw / 2, gy + gh / 2)
+        ;(this.ghost as Phaser.GameObjects.Graphics).setPosition(center.x, center.y)
+      }
     }
   }
 
@@ -149,7 +158,7 @@ export class PlacementManager {
       if (this.onPlaceBuilding(Math.floor(g.gx), Math.floor(g.gy))) this.exit()
     } else if (this.mode === 'stage') {
       const g = screenToGrid(pointer.worldX, pointer.worldY)
-      if (this.onPlaceStage(Math.floor(g.gx), Math.floor(g.gy), this.stageRotation)) this.exit()
+      if (this.onPlaceStage(Math.floor(g.gx), Math.floor(g.gy), this.stageRotation, this.stagePlacingVariant)) this.exit()
     }
   }
 

@@ -1,3 +1,5 @@
+import type { StageVariant } from '../config/stageVariants'
+
 export type StageAttraction =
   | { kind: 'solo'; botId: string }
   | { kind: 'band'; bandId: string }
@@ -14,6 +16,8 @@ export interface StageRecord {
   gridX: number
   gridY: number
   rotation?: 0 | 1
+  /** Omit or `default` — procedural stage. `solo_platform` uses the festival deck sprite (solo acts only). */
+  variant?: StageVariant
   attraction?: StageAttraction | null
   performanceHistory?: PerformanceCycleRecord[]
 }

@@ -89,3 +89,34 @@ export function computeStagePerformMarks(
   const { cells } = computeStagePerformPlacement(gridX, gridY, gridW, gridH, performerCount)
   return cells.map((c) => gridToScreen(c.gx, c.gy))
 }
+
+/**
+ * Solo deck: one spot downstage-center on the raised area (not the entrance row, which reads as grass).
+ * Interior is the full footprint so `resolveStagePerformGoal` never falls back to far-off grass tiles.
+ */
+export function computeSoloPlatformPerformPlacement(
+  gridX: number,
+  gridY: number,
+  gridW: number,
+  gridH: number,
+): { cells: { gx: number; gy: number }[]; interior: StageInteriorBounds } {
+  const gx = gridX + Math.floor((gridW - 1) / 2)
+  const gy = gridY + Math.max(0, gridH - 2) - 1
+  const interior: StageInteriorBounds = {
+    minGX: gridX,
+    maxGX: gridX + gridW - 1,
+    minGY: gridY,
+    maxGY: gridY + gridH - 1,
+  }
+  return { cells: [{ gx, gy }], interior }
+}
+
+export function computeSoloPlatformPerformMarks(
+  gridX: number,
+  gridY: number,
+  gridW: number,
+  gridH: number,
+): { x: number; y: number }[] {
+  const { cells } = computeSoloPlatformPerformPlacement(gridX, gridY, gridW, gridH)
+  return cells.map((c) => gridToScreen(c.gx, c.gy))
+}

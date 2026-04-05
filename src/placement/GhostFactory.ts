@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
+import { SOLO_STAGE_TEXTURE_KEY, stageFootprint, type StageVariant } from '../config/stageVariants'
 import { OBJECT_TYPE_REGISTRY, getFramedObjectDisplaySize, type ObjectType } from '../objects/objectTypes'
 import { BUILDING_GRID_W, BUILDING_GRID_H } from '../entities/Building'
-import { STAGE_GRID_W, STAGE_GRID_H } from '../entities/Stage'
 import { TILE_W, TILE_H } from '../utils/isoGrid'
 
 /** Object types that support rotation (spritesheet with directional frames) */
@@ -48,9 +48,19 @@ export function createBuildingGhost(scene: Phaser.Scene): Phaser.GameObjects.Gra
   return gfx
 }
 
-export function createStageGhost(scene: Phaser.Scene, stageRotation: 0 | 1): Phaser.GameObjects.Graphics {
-  const gw = stageRotation === 0 ? STAGE_GRID_W : STAGE_GRID_H
-  const gh = stageRotation === 0 ? STAGE_GRID_H : STAGE_GRID_W
+export function createStageGhost(
+  scene: Phaser.Scene,
+  stageRotation: 0 | 1,
+  variant: StageVariant = 'default',
+): Phaser.GameObjects.GameObject {
+  if (variant === 'solo_platform') {
+    const sprite = scene.add.sprite(0, 0, SOLO_STAGE_TEXTURE_KEY)
+    sprite.setAlpha(0.55)
+    sprite.setDepth(10)
+    return sprite
+  }
+
+  const { w: gw, h: gh } = stageFootprint(variant, stageRotation)
 
   // Local coordinate helper: converts a grid offset from the footprint's
   // top-left corner into screen coords relative to the footprint center.

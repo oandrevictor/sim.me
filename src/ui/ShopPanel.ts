@@ -170,6 +170,7 @@ export class ShopPanel {
 
     itemsByCategory.get('build')?.push({ type: '__building' as ObjectType, label: 'Building', textureKey: '', previewColor: 0x6b5b3a })
     itemsByCategory.get('build')?.push({ type: '__stage' as ObjectType, label: 'Stage', textureKey: '', previewColor: 0x1a1a2e })
+    itemsByCategory.get('build')?.push({ type: '__stage_solo' as ObjectType, label: 'Solo stage', textureKey: 'furniture_stage_solo', previewColor: 0x8b6914 })
 
     this.inventoryContainer = scene.add.container(0, 0)
     this.inventoryContainer.setVisible(false)
@@ -196,6 +197,7 @@ export class ShopPanel {
         zone.on('pointerdown', () => {
           if ((item.type as string) === '__building') this.gameEvents.emit('store:select-building')
           else if ((item.type as string) === '__stage') this.gameEvents.emit('store:select-stage')
+          else if ((item.type as string) === '__stage_solo') this.gameEvents.emit('store:select-stage-solo')
           else this.gameEvents.emit('store:select', item.type)
         })
         catContainer.add([cardBg, icon, label, zone])
@@ -242,6 +244,11 @@ export class ShopPanel {
     item: { type: ObjectType; textureKey: string; frame?: number; previewColor: number },
     cx: number, cy: number,
   ): Phaser.GameObjects.Sprite | Phaser.GameObjects.Graphics {
+    if ((item.type as string) === '__stage_solo' && item.textureKey && scene.textures.exists(item.textureKey)) {
+      const sprite = scene.add.sprite(cx, cy - 4, item.textureKey)
+      sprite.setDisplaySize(40, 40)
+      return sprite
+    }
     if (item.textureKey && scene.textures.exists(item.textureKey)) {
       const sprite = scene.add.sprite(cx, cy - 6, item.textureKey, item.frame ?? 0)
       const { w, h } = getFramedObjectDisplaySize(item.type, 1.1)

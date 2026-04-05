@@ -1,4 +1,5 @@
-import { Stage, STAGE_GRID_W, STAGE_GRID_H } from '../entities/Stage'
+import { stageFootprint, type StageVariant } from '../config/stageVariants'
+import { Stage } from '../entities/Stage'
 import { savePlacedStage, removePlacedStage } from '../storage/stagePersistence'
 import type { Building } from '../entities/Building'
 import type Phaser from 'phaser'
@@ -13,23 +14,24 @@ export class StagePlacer {
     private readonly buildings: Building[],
     private readonly obstacleGroup: Phaser.Physics.Arcade.StaticGroup,
     private readonly pathfinder: GridPathfinder,
-    private readonly enterStagePlacement: (rotation: 0 | 1) => void,
+    private readonly enterStagePlacement: (rotation: 0 | 1, variant: StageVariant) => void,
     private readonly onStageRemoved?: (stageId: string) => void,
   ) {}
 
-  place(gridX: number, gridY: number, rotation: 0 | 1 = 0): boolean {
-    const gw = rotation === 0 ? STAGE_GRID_W : STAGE_GRID_H
-    const gh = rotation === 0 ? STAGE_GRID_H : STAGE_GRID_W
+  place(gridX: number, gridY: number, rotation: 0 | 1 = 0, variant: StageVariant = 'default'): boolean {
+    const { w: gw, h: gh } = stageFootprint(variant, rotation)
     if (gridX < 0 || gridY < 0 || gridX > GRID_COLS - gw || gridY > GRID_ROWS - gh) return false
     for (const b of this.buildings) {
       if (b.overlaps(gridX, gridY)) return false
     }
 
     const id = crypto.randomUUID()
-    const stage = new Stage(this.scene, id, gridX, gridY, rotation)
+    const stage = new Stage(this.scene, id, gridX, gridY, rotation, variant)
     this.stages.push(stage)
     installStageBarrier(stage, this.pathfinder, this.scene, this.obstacleGroup)
-    savePlacedStage({ id, gridX, gridY, rotation })
+    const record: Parameters<typeof savePlacedStage>[0] = { id, gridX, gridY, rotation }
+    if (variant !== 'default') record.variant = variant
+    savePlacedStage(record)
     return true
   }
 
@@ -41,10 +43,11 @@ export class StagePlacer {
     const stage = this.stages[idx]
     removeStageBarrier(stage, this.pathfinder)
     stage.graphics.destroy()
+    stage.sprite?.destroy()
     this.stages.splice(idx, 1)
     removePlacedStage(stage.id)
     this.onStageRemoved?.(stage.id)
-    this.enterStagePlacement(stage.rotation)
+    this.enterStagePlacement(stage.rotation, stage.variant)
     return true
   }
 

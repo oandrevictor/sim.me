@@ -30,6 +30,7 @@ export class WorkPanel {
     getBands: () => [],
     getPerformerBots: () => [],
     formBandFromFirstTwoPerformers: () => false,
+    stageAllowsBand: () => true,
   }
 
   private soloPickIdx = 0
