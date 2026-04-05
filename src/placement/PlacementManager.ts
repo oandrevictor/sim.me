@@ -72,45 +72,6 @@ export class PlacementManager {
     this.bindInput()
   }
 
-  enterFromInventory(type: ObjectType): void {
-    if (this.mode !== null) this.exit()
-
-    this.mode = 'object'
-    this.activeType = type
-    this.inventoryMode = true
-    this.rotation = 0
-    this.ghost = this.createGhost(type)
-
-    this.bindInput()
-  }
-
-  enterBuildingPlacement(): void {
-    if (this.mode !== null) this.exit()
-
-    this.mode = 'building'
-    this.activeType = null
-
-    // Draw isometric building preview
-    const gfx = this.scene.add.graphics()
-    gfx.fillStyle(0x6b5b3a, 0.4)
-    gfx.lineStyle(2, 0x4a3d28, 0.6)
-    // Draw a diamond shape for the building footprint
-    const hw = BUILDING_GRID_W * TILE_W / 2
-    const hh = BUILDING_GRID_H * TILE_H / 2
-    gfx.beginPath()
-    gfx.moveTo(0, -hh)
-    gfx.lineTo(hw, 0)
-    gfx.lineTo(0, hh)
-    gfx.lineTo(-hw, 0)
-    gfx.closePath()
-    gfx.fillPath()
-    gfx.strokePath()
-    gfx.setDepth(10)
-    this.ghost = gfx
-
-    this.bindInput()
-  }
-
   exit(): void {
     this.ghost?.destroy(); this.ghost = null
     this.scene.input.off('pointermove', this.boundOnPointerMove)
@@ -156,31 +117,6 @@ export class PlacementManager {
 
   private stageGW(): number { return this.stageRotation === 0 ? STAGE_GRID_W : STAGE_GRID_H }
   private stageGH(): number { return this.stageRotation === 0 ? STAGE_GRID_H : STAGE_GRID_W }
-
-  private cycleRotation(): void {
-    if (!this.activeType || !ROTATABLE_TYPES.has(this.activeType)) return
-    const config = OBJECT_TYPE_REGISTRY[this.activeType]
-    if (config.frame === undefined) return
-
-    this.rotation = (this.rotation + 1) % 4
-
-    // Update ghost sprite frame
-    if (this.ghost && this.ghost instanceof Phaser.GameObjects.Sprite) {
-      this.ghost.setFrame(config.frame + this.rotation)
-    }
-  }
-
-  private bindInput(): void {
-    this.scene.input.on('pointermove', this.boundOnPointerMove)
-    this.scene.input.on('pointerdown', this.boundOnPointerDown)
-    this.scene.input.on('pointerup', this.boundOnPointerUp)
-    this.escKey = this.scene.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC)
-    this.escKey.on('down', () => this.exit())
-
-    // R key to rotate
-    this.rotateKey = this.scene.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.R)
-    this.rotateKey.on('down', () => this.cycleRotation())
-  }
 
   private onPointerMove(pointer: Phaser.Input.Pointer): void {
     if (!this.ghost) return
