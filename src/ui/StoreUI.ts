@@ -6,6 +6,13 @@ const ROW_HEIGHT = 52
 const PANEL_PADDING = 12
 const ICON_RADIUS = 22
 
+interface StoreEntry {
+  label: string
+  description: string
+  previewColor: number
+  action: () => void
+}
+
 export class StoreUI extends Phaser.GameObjects.Container {
   private panel!: Phaser.GameObjects.Container
   private bagIcon!: Phaser.GameObjects.Graphics
@@ -18,7 +25,15 @@ export class StoreUI extends Phaser.GameObjects.Container {
   }
 
   isPointerOverUI(pointer: Phaser.Input.Pointer): boolean {
-    return this.getBounds().contains(pointer.x, pointer.y)
+    // Only check against the bag icon area when panel is closed,
+    // since getBounds() includes invisible children
+    if (!this.isPanelOpen) {
+      const bx = this.x
+      const by = this.y
+      const r = ICON_RADIUS + 4
+      return Phaser.Math.Distance.Between(pointer.worldX, pointer.worldY, bx, by) < r
+    }
+    return this.getBounds().contains(pointer.worldX, pointer.worldY)
   }
 
   closePanel(): void {
@@ -63,8 +78,25 @@ export class StoreUI extends Phaser.GameObjects.Container {
   }
 
   private buildPanel(): void {
-    const types = Object.values(OBJECT_TYPE_REGISTRY)
-    const panelHeight = types.length * ROW_HEIGHT + PANEL_PADDING * 2
+    // Combine object types + building into a single list
+    const entries: StoreEntry[] = Object.values(OBJECT_TYPE_REGISTRY)
+      .filter(config => config.type !== 'food_plate')
+      .map(config => ({
+        label: config.label,
+        description: config.description,
+        previewColor: config.previewColor,
+        action: () => this.selectType(config.type),
+      }))
+
+    // Add building entry
+    entries.push({
+      label: 'Building',
+      description: '8×8 structure',
+      previewColor: 0x6b5b3a,
+      action: () => this.selectBuilding(),
+    })
+
+    const panelHeight = entries.length * ROW_HEIGHT + PANEL_PADDING * 2
 
     const container = this.scene.add.container(0, 0)
 
@@ -77,19 +109,19 @@ export class StoreUI extends Phaser.GameObjects.Container {
     container.add(bg)
 
     // rows
-    types.forEach((config, i) => {
+    entries.forEach((entry, i) => {
       const rowY = -panelHeight - ICON_RADIUS - 8 + PANEL_PADDING + i * ROW_HEIGHT + ROW_HEIGHT / 2
 
       // swatch
       const swatch = this.scene.add.graphics()
-      swatch.fillStyle(config.previewColor)
+      swatch.fillStyle(entry.previewColor)
       swatch.fillRect(-PANEL_WIDTH / 2 + PANEL_PADDING, rowY - 14, 28, 28)
 
       // label
       const label = this.scene.add.text(
         -PANEL_WIDTH / 2 + PANEL_PADDING + 36,
         rowY - 14,
-        config.label,
+        entry.label,
         { fontSize: '14px', color: '#ffffff', fontStyle: 'bold' }
       )
 
@@ -97,22 +129,22 @@ export class StoreUI extends Phaser.GameObjects.Container {
       const desc = this.scene.add.text(
         -PANEL_WIDTH / 2 + PANEL_PADDING + 36,
         rowY - 14 + 18,
-        config.description,
+        entry.description,
         { fontSize: '11px', color: '#aaaacc' }
       )
 
       // invisible hit zone for the row
       const hitZone = this.scene.add.zone(0, rowY, PANEL_WIDTH - PANEL_PADDING, ROW_HEIGHT - 4)
       hitZone.setInteractive({ useHandCursor: true })
-      hitZone.on('pointerdown', () => this.selectType(config.type))
+      hitZone.on('pointerdown', () => entry.action())
       hitZone.on('pointerover', () => {
         swatch.clear()
-        swatch.fillStyle(config.previewColor, 1)
+        swatch.fillStyle(entry.previewColor, 1)
         swatch.fillRect(-PANEL_WIDTH / 2 + PANEL_PADDING - 2, rowY - 16, 32, 32)
       })
       hitZone.on('pointerout', () => {
         swatch.clear()
-        swatch.fillStyle(config.previewColor)
+        swatch.fillStyle(entry.previewColor)
         swatch.fillRect(-PANEL_WIDTH / 2 + PANEL_PADDING, rowY - 14, 28, 28)
       })
 
@@ -136,6 +168,13 @@ export class StoreUI extends Phaser.GameObjects.Container {
     this.panel.setVisible(false)
     this.refreshIconColor()
     this.scene.events.emit('store:select', type)
+  }
+
+  private selectBuilding(): void {
+    this.isPanelOpen = false
+    this.panel.setVisible(false)
+    this.refreshIconColor()
+    this.scene.events.emit('store:select-building')
   }
 
   private refreshIconColor(): void {
