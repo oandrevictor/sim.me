@@ -1,23 +1,48 @@
 import Phaser from 'phaser'
 import { Nirv, type NirvVariant } from './Nirv'
 import { type ScheduleWaypoint } from './NirvSchedule'
-import type { GridPathfinder } from '../pathfinding/GridPathfinder'
+import type { GridPathfinder, StageInteriorBounds } from '../pathfinding/GridPathfinder'
 import { gridToScreen, screenToGrid } from '../utils/isoGrid'
+import type { MusicTag } from '../data/musicTags'
+import type { NirvProfession } from '../data/professions'
+import { rollLeaveEarly } from '../systems/stageAffinity'
+import { EARLY_LEAVE_CHECK_INTERVAL_MS } from '../systems/stagePerformanceRuntime'
 
 const BOT_SPEED = 120
 const ARRIVAL_THRESHOLD = 24
 const CHAIR_ARRIVAL_THRESHOLD = 32
 
-export type BotState = 'walking' | 'waiting' | 'walking_to_chair' | 'seated' | 'awaiting_service' | 'eating' | 'walking_to_stage' | 'watching_stage'
+export type BotState =
+  | 'walking'
+  | 'waiting'
+  | 'walking_to_chair'
+  | 'seated'
+  | 'awaiting_service'
+  | 'eating'
+  | 'walking_to_stage'
+  | 'watching_stage'
+  | 'walking_to_perform'
+  | 'performing_on_stage'
 
 export class BotNirv {
+  readonly id: string
+  readonly profession: NirvProfession
+  readonly interests: readonly MusicTag[]
+  readonly performerTags: readonly MusicTag[]
   readonly nirv: Nirv
   private waypoints: ScheduleWaypoint[]
   private currentIndex = 0
   private _state: BotState = 'walking'
   private waitRemaining = 0
   private seatTimer = 0
+  /** Audience taste vs act tags; used for early-leave rolls while watching */
+  private stageWatchAffinity = 0.35
+  private stageEarlyLeaveAccum = 0
   private redirectTarget: { x: number; y: number } | null = null
+  /** When set, A* uses this tile (interior stage cells); avoids Math.round(screenToGrid) snapping off the deck */
+  private pathEndCell: { gx: number; gy: number } | null = null
+  /** Unblocked goal fallback stays inside this rect (platform tiles only) */
+  private performInterior: StageInteriorBounds | null = null
   private statusIcon: Phaser.GameObjects.Graphics | null = null
   private scene: Phaser.Scene
   private eatingColor = 0xffffff
@@ -40,9 +65,17 @@ export class BotNirv {
     name: string,
     colorIndex: number,
     waypoints: ScheduleWaypoint[],
-    variant: NirvVariant = 'm',
+    variant: NirvVariant,
     pathfinder: GridPathfinder,
+    botId: string,
+    profession: NirvProfession,
+    interests: readonly MusicTag[],
+    performerTags: readonly MusicTag[],
   ) {
+    this.id = botId
+    this.profession = profession
+    this.interests = interests
+    this.performerTags = performerTags
     this.scene = scene
     this.pathfinder = pathfinder
     const start = gridToScreen(waypoints[0].gridX, waypoints[0].gridY)
@@ -59,6 +92,8 @@ export class BotNirv {
 
   /** Redirect bot to walk to a stage watch position */
   redirectToStage(x: number, y: number, stageId: string): void {
+    this.performInterior = null
+    this.pathEndCell = null
     this.redirectTarget = { x, y }
     this.stageId = stageId
     this._state = 'walking_to_stage'
@@ -66,18 +101,45 @@ export class BotNirv {
     this.computePathToPixel(x, y)
   }
 
+  /** Walk onto the stage platform as the act (not audience). `pathEndCell` must be an interior stage tile. */
+  redirectToPerformSpot(
+    x: number,
+    y: number,
+    stageId: string,
+    pathEndCell: { gx: number; gy: number },
+    stageInterior: StageInteriorBounds,
+  ): void {
+    this.performInterior = stageInterior
+    this.pathEndCell = pathEndCell
+    this.redirectTarget = { x, y }
+    this.stageId = stageId
+    this._state = 'walking_to_perform'
+    this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToPixel(x, y, pathEndCell)
+  }
+
+  /** Called when sending this bot toward a performance (interest vs act tags) */
+  setStageWatchAffinity(affinity: number): void {
+    this.stageWatchAffinity = affinity
+  }
+
   /** Leave stage and resume normal schedule */
   leaveStage(): void {
     this._state = 'walking'
     this.stageId = null
     this.redirectTarget = null
+    this.pathEndCell = null
+    this.performInterior = null
     this.path = []
+    this.stageEarlyLeaveAccum = 0
     this.currentIndex = (this.currentIndex + 1) % this.waypoints.length
     this.computePathToWaypoint()
   }
 
   /** Redirect bot to walk to a chair position */
   redirectToChair(x: number, y: number): void {
+    this.performInterior = null
+    this.pathEndCell = null
     this.redirectTarget = { x, y }
     this._state = 'walking_to_chair'
     this.nirv.sprite.setVelocity(0, 0)
@@ -184,7 +246,8 @@ export class BotNirv {
         }
         return
 
-      case 'walking_to_stage': {
+      case 'walking_to_stage':
+      case 'walking_to_perform': {
         if (!this.redirectTarget) {
           this._state = 'walking'
           this.computePathToWaypoint()
@@ -203,17 +266,27 @@ export class BotNirv {
           sprite.setVelocity(0, 0)
           this.nirv.updateAnimation(0, 0)
           this.path = []
-          this._state = 'watching_stage'
-          this.seatTimer = Phaser.Math.Between(15000, 40000)
+          if (this._state === 'walking_to_stage') {
+            this._state = 'watching_stage'
+            this.stageEarlyLeaveAccum = 0
+          } else {
+            sprite.setPosition(this.redirectTarget.x, this.redirectTarget.y)
+            this._state = 'performing_on_stage'
+          }
         }
         return
       }
 
+      case 'performing_on_stage':
+        this.nirv.updateAnimation(0, 0)
+        return
+
       case 'watching_stage':
         this.nirv.updateAnimation(0, 0)
-        this.seatTimer -= delta
-        if (this.seatTimer <= 0) {
-          this.leaveStage()
+        this.stageEarlyLeaveAccum += delta
+        if (this.stageEarlyLeaveAccum >= EARLY_LEAVE_CHECK_INTERVAL_MS) {
+          this.stageEarlyLeaveAccum = 0
+          if (rollLeaveEarly(this.stageWatchAffinity)) this.leaveStage()
         }
         return
     }
@@ -227,11 +300,46 @@ export class BotNirv {
     this.pathNodeIndex = 0
   }
 
-  private computePathToPixel(px: number, py: number): void {
+  private computePathToPixel(
+    px: number,
+    py: number,
+    endCell: { gx: number; gy: number } | null = null,
+  ): void {
     const sprite = this.nirv.sprite
     const start = screenToGrid(sprite.x, sprite.y)
-    const end = screenToGrid(px, py)
-    this.path = this.pathfinder.findPath(Math.round(start.gx), Math.round(start.gy), Math.round(end.gx), Math.round(end.gy)) ?? []
+    let endGX: number
+    let endGY: number
+
+    if (endCell && this.performInterior) {
+      const r = this.pathfinder.resolveStagePerformGoal(
+        endCell.gx, endCell.gy, this.performInterior,
+      )
+      if (!r) {
+        this.path = []
+        this.pathNodeIndex = 0
+        return
+      }
+      this.pathEndCell = r
+      this.redirectTarget = gridToScreen(r.gx, r.gy)
+      endGX = r.gx
+      endGY = r.gy
+    } else if (endCell) {
+      this.pathEndCell = endCell
+      endGX = endCell.gx
+      endGY = endCell.gy
+    } else {
+      this.pathEndCell = null
+      const end = screenToGrid(px, py)
+      endGX = Math.round(end.gx)
+      endGY = Math.round(end.gy)
+    }
+
+    this.path = this.pathfinder.findPath(
+      Math.round(start.gx),
+      Math.round(start.gy),
+      endGX,
+      endGY,
+    ) ?? []
     this.pathNodeIndex = 0
   }
 
@@ -258,8 +366,8 @@ export class BotNirv {
       this.stuckFrames = 0
       if (this._state === 'walking') {
         this.computePathToWaypoint()
-      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_stage') && this.redirectTarget) {
-        this.computePathToPixel(this.redirectTarget.x, this.redirectTarget.y)
+      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform') && this.redirectTarget) {
+        this.computePathToPixel(this.redirectTarget.x, this.redirectTarget.y, this.pathEndCell)
       }
     }
 
@@ -269,7 +377,7 @@ export class BotNirv {
         const target = this.waypoints[this.currentIndex]
         const dest = gridToScreen(target.gridX, target.gridY)
         this.moveToward(dest.x, dest.y)
-      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_stage') && this.redirectTarget) {
+      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform') && this.redirectTarget) {
         this.moveToward(this.redirectTarget.x, this.redirectTarget.y)
       }
       return

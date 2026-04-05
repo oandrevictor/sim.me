@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { OBJECT_TYPE_REGISTRY, OBJECT_SIZE, type ObjectType } from '../objects/objectTypes'
+import { OBJECT_TYPE_REGISTRY, getFramedObjectDisplaySize, type ObjectType } from '../objects/objectTypes'
 import { loadInventory } from '../storage/inventoryPersistence'
 import { createPanelBackground } from './components/Panel'
 
@@ -77,8 +77,9 @@ export class ShopPanel {
 
       let icon: Phaser.GameObjects.Sprite | Phaser.GameObjects.Graphics
       if (config.textureKey && scene.textures.exists(config.textureKey)) {
-        icon = scene.add.sprite(cx, cy - 6, config.textureKey)
-        icon.setDisplaySize(OBJECT_SIZE * 1.1, OBJECT_SIZE * 1.1)
+        icon = scene.add.sprite(cx, cy - 6, config.textureKey, config.frame ?? 0)
+        const { w, h } = getFramedObjectDisplaySize(item.type, 1.1)
+        icon.setDisplaySize(w, h)
       } else {
         const g = scene.add.graphics()
         g.fillStyle(config.previewColor)
@@ -243,7 +244,8 @@ export class ShopPanel {
   ): Phaser.GameObjects.Sprite | Phaser.GameObjects.Graphics {
     if (item.textureKey && scene.textures.exists(item.textureKey)) {
       const sprite = scene.add.sprite(cx, cy - 6, item.textureKey, item.frame ?? 0)
-      sprite.setDisplaySize(OBJECT_SIZE * 1.1, OBJECT_SIZE * 1.1)
+      const { w, h } = getFramedObjectDisplaySize(item.type, 1.1)
+      sprite.setDisplaySize(w, h)
       return sprite
     }
     if ((item.type as string) === '__stage') {

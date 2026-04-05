@@ -7,7 +7,11 @@ import { PlacementManager } from '../placement/PlacementManager'
 import { loadPlacedObjects } from '../storage/persistence'
 import { removeFromInventory } from '../storage/inventoryPersistence'
 import { loadPlacedBuildings } from '../storage/buildingPersistence'
-import { loadPlacedStages } from '../storage/stagePersistence'
+import { loadPlacedStages, type StageAttraction } from '../storage/stagePersistence'
+import { addBand, loadBands, removeBand, type BandRecord } from '../storage/bandPersistence'
+import { isPerformerProfession } from '../data/professions'
+import type { MusicTag } from '../data/musicTags'
+import type { StagePerformanceView } from '../systems/stagePerformanceTypes'
 import { Nirv, NirvVariant } from '../entities/Nirv'
 import { BotNirv } from '../entities/BotNirv'
 import { generateDefaultSchedules } from '../entities/NirvSchedule'
@@ -22,10 +26,13 @@ import { GridPathfinder } from '../pathfinding/GridPathfinder'
 import { ObjectSpawner, type SpawnerState } from '../world/ObjectSpawner'
 import { BuildingPlacer } from '../world/BuildingPlacer'
 import { StagePlacer } from '../world/StagePlacer'
+import { installStageBarrier } from '../world/stageBarrier'
 import { PlayerInput } from '../input/PlayerInput'
 import { InteractionManager } from '../interaction/InteractionManager'
 import { FoodHandler } from '../interaction/FoodHandler'
+import { NirvNameHover } from '../interaction/NirvNameHover'
 import { removeObjectByType } from '../storage/persistence'
+import { registerStoveAnimations } from '../animations/stoveAnims'
 
 const PLAYER_SPEED = 200
 
@@ -53,6 +60,7 @@ export class GameScene extends Phaser.Scene {
   private playerInput!: PlayerInput
   private interactionManager!: InteractionManager
   private foodHandler!: FoodHandler
+  private nirvNameHover!: NirvNameHover
 
   constructor() { super({ key: 'GameScene' }) }
 
@@ -69,13 +77,14 @@ export class GameScene extends Phaser.Scene {
     this.load.spritesheet('f3_walk', 'assets/Player/FPlayer 3 walking.png', frameConfig)
     this.load.spritesheet('furniture_table', 'assets/Furniture/ModernTable1.png', { frameWidth: 250, frameHeight: 250 })
     this.load.spritesheet('furniture_chair', 'assets/Furniture/chair sprite.png', { frameWidth: 250, frameHeight: 250 })
-    this.load.spritesheet('furniture_stove', 'assets/Furniture/cookerwhite01_all.png', { frameWidth: 600, frameHeight: 750 })
+    this.load.spritesheet('furniture_stove', 'assets/Furniture/new-oven.png', { frameWidth: 528, frameHeight: 288 })
   }
 
   create(): void {
     this.physics.world.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT)
     this.drawBackground()
     this.createNirvAnimations()
+    registerStoveAnimations(this)
 
     const startPos = gridToScreen(Math.floor(GRID_COLS / 2), Math.floor(GRID_ROWS / 2))
     this.playerNirv = new Nirv(this, 'Player', 0, startPos.x, startPos.y, true)
@@ -93,7 +102,7 @@ export class GameScene extends Phaser.Scene {
     this.restaurantSystem = new RestaurantSystem(this.buildings, this.botNirvs)
     this.cookingSystem = new CookingSystem(this)
     this.pathfinder = new GridPathfinder(GRID_COLS, GRID_ROWS)
-    this.stageSystem = new StageSystem(this.stages, this.botNirvs)
+    this.stageSystem = new StageSystem(this.stages, this.botNirvs, () => loadBands())
 
     this.spawnerState = {
       placedSprites: [], tableSprites: [], counterSprites: [],
@@ -127,7 +136,9 @@ export class GameScene extends Phaser.Scene {
 
     this.stagePlacer = new StagePlacer(
       this, this.stages, this.buildings,
+      this.obstacleGroup, this.pathfinder,
       (rotation) => this.placementManager?.enterStagePlacement(rotation),
+      (id) => this.stageSystem.removeRuntime(id),
     )
 
     this.playerInput = new PlayerInput(this, PLAYER_SPEED)
@@ -152,6 +163,8 @@ export class GameScene extends Phaser.Scene {
 
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.onWorldClicked(pointer))
     this.spawnBots()
+    this.stageSystem.syncPerformersAfterBotsSpawned()
+    this.nirvNameHover = new NirvNameHover(this)
   }
 
   update(_time: number, delta: number): void {
@@ -176,6 +189,15 @@ export class GameScene extends Phaser.Scene {
     this.stageSystem.update(delta)
     this.foodHandler.updateCarryIndicator()
 
+    const ptr = this.input.activePointer
+    const hideNameHover =
+      (this.menuUI?.isPointerOverUI(ptr) ?? false) ||
+      (this.placementManager?.isActive() ?? false)
+    this.nirvNameHover.update(ptr, [
+      { sprite: this.playerNirv.sprite, name: this.playerNirv.name },
+      ...this.botNirvs.map(b => ({ sprite: b.nirv.sprite, name: b.nirv.name })),
+    ], hideNameHover)
+
     if (this.menuUI?.isShopMode() && !this.placementManager?.isActive()) {
       this.interactionManager.updateShopCursor(
         this, this.spawnerState.placedSprites,
@@ -189,6 +211,10 @@ export class GameScene extends Phaser.Scene {
   private onWorldClicked(pointer: Phaser.Input.Pointer): void {
     if (!this.menuUI || !this.placementManager) return
     if (this.placementManager.isActive()) return
+
+    const cx = pointer.position.x
+    const cy = pointer.position.y
+    if (this.menuUI.tryConsumeWorkPanelStageClick(cx, cy)) return
 
     if (this.menuUI.isShopMode() && !this.foodHandler.isCarrying()) {
       if (this.menuUI.isPointerOverUI(pointer)) return
@@ -215,9 +241,13 @@ export class GameScene extends Phaser.Scene {
       this.buildingPlacer.createSign(b)
       this.buildingPlacer.blockCells(b)
     })
-    loadPlacedStages().forEach(r => {
-      this.stages.push(new Stage(this, r.id, r.gridX, r.gridY, r.rotation ?? 0))
+    const stageRecords = loadPlacedStages()
+    stageRecords.forEach(r => {
+      const st = new Stage(this, r.id, r.gridX, r.gridY, r.rotation ?? 0)
+      this.stages.push(st)
+      installStageBarrier(st, this.pathfinder, this, this.obstacleGroup)
     })
+    this.stageSystem.initFromRecords(stageRecords)
     loadPlacedObjects().forEach(r =>
       this.objectSpawner.spawn(r.type, r.x, r.y, false, r.recipeId, r.rotation),
     )
@@ -284,9 +314,20 @@ export class GameScene extends Phaser.Scene {
   private spawnBots(): void {
     for (const config of generateDefaultSchedules(GRID_COLS, GRID_ROWS)) {
       let variant = config.colorIndex % 2 === 0 ? 'f' as NirvVariant : 'm' as NirvVariant
-      if (config.colorIndex === 2) variant = 'f2' as NirvVariant
-      if (config.colorIndex === 3) variant = 'f3' as NirvVariant
-      const bot = new BotNirv(this, config.name, config.colorIndex, config.waypoints, variant, this.pathfinder)
+      if (config.colorIndex % 3 === 0) variant = 'f2' as NirvVariant
+      if (config.colorIndex % 5 === 0) variant = 'f3' as NirvVariant
+      const bot = new BotNirv(
+        this,
+        config.name,
+        config.colorIndex,
+        config.waypoints,
+        variant,
+        this.pathfinder,
+        config.id,
+        config.profession,
+        config.interests,
+        config.performerTags,
+      )
       bot.nirv.sprite.setCollideWorldBounds(true)
       this.nirvGroup.add(bot.nirv.sprite)
       this.botNirvs.push(bot)
@@ -295,6 +336,12 @@ export class GameScene extends Phaser.Scene {
 
   // ── Public API for UIScene ──
   getBotNirvs(): BotNirv[] { return this.botNirvs }
+
+  getPerformerBotsForUI(): { id: string; label: string }[] {
+    return this.botNirvs
+      .filter(b => isPerformerProfession(b.profession))
+      .map(b => ({ id: b.id, label: b.nirv.name }))
+  }
 
   isPlayerInsideRestaurant(): boolean {
     const { x, y } = this.playerNirv.sprite
@@ -310,5 +357,52 @@ export class GameScene extends Phaser.Scene {
     return this.botNirvs.filter(b =>
       (b.state === 'watching_stage' || b.state === 'walking_to_stage') && b.stageId === stageId,
     )
+  }
+
+  getStagePerformers(stageId: string): BotNirv[] {
+    return this.botNirvs.filter(b =>
+      b.stageId === stageId &&
+      (b.state === 'performing_on_stage' || b.state === 'walking_to_perform'),
+    )
+  }
+
+  getStagePerformanceView(stageId: string): StagePerformanceView | null {
+    return this.stageSystem.getPerformanceView(stageId)
+  }
+
+  /** Returns false if attraction is invalid (missing bot/band). */
+  setStageAttraction(stageId: string, attraction: StageAttraction | null): boolean {
+    if (attraction?.kind === 'solo') {
+      const b = this.botNirvs.find(x => x.id === attraction.botId)
+      if (!b || !isPerformerProfession(b.profession)) return false
+    } else if (attraction?.kind === 'band') {
+      const band = loadBands().find(x => x.id === attraction.bandId)
+      if (!band || band.memberBotIds.length < 2) return false
+    }
+    this.stageSystem.setStageAttraction(stageId, attraction)
+    return true
+  }
+
+  getBandsForUI(): BandRecord[] {
+    return loadBands()
+  }
+
+  formBandFromFirstTwoPerformers(): boolean {
+    const perf = this.botNirvs.filter(b => isPerformerProfession(b.profession))
+    if (perf.length < 2) return false
+    const a = perf[0]!
+    const b = perf[1]!
+    const tags = [...new Set([...a.performerTags, ...b.performerTags])] as MusicTag[]
+    addBand({
+      id: crypto.randomUUID(),
+      name: `${a.nirv.name} & ${b.nirv.name}`,
+      memberBotIds: [a.id, b.id],
+      tags,
+    })
+    return true
+  }
+
+  deleteBandById(id: string): void {
+    removeBand(id)
   }
 }

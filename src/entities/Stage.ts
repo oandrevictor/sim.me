@@ -1,5 +1,7 @@
 import Phaser from 'phaser'
 import { gridToScreen } from '../utils/isoGrid'
+import { isInsideQuad } from '../utils/isoQuad'
+import { computeStagePerformMarks } from '../utils/stagePerformLayout'
 
 export const STAGE_GRID_W = 4
 export const STAGE_GRID_H = 3
@@ -46,12 +48,21 @@ export class Stage {
         positions.push(gridToScreen(gridX + dx, frontY + 1))
       }
     }
-    // Sides
+    // Sides (one cell past the path barrier ring so spots stay reachable)
     for (let dy = 0; dy < gridH; dy++) {
-      positions.push(gridToScreen(gridX - 1, gridY + dy))
-      positions.push(gridToScreen(gridX + gridW, gridY + dy))
+      positions.push(gridToScreen(gridX - 2, gridY + dy))
+      positions.push(gridToScreen(gridX + gridW + 1, gridY + dy))
     }
     return positions
+  }
+
+  /**
+   * Pixel positions on the raised platform (inside the stage footprint) for acts.
+   * Spread left→right on the audience-facing row, then back rows (see stagePerformLayout).
+   */
+  getPerformMarkPositions(performerCount: number): { x: number; y: number }[] {
+    const { gridX, gridY, gridW, gridH } = this
+    return computeStagePerformMarks(gridX, gridY, gridW, gridH, performerCount)
   }
 
   containsPixel(px: number, py: number): boolean {
@@ -60,7 +71,7 @@ export class Stage {
     const tr = gridToScreen(gridX + gridW, gridY)
     const br = gridToScreen(gridX + gridW, gridY + gridH)
     const bl = gridToScreen(gridX, gridY + gridH)
-    return this.isInsideQuad(px, py, tl, tr, br, bl)
+    return isInsideQuad(px, py, tl, tr, br, bl)
   }
 
   overlaps(otherGridX: number, otherGridY: number, w: number, h: number): boolean {
@@ -121,13 +132,27 @@ export class Stage {
     gfx.closePath()
     gfx.fillPath()
 
-    // Gold border
+    // Gold border (platform)
     gfx.lineStyle(2, THEME.accent, 0.9)
     gfx.beginPath()
     gfx.moveTo(tl.x, tl.y)
     gfx.lineTo(tr.x, tr.y)
     gfx.lineTo(br.x, br.y)
     gfx.lineTo(bl.x, bl.y)
+    gfx.closePath()
+    gfx.strokePath()
+
+    // Outer barrier footprint (ring around stage; gap not drawn — matches path entrance)
+    const otl = gridToScreen(gridX - 1, gridY - 1)
+    const otr = gridToScreen(gridX + gridW, gridY - 1)
+    const obr = gridToScreen(gridX + gridW, gridY + gridH)
+    const obl = gridToScreen(gridX - 1, gridY + gridH)
+    gfx.lineStyle(2, THEME.grid, 0.95)
+    gfx.beginPath()
+    gfx.moveTo(otl.x, otl.y)
+    gfx.lineTo(otr.x, otr.y)
+    gfx.lineTo(obr.x, obr.y)
+    gfx.lineTo(obl.x, obl.y)
     gfx.closePath()
     gfx.strokePath()
 
@@ -143,21 +168,5 @@ export class Stage {
     }
 
     gfx.setDepth(1.6)
-  }
-
-  private isInsideQuad(
-    px: number, py: number,
-    a: {x:number,y:number}, b: {x:number,y:number},
-    c: {x:number,y:number}, d: {x:number,y:number},
-  ): boolean {
-    const cross = (ox: number, oy: number, ax: number, ay: number, bx: number, by: number) =>
-      (ax - ox) * (by - oy) - (ay - oy) * (bx - ox)
-    const d1 = cross(px, py, a.x, a.y, b.x, b.y)
-    const d2 = cross(px, py, b.x, b.y, c.x, c.y)
-    const d3 = cross(px, py, c.x, c.y, d.x, d.y)
-    const d4 = cross(px, py, d.x, d.y, a.x, a.y)
-    const hasNeg = (d1 < 0) || (d2 < 0) || (d3 < 0) || (d4 < 0)
-    const hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0) || (d4 > 0)
-    return !(hasNeg && hasPos)
   }
 }

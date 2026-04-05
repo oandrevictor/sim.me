@@ -1,93 +1,166 @@
-import Phaser from 'phaser'
-import { type Stage, STAGE_GRID_W, STAGE_GRID_H } from '../entities/Stage'
+import type { Stage } from '../entities/Stage'
 import type { BotNirv } from '../entities/BotNirv'
-import { gridToScreen } from '../utils/isoGrid'
+import type { BandRecord } from '../storage/bandPersistence'
+import type { StageAttraction, StageRecord } from '../storage/stagePersistence'
+import {
+  createRuntimeState,
+  cycleEndsAt,
+  setAttractionOnState,
+  type StagePerformanceRuntimeState,
+} from './stagePerformanceRuntime'
+import type { StagePerformanceView } from './stagePerformanceTypes'
+import {
+  advancePerformanceCycles,
+  cleanupDetachedWatchers,
+  registerWatcherArrivals,
+  tryAttractBotsToStages,
+  updateConcurrentWatcherMax,
+} from './stageAudienceTick'
+import { getPerformerBotIdsForAttraction } from './stagePerformerIds'
+import { placeBotsAsStagePerformers } from './stagePerformerPlacement'
+
+export type { StagePerformanceView } from './stagePerformanceTypes'
 
 const CHECK_INTERVAL = 3000
-const ATTRACT_PROBABILITY = 0.55
-const MAX_WATCHERS_PER_STAGE = 5
-const WATCH_RADIUS_TILES = 20
-const TILE_W = 64 // matches isoGrid TILE_W
 
 export class StageSystem {
-  private stages: Stage[]
-  private bots: BotNirv[]
+  private runtimeByStageId = new Map<string, StagePerformanceRuntimeState>()
   private timeSinceCheck = 0
-  /** Maps bot → the watch position it was sent to */
   private watchingBots = new Map<BotNirv, { stageId: string; x: number; y: number }>()
+  private arrivalRegistered = new Set<string>()
 
-  constructor(stages: Stage[], bots: BotNirv[]) {
-    this.stages = stages
-    this.bots = bots
+  constructor(
+    private readonly stages: Stage[],
+    private readonly bots: BotNirv[],
+    private readonly getBands: () => BandRecord[],
+  ) {}
+
+  private tickCtx() {
+    return {
+      stages: this.stages,
+      bots: this.bots,
+      getBands: this.getBands,
+      runtimeByStageId: this.runtimeByStageId,
+      watchingBots: this.watchingBots,
+      arrivalRegistered: this.arrivalRegistered,
+    }
+  }
+
+  initFromRecords(records: StageRecord[]): void {
+    const now = performance.now()
+    for (const r of records) {
+      this.runtimeByStageId.set(
+        r.id,
+        createRuntimeState(r.attraction ?? null, now, r.performanceHistory ?? []),
+      )
+    }
+  }
+
+  ensureRuntimeForStage(stageId: string): void {
+    if (this.runtimeByStageId.has(stageId)) return
+    this.runtimeByStageId.set(stageId, createRuntimeState(null, performance.now(), []))
+  }
+
+  private syncRuntimesWithStageList(): void {
+    const now = performance.now()
+    for (const s of this.stages) {
+      if (!this.runtimeByStageId.has(s.id)) {
+        this.runtimeByStageId.set(s.id, createRuntimeState(null, now, []))
+      }
+    }
+  }
+
+  setStageAttraction(stageId: string, attraction: StageAttraction | null): void {
+    this.ensureRuntimeForStage(stageId)
+    const st = this.runtimeByStageId.get(stageId)!
+    this.kickWatchersForStage(stageId)
+    for (const k of [...this.arrivalRegistered]) {
+      if (k.startsWith(`${stageId}:`)) this.arrivalRegistered.delete(k)
+    }
+    setAttractionOnState(stageId, st, attraction, performance.now())
+    if (attraction) {
+      const stage = this.stages.find(s => s.id === stageId)
+      if (stage) placeBotsAsStagePerformers(stage, this.bots, attraction, this.getBands)
+    }
+  }
+
+  /** After bots exist, move saved solo/band acts onto their stages */
+  syncPerformersAfterBotsSpawned(): void {
+    for (const stage of this.stages) {
+      const att = this.getStageAttraction(stage.id)
+      if (!att) continue
+      const ids = getPerformerBotIdsForAttraction(att, this.getBands)
+      if (ids.length === 0) {
+        this.setStageAttraction(stage.id, null)
+        continue
+      }
+      if (att.kind === 'solo' && !this.bots.some(b => b.id === att.botId)) {
+        this.setStageAttraction(stage.id, null)
+        continue
+      }
+      placeBotsAsStagePerformers(stage, this.bots, att, this.getBands)
+    }
+  }
+
+  getStageAttraction(stageId: string): StageAttraction | null {
+    return this.runtimeByStageId.get(stageId)?.attraction ?? null
+  }
+
+  getPerformanceView(stageId: string): StagePerformanceView | null {
+    this.ensureRuntimeForStage(stageId)
+    const st = this.runtimeByStageId.get(stageId)
+    if (!st) return null
+    const now = performance.now()
+    const ends = cycleEndsAt(st)
+    return {
+      attraction: st.attraction,
+      currentUnique: st.uniqueWatcherIds.size,
+      maxConcurrent: st.maxConcurrent,
+      cycleRemainingMs: st.attraction ? Math.max(0, ends - now) : 0,
+      history: [...st.history],
+    }
+  }
+
+  removeRuntime(stageId: string): void {
+    this.runtimeByStageId.delete(stageId)
+    this.kickWatchersForStage(stageId)
+    for (const k of [...this.arrivalRegistered]) {
+      if (k.startsWith(`${stageId}:`)) this.arrivalRegistered.delete(k)
+    }
+  }
+
+  private kickWatchersForStage(stageId: string): void {
+    for (const [bot, meta] of [...this.watchingBots]) {
+      if (meta.stageId !== stageId) continue
+      this.watchingBots.delete(bot)
+      if (bot.state === 'watching_stage' || bot.state === 'walking_to_stage') bot.leaveStage()
+    }
+    for (const bot of this.bots) {
+      if (bot.stageId !== stageId) continue
+      if (bot.state === 'performing_on_stage' || bot.state === 'walking_to_perform') bot.leaveStage()
+    }
   }
 
   update(delta: number): void {
+    this.syncRuntimesWithStageList()
+    const ctx = this.tickCtx()
+    const now = performance.now()
+
+    advancePerformanceCycles(ctx, now)
+    registerWatcherArrivals(ctx)
+    updateConcurrentWatcherMax(ctx)
+
     this.timeSinceCheck += delta
     if (this.timeSinceCheck < CHECK_INTERVAL) return
     this.timeSinceCheck = 0
 
-    this.cleanupWatchers()
-    this.tryAttractBots()
-  }
+    cleanupDetachedWatchers(ctx)
+    tryAttractBotsToStages(ctx)
 
-  private cleanupWatchers(): void {
-    for (const [bot, _] of this.watchingBots) {
-      if (bot.state === 'walking' || bot.state === 'waiting') {
-        this.watchingBots.delete(bot)
-      }
+    // Pick up performers who were busy (restaurant) when line-up was set, or missed placement
+    for (const stage of this.stages) {
+      const att = this.getStageAttraction(stage.id)
+      if (att) placeBotsAsStagePerformers(stage, this.bots, att, this.getBands)
     }
-  }
-
-  private tryAttractBots(): void {
-    if (this.stages.length === 0) return
-
-    for (const bot of this.bots) {
-      if (bot.state !== 'waiting') continue
-      if (this.watchingBots.has(bot)) continue
-      if (Math.random() > ATTRACT_PROBABILITY) continue
-
-      // Find the closest stage within range
-      let bestStage: Stage | null = null
-      let bestDist = Infinity
-
-      for (const stage of this.stages) {
-        // Skip stages already at watcher capacity
-        const watcherCount = [...this.watchingBots.values()].filter(w => w.stageId === stage.id).length
-        if (watcherCount >= MAX_WATCHERS_PER_STAGE) continue
-
-        const stageCenter = this.getStageCenterPixel(stage)
-        const dist = Phaser.Math.Distance.Between(
-          bot.nirv.sprite.x, bot.nirv.sprite.y,
-          stageCenter.x, stageCenter.y,
-        )
-
-        if (dist < TILE_W * WATCH_RADIUS_TILES && dist < bestDist) {
-          bestDist = dist
-          bestStage = stage
-        }
-      }
-
-      if (!bestStage) continue
-
-      // Pick a random available watch position
-      const allPositions = bestStage.getWatchPositions()
-      const occupiedPixels = new Set(
-        [...this.watchingBots.values()]
-          .filter(w => w.stageId === bestStage!.id)
-          .map(w => `${Math.round(w.x)},${Math.round(w.y)}`),
-      )
-      const available = allPositions.filter(
-        p => !occupiedPixels.has(`${Math.round(p.x)},${Math.round(p.y)}`),
-      )
-      if (available.length === 0) continue
-
-      const spot = available[Math.floor(Math.random() * available.length)]
-      this.watchingBots.set(bot, { stageId: bestStage.id, x: spot.x, y: spot.y })
-      bot.redirectToStage(spot.x, spot.y, bestStage.id)
-    }
-  }
-
-  private getStageCenterPixel(stage: Stage): { x: number; y: number } {
-    return gridToScreen(stage.gridX + STAGE_GRID_W / 2, stage.gridY + STAGE_GRID_H / 2)
   }
 }

@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { getRecipe } from '../data/recipes'
+import { playStoveIdle, STOVE_ANIM_COOKING } from '../animations/stoveAnims'
 
 type StoveStatus = 'idle' | 'cooking' | 'done'
 
@@ -7,6 +8,8 @@ interface StoveState {
   sprite: Phaser.Physics.Arcade.Sprite
   x: number
   y: number
+  /** Spritesheet row-0 frame for placed rotation (0–3) */
+  rotation: number
   status: StoveStatus
   recipeId: string | null
   cookProgress: number
@@ -22,15 +25,17 @@ export class CookingSystem {
     this.scene = scene
   }
 
-  registerStove(sprite: Phaser.Physics.Arcade.Sprite, x: number, y: number): void {
+  registerStove(sprite: Phaser.Physics.Arcade.Sprite, x: number, y: number, rotation: number): void {
     this.stoves.push({
       sprite, x, y,
+      rotation,
       status: 'idle',
       recipeId: null,
       cookProgress: 0,
       cookDuration: 0,
       progressBar: null,
     })
+    playStoveIdle(sprite, rotation)
   }
 
   getStoveAt(x: number, y: number): StoveState | null {
@@ -49,7 +54,10 @@ export class CookingSystem {
     stove.recipeId = recipeId
     stove.cookProgress = 0
     stove.cookDuration = recipe.cookTimeMs
-    stove.sprite.setTint(0xff6633) // orange tint while cooking
+    stove.sprite.clearTint()
+    if (stove.sprite.scene.anims.exists(STOVE_ANIM_COOKING)) {
+      stove.sprite.play(STOVE_ANIM_COOKING)
+    }
 
     // Create progress bar
     stove.progressBar = this.scene.add.graphics()
@@ -63,7 +71,7 @@ export class CookingSystem {
     stove.recipeId = null
     stove.cookProgress = 0
     stove.cookDuration = 0
-    stove.sprite.clearTint()
+    playStoveIdle(stove.sprite, stove.rotation)
     if (stove.progressBar) {
       stove.progressBar.destroy()
       stove.progressBar = null
@@ -78,6 +86,8 @@ export class CookingSystem {
       stove.cookProgress += delta
       if (stove.cookProgress >= stove.cookDuration) {
         stove.status = 'done'
+        stove.sprite.anims.stop()
+        stove.sprite.setFrame(stove.rotation)
         stove.sprite.setTint(0x33cc33) // green tint when done
         if (stove.progressBar) {
           stove.progressBar.destroy()

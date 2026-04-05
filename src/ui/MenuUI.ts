@@ -1,8 +1,9 @@
 import Phaser from 'phaser'
 import type { BotNirv } from '../entities/BotNirv'
 import type { Stage } from '../entities/Stage'
+import type { StageWorkBridge } from './WorkPanelStageSection'
 import { ShopPanel } from './ShopPanel'
-import { WorkPanel } from './WorkPanel'
+import { WorkPanel, WORK_PANEL_HEIGHT } from './WorkPanel'
 
 // ── Layout constants ──
 const BAR_WIDTH = 360
@@ -51,18 +52,26 @@ export class MenuUI {
     this.container.setPosition(x, y)
   }
 
+  /** Stage line-up buttons are hit-tested in GameScene because Phaser input often never reaches UIScene. */
+  tryConsumeWorkPanelStageClick(canvasX: number, canvasY: number): boolean {
+    if (this.activeTab !== 'work') return false
+    return this.workPanel.tryConsumeStagePanelClick(canvasX, canvasY)
+  }
+
   isPointerOverUI(pointer: Phaser.Input.Pointer): boolean {
-    const px = pointer.x
-    const py = pointer.y
+    // Use screen-space position; pointer.x/y can follow the last camera hit (world space).
+    const px = pointer.position.x
+    const py = pointer.position.y
     const barBounds = new Phaser.Geom.Rectangle(
       this.container.x - BAR_WIDTH / 2, this.container.y - BAR_HEIGHT, BAR_WIDTH, BAR_HEIGHT,
     )
     if (barBounds.contains(px, py)) return true
     if (this.activeTab === 'shop' || this.activeTab === 'work') {
+      const panelH = this.activeTab === 'work' ? WORK_PANEL_HEIGHT : PANEL_HEIGHT
       const panelBounds = new Phaser.Geom.Rectangle(
         this.container.x - PANEL_WIDTH / 2,
-        this.container.y - BAR_HEIGHT - PANEL_HEIGHT - 6,
-        PANEL_WIDTH, PANEL_HEIGHT,
+        this.container.y - BAR_HEIGHT - panelH - 6,
+        PANEL_WIDTH, panelH,
       )
       if (panelBounds.contains(px, py)) return true
     }
@@ -77,8 +86,17 @@ export class MenuUI {
     isPlayerInRestaurant: () => boolean,
     getPlayerStage: () => Stage | null = () => null,
     getStageWatchers: (stageId: string) => BotNirv[] = () => [],
+    getStagePerformers: (stageId: string) => BotNirv[] = () => [],
+    stageBridge: StageWorkBridge,
   ): void {
-    this.workPanel.setProviders(getBotNirvs, isPlayerInRestaurant, getPlayerStage, getStageWatchers)
+    this.workPanel.setProviders(
+      getBotNirvs,
+      isPlayerInRestaurant,
+      getPlayerStage,
+      getStageWatchers,
+      getStagePerformers,
+      stageBridge,
+    )
   }
 
   updateWorkPanel(): void {

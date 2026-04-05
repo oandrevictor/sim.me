@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { OBJECT_TYPE_REGISTRY, OBJECT_SIZE, type ObjectType } from '../objects/objectTypes'
+import { OBJECT_TYPE_REGISTRY, getFramedObjectDisplaySize, type ObjectType } from '../objects/objectTypes'
 import { BUILDING_GRID_W, BUILDING_GRID_H } from '../entities/Building'
 import { STAGE_GRID_W, STAGE_GRID_H } from '../entities/Stage'
 import { TILE_W, TILE_H } from '../utils/isoGrid'
@@ -16,7 +16,8 @@ export function createObjectGhost(
 
   if (ROTATABLE_TYPES.has(type) && config.frame !== undefined) {
     const sprite = scene.add.sprite(0, 0, config.textureKey, config.frame + rotation)
-    sprite.setDisplaySize(OBJECT_SIZE * 1.6, OBJECT_SIZE * 1.6)
+    const { w, h } = getFramedObjectDisplaySize(type, 1.6)
+    sprite.setDisplaySize(w, h)
     sprite.setAlpha(0.65)
     sprite.setDepth(10)
     return sprite

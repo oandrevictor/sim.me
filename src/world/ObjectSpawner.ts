@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { OBJECT_TYPE_REGISTRY, OBJECT_SIZE, type ObjectType } from '../objects/objectTypes'
+import { OBJECT_TYPE_REGISTRY, OBJECT_SIZE, getFramedObjectDisplaySize, type ObjectType } from '../objects/objectTypes'
 import { screenToGrid } from '../utils/isoGrid'
 import { savePlacedObject } from '../storage/persistence'
 import { removeObjectAt } from '../storage/persistence'
@@ -43,8 +43,8 @@ export class ObjectSpawner {
       const sprite = this.obstacleGroup.create(x, y, config.textureKey, frame) as Phaser.Physics.Arcade.Sprite
       sprite.setDepth(config.depth)
       if (config.frame !== undefined) {
-        const displaySize = OBJECT_SIZE * 1.6
-        sprite.setDisplaySize(displaySize, displaySize)
+        const { w, h } = getFramedObjectDisplaySize(type, 1.6)
+        sprite.setDisplaySize(w, h)
         sprite.body!.setSize(OBJECT_SIZE, OBJECT_SIZE)
         sprite.body!.setOffset((sprite.width - OBJECT_SIZE) / 2, (sprite.height - OBJECT_SIZE) / 2)
       }
@@ -62,7 +62,7 @@ export class ObjectSpawner {
       } else if (type === 'stove') {
         sprite.setInteractive({ useHandCursor: true })
         sprite.on('pointerdown', () => this.onStoveClicked(sprite))
-        this.cookingSystem.registerStove(sprite, x, y)
+        this.cookingSystem.registerStove(sprite, x, y, rotation ?? 0)
       } else if (type === 'trash') {
         sprite.setInteractive({ useHandCursor: true })
         sprite.on('pointerdown', () => this.onTrashClicked(sprite))
@@ -71,7 +71,8 @@ export class ObjectSpawner {
       const sprite = this.scene.add.sprite(x, y, config.textureKey, frame)
       sprite.setDepth(config.depth)
       if (config.frame !== undefined) {
-        sprite.setDisplaySize(OBJECT_SIZE * 1.6, OBJECT_SIZE * 1.6)
+        const { w, h } = getFramedObjectDisplaySize(type, 1.6)
+        sprite.setDisplaySize(w, h)
       }
       if (type !== 'food_plate') {
         this.state.placedSprites.push({ sprite, type, x, y, rotation })

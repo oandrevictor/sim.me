@@ -12,6 +12,8 @@ export interface ObjectTypeConfig {
   description: string
   textureKey: string
   frame?: number
+  /** If set (with frame): display width = height × ratio; matches spritesheet frame aspect (see GameScene preload). */
+  displayAspectWidthOverHeight?: number
   previewColor: number
   depth: number
   hasPhysicsBody: boolean
@@ -88,6 +90,7 @@ export const OBJECT_TYPE_REGISTRY: Record<ObjectType, ObjectTypeConfig> = {
     description: 'Cook recipes',
     textureKey: 'furniture_stove',
     frame: 0,
+    displayAspectWidthOverHeight: 528 / 288,
     previewColor: 0x444444,
     depth: 2,
     hasPhysicsBody: true,
@@ -123,6 +126,14 @@ export const OBJECT_TYPE_REGISTRY: Record<ObjectType, ObjectTypeConfig> = {
     hasPhysicsBody: true,
     isInteractable: true,
   },
+}
+
+/** World uses scale 1.6; shop/inventory icons use ~1.1. */
+export function getFramedObjectDisplaySize(type: ObjectType, scale: number): { w: number; h: number } {
+  const c = OBJECT_TYPE_REGISTRY[type]
+  const h = OBJECT_SIZE * scale
+  const r = c.displayAspectWidthOverHeight ?? 1
+  return { w: h * r, h }
 }
 
 export function generateObjectTextures(scene: Phaser.Scene): void {
