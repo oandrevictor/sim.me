@@ -126,9 +126,14 @@ export class ObjectSpawner {
       for (const plate of orphaned) {
         plate.sprite.destroy()
         removeObjectAt(plate.tableX, plate.tableY)
-        this.restaurantSystem.removePlateFromTable(plate.tableX, plate.tableY)
       }
       this.state.plateSprites = this.state.plateSprites.filter(p => p.tableX !== x || p.tableY !== y)
+    }
+
+    if (type === 'chair') {
+      this.restaurantSystem.unregisterChair(sprite as Phaser.GameObjects.Sprite)
+    } else if (type === 'table2' || type === 'table4') {
+      this.restaurantSystem.unregisterTable(sprite)
     }
 
     removeObjectAt(x, y)

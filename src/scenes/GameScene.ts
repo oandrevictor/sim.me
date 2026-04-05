@@ -100,11 +100,9 @@ export class GameScene extends Phaser.Scene {
       interactableSprites: [], backgroundSprites: [], plateSprites: [],
     }
 
-    this.restaurantSystem.onPlateConsumed = (x, y) => {
+    this.restaurantSystem.onPlateConsumed = (x, y, sprite) => {
       removeObjectByType(x, y, 'food_plate')
-      this.spawnerState.plateSprites = this.spawnerState.plateSprites.filter(
-        p => !(p.tableX === x && p.tableY === y),
-      )
+      this.spawnerState.plateSprites = this.spawnerState.plateSprites.filter(p => p.sprite !== sprite)
     }
 
     this.objectSpawner = new ObjectSpawner(

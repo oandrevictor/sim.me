@@ -159,7 +159,7 @@ export class FoodHandler {
   }
 
   private pickUpPlate(entry: PlateEntry): void {
-    this.restaurantSystem.removePlateFromTable(entry.tableX, entry.tableY)
+    this.restaurantSystem.removePlateFromTable(entry.tableX, entry.tableY, entry.sprite)
     entry.sprite.destroy()
     this.removePlateEntry(entry)
     removeObjectByType(entry.tableX, entry.tableY, 'food_plate')
