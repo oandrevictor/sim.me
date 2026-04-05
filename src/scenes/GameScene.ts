@@ -58,7 +58,7 @@ export class GameScene extends Phaser.Scene {
   private tableSprites: { sprite: Phaser.Physics.Arcade.Sprite; x: number; y: number }[] = []
   private counterSprites: { sprite: Phaser.Physics.Arcade.Sprite; x: number; y: number }[] = []
   // Track all placed object sprites for repositioning
-  private placedSprites: { sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite; type: ObjectType; x: number; y: number }[] = []
+  private placedSprites: { sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite; type: ObjectType; x: number; y: number; rotation?: number }[] = []
 
   private zoomIndex = DEFAULT_ZOOM_INDEX
   private walkTarget: WalkTarget | null = null
@@ -90,6 +90,8 @@ export class GameScene extends Phaser.Scene {
 
     // Furniture
     this.load.spritesheet('furniture_table', 'assets/Furniture/ModernTable1.png', { frameWidth: 250, frameHeight: 250 })
+    this.load.spritesheet('furniture_chair', 'assets/Furniture/chair sprite.png', { frameWidth: 250, frameHeight: 250 })
+    this.load.spritesheet('furniture_stove', 'assets/Furniture/cookerwhite01_all.png', { frameWidth: 600, frameHeight: 750 })
   }
 
   create(): void {
@@ -159,7 +161,7 @@ export class GameScene extends Phaser.Scene {
     })
 
     // Restore persisted objects
-    loadPlacedObjects().forEach(r => this.spawnObject(r.type, r.x, r.y, false, r.recipeId))
+    loadPlacedObjects().forEach(r => this.spawnObject(r.type, r.x, r.y, false, r.recipeId, r.rotation))
 
     // Launch UI scene on top
     this.scene.launch('UIScene')
@@ -174,7 +176,7 @@ export class GameScene extends Phaser.Scene {
       this.placementManager = new PlacementManager(
         this,
         this.menuUI,
-        (type, x, y) => this.spawnObject(type, x, y, true),
+        (type, x, y, rotation) => this.spawnObject(type, x, y, true, undefined, rotation),
         (gridX, gridY) => this.placeBuilding(gridX, gridY),
       )
 
@@ -231,21 +233,26 @@ export class GameScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     const player = this.playerNirv.sprite
-    let vx = 0
-    let vy = 0
 
-    if (this.cursors.left.isDown || this.wasd.left.isDown) vx -= 1
-    if (this.cursors.right.isDown || this.wasd.right.isDown) vx += 1
-    if (this.cursors.up.isDown || this.wasd.up.isDown) vy -= 1
-    if (this.cursors.down.isDown || this.wasd.down.isDown) vy += 1
+    // Map input to isometric directions (2:1 diamond grid)
+    // Up=NW(-2,-1), Down=SE(2,1), Left=SW(-2,1), Right=NE(2,-1)
+    let isoX = 0
+    let isoY = 0
+
+    if (this.cursors.up.isDown || this.wasd.up.isDown) { isoX -= 2; isoY -= 1 }
+    if (this.cursors.down.isDown || this.wasd.down.isDown) { isoX += 2; isoY += 1 }
+    if (this.cursors.left.isDown || this.wasd.left.isDown) { isoX -= 2; isoY += 1 }
+    if (this.cursors.right.isDown || this.wasd.right.isDown) { isoX += 2; isoY -= 1 }
+
+    const hasInput = isoX !== 0 || isoY !== 0
 
     // Manual input cancels auto-walk
-    if ((vx !== 0 || vy !== 0) && this.walkTarget !== null) {
+    if (hasInput && this.walkTarget !== null) {
       this.walkTarget = null
     }
 
     // Manual input also cancels pending interactions
-    if (vx !== 0 || vy !== 0) {
+    if (hasInput) {
       this.pendingStoveSprite = null
       this.pendingTrashSprite = null
       this.pendingPlatePickup = null
@@ -271,13 +278,9 @@ export class GameScene extends Phaser.Scene {
           Math.sin(angle) * PLAYER_SPEED
         )
       }
-    } else if (vx !== 0 || vy !== 0) {
-      if (vx !== 0 && vy !== 0) {
-        const INV_SQRT2 = 0.7071
-        vx *= INV_SQRT2
-        vy *= INV_SQRT2
-      }
-      player.setVelocity(vx * PLAYER_SPEED, vy * PLAYER_SPEED)
+    } else if (hasInput) {
+      const len = Math.sqrt(isoX * isoX + isoY * isoY)
+      player.setVelocity((isoX / len) * PLAYER_SPEED, (isoY / len) * PLAYER_SPEED)
     } else {
       player.setVelocity(0, 0)
     }
@@ -336,12 +339,13 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private spawnObject(type: ObjectType, x: number, y: number, persist: boolean, recipeId?: string): void {
+  private spawnObject(type: ObjectType, x: number, y: number, persist: boolean, recipeId?: string, rotation?: number): void {
     const config = OBJECT_TYPE_REGISTRY[type]
+    const frame = config.frame !== undefined ? config.frame + (rotation ?? 0) : 0
 
     if (config.hasPhysicsBody) {
       const sprite = this.obstacleGroup.create(
-        x, y, config.textureKey, config.frame ?? 0
+        x, y, config.textureKey, frame
       ) as Phaser.Physics.Arcade.Sprite
       sprite.setDepth(config.depth)
       if (config.frame !== undefined) {
@@ -354,10 +358,10 @@ export class GameScene extends Phaser.Scene {
         )
       }
       sprite.refreshBody()
-      this.placedSprites.push({ sprite, type, x, y })
+      this.placedSprites.push({ sprite, type, x, y, rotation })
 
-      // Block cell in pathfinder (only for generic obstacles, not furniture)
-      if (this.pathfinder && type === 'obstacle') {
+      // Block cell in pathfinder for all physics-body objects
+      if (this.pathfinder) {
         const g = screenToGrid(x, y)
         this.pathfinder.blockCell(Math.round(g.gx), Math.round(g.gy))
       }
@@ -380,10 +384,14 @@ export class GameScene extends Phaser.Scene {
         sprite.on('pointerdown', () => this.onTrashClicked(sprite))
       }
     } else {
-      const sprite = this.add.sprite(x, y, config.textureKey)
+      const sprite = this.add.sprite(x, y, config.textureKey, frame)
       sprite.setDepth(config.depth)
+      if (config.frame !== undefined) {
+        const displaySize = OBJECT_SIZE * 1.6
+        sprite.setDisplaySize(displaySize, displaySize)
+      }
       if (type !== 'food_plate') {
-        this.placedSprites.push({ sprite, type, x, y })
+        this.placedSprites.push({ sprite, type, x, y, rotation })
       }
 
       if (type === 'interactable') {
@@ -411,7 +419,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (persist) {
-      savePlacedObject({ id: crypto.randomUUID(), type, x, y, recipeId })
+      savePlacedObject({ id: crypto.randomUUID(), type, x, y, recipeId, rotation })
     }
   }
 
@@ -689,7 +697,7 @@ export class GameScene extends Phaser.Scene {
     if (idx === -1) return
 
     const entry = this.placedSprites[idx]
-    const { sprite, type, x, y } = entry
+    const { sprite, type, x, y, rotation } = entry
 
     // Remove from scene
     sprite.destroy()
@@ -715,8 +723,9 @@ export class GameScene extends Phaser.Scene {
     // Remove from persistence
     removeObjectAt(x, y)
 
-    // Unblock cell in pathfinder (only for generic obstacles)
-    if (type === 'obstacle') {
+    // Unblock cell in pathfinder for all physics-body objects
+    const typeConfig = OBJECT_TYPE_REGISTRY[type]
+    if (typeConfig.hasPhysicsBody) {
       const g = screenToGrid(x, y)
       this.pathfinder.unblockCell(Math.round(g.gx), Math.round(g.gy))
     }
@@ -727,7 +736,7 @@ export class GameScene extends Phaser.Scene {
       this.menuUI.refreshInventoryGrid()
     } else {
       // Enter reposition mode: ghost follows cursor, placed on mouse-up, then auto-exits
-      this.placementManager.enterReposition(type, snapped.x, snapped.y)
+      this.placementManager.enterReposition(type, snapped.x, snapped.y, rotation)
     }
   }
 
@@ -832,7 +841,7 @@ export class GameScene extends Phaser.Scene {
       this.botNirvs.push(bot)
     }
 
-    // Nirvs collide with obstacles (but not with each other)
-    this.physics.add.collider(this.nirvGroup, this.obstacleGroup)
+    // Bots rely on the pathfinder for obstacle avoidance (no physics collision).
+    // The player already has its own collider (line ~131).
   }
 }

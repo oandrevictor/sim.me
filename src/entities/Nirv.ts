@@ -47,12 +47,24 @@ export class Nirv {
     const moving = Math.abs(vx) > 10 || Math.abs(vy) > 10
 
     if (moving) {
-      // Determine direction from dominant axis
+      // Convert screen velocity to grid-space direction for iso-correct animation
+      // dgx ∝ movement along gx axis (SE on screen)
+      // dgy ∝ movement along gy axis (SW on screen)
+      const dgx = vx + 2 * vy
+      const dgy = -vx + 2 * vy
+
       let dir: string
-      if (Math.abs(vx) > Math.abs(vy)) {
-        dir = vx > 0 ? 'right' : 'left'
+      if (Math.abs(dgx) > Math.abs(dgy)) {
+        dir = dgx > 0 ? 'down' : 'up'
+      } else if (Math.abs(dgy) > Math.abs(dgx)) {
+        dir = dgy > 0 ? 'left' : 'right'
       } else {
-        dir = vy > 0 ? 'down' : 'up'
+        // Tie: moving in a screen-cardinal direction, use screen axis
+        if (Math.abs(vy) > Math.abs(vx)) {
+          dir = vy > 0 ? 'down' : 'up'
+        } else {
+          dir = vx > 0 ? 'right' : 'left'
+        }
       }
       this.lastDir = dir
 

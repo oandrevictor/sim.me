@@ -49,7 +49,7 @@ export class CookingSystem {
     stove.recipeId = recipeId
     stove.cookProgress = 0
     stove.cookDuration = recipe.cookTimeMs
-    stove.sprite.setTexture('obj_stove_cooking')
+    stove.sprite.setTint(0xff6633) // orange tint while cooking
 
     // Create progress bar
     stove.progressBar = this.scene.add.graphics()
@@ -63,7 +63,7 @@ export class CookingSystem {
     stove.recipeId = null
     stove.cookProgress = 0
     stove.cookDuration = 0
-    stove.sprite.setTexture('obj_stove')
+    stove.sprite.clearTint()
     if (stove.progressBar) {
       stove.progressBar.destroy()
       stove.progressBar = null
@@ -78,7 +78,7 @@ export class CookingSystem {
       stove.cookProgress += delta
       if (stove.cookProgress >= stove.cookDuration) {
         stove.status = 'done'
-        stove.sprite.setTexture('obj_stove_done')
+        stove.sprite.setTint(0x33cc33) // green tint when done
         if (stove.progressBar) {
           stove.progressBar.destroy()
           stove.progressBar = null

@@ -70,11 +70,16 @@ export class GridPathfinder {
     const startKey = this.key(startGX, startGY)
     openSet.set(startKey, startNode)
 
+    // 8-directional movement (cardinal + diagonal)
     const dirs = [
-      { dx: 0, dy: -1 },
-      { dx: 0, dy: 1 },
-      { dx: -1, dy: 0 },
-      { dx: 1, dy: 0 },
+      { dx: 0, dy: -1, cost: 1 },
+      { dx: 0, dy: 1, cost: 1 },
+      { dx: -1, dy: 0, cost: 1 },
+      { dx: 1, dy: 0, cost: 1 },
+      { dx: -1, dy: -1, cost: 1.414 },
+      { dx: 1, dy: -1, cost: 1.414 },
+      { dx: -1, dy: 1, cost: 1.414 },
+      { dx: 1, dy: 1, cost: 1.414 },
     ]
 
     let iterations = 0
@@ -97,7 +102,7 @@ export class GridPathfinder {
       openSet.delete(this.key(current.gx, current.gy))
       closedSet.add(this.key(current.gx, current.gy))
 
-      for (const { dx, dy } of dirs) {
+      for (const { dx, dy, cost } of dirs) {
         const nx = current.gx + dx
         const ny = current.gy + dy
         const nKey = this.key(nx, ny)
@@ -106,11 +111,20 @@ export class GridPathfinder {
         if (this.blocked[nx][ny]) continue
         if (closedSet.has(nKey)) continue
 
-        const g = current.g + 1
+        // Prevent corner-cutting: both adjacent cardinal cells must be open
+        if (dx !== 0 && dy !== 0) {
+          if (this.isBlocked(current.gx + dx, current.gy) ||
+              this.isBlocked(current.gx, current.gy + dy)) continue
+        }
+
+        const g = current.g + cost
         const existing = openSet.get(nKey)
 
         if (!existing) {
-          const h = Math.abs(endGX - nx) + Math.abs(endGY - ny)
+          // Chebyshev heuristic for 8-directional
+          const hdx = Math.abs(endGX - nx)
+          const hdy = Math.abs(endGY - ny)
+          const h = Math.max(hdx, hdy) + 0.414 * Math.min(hdx, hdy)
           openSet.set(nKey, { gx: nx, gy: ny, g, h, f: g + h, parent: current })
         } else if (g < existing.g) {
           existing.g = g

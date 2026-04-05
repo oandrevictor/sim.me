@@ -75,7 +75,8 @@ export const OBJECT_TYPE_REGISTRY: Record<ObjectType, ObjectTypeConfig> = {
     type: 'chair',
     label: 'Chair',
     description: 'Seat for Nirvs',
-    textureKey: 'obj_chair',
+    textureKey: 'furniture_chair',
+    frame: 0,
     previewColor: 0xa0784c,
     depth: 2,
     hasPhysicsBody: false,
@@ -85,7 +86,8 @@ export const OBJECT_TYPE_REGISTRY: Record<ObjectType, ObjectTypeConfig> = {
     type: 'stove',
     label: 'Stove',
     description: 'Cook recipes',
-    textureKey: 'obj_stove',
+    textureKey: 'furniture_stove',
+    frame: 0,
     previewColor: 0x444444,
     depth: 2,
     hasPhysicsBody: true,
@@ -162,16 +164,7 @@ export function generateObjectTextures(scene: Phaser.Scene): void {
 
   // Table textures loaded from spritesheet in GameScene.preload()
 
-  // Chair: wood seat with backrest bar on top
-  const chairGfx = scene.make.graphics({ x: 0, y: 0 })
-  chairGfx.fillStyle(0x785030)
-  chairGfx.fillRect(8, 6, 16, 4)
-  chairGfx.fillStyle(0xa0784c)
-  chairGfx.fillRect(8, 10, 16, 16)
-  chairGfx.lineStyle(1, 0x604020)
-  chairGfx.strokeRect(8, 10, 16, 16)
-  chairGfx.generateTexture('obj_chair', OBJECT_SIZE, OBJECT_SIZE)
-  chairGfx.destroy()
+  // Chair texture loaded from spritesheet in GameScene.preload()
 
   // Sign: brown post with tan sign board
   const signGfx = scene.make.graphics({ x: 0, y: 0 })
@@ -184,44 +177,7 @@ export function generateObjectTextures(scene: Phaser.Scene): void {
   signGfx.generateTexture('obj_sign', OBJECT_SIZE, OBJECT_SIZE)
   signGfx.destroy()
 
-  // Stove (idle): dark grey with orange burner circles
-  const stoveGfx = scene.make.graphics({ x: 0, y: 0 })
-  stoveGfx.fillStyle(0x444444)
-  stoveGfx.fillRect(0, 0, OBJECT_SIZE, OBJECT_SIZE)
-  stoveGfx.lineStyle(1, 0x333333)
-  stoveGfx.strokeRect(1, 1, OBJECT_SIZE - 2, OBJECT_SIZE - 2)
-  stoveGfx.fillStyle(0xdd6622)
-  stoveGfx.fillCircle(10, 10, 5)
-  stoveGfx.fillCircle(22, 10, 5)
-  stoveGfx.fillCircle(10, 22, 5)
-  stoveGfx.fillCircle(22, 22, 5)
-  stoveGfx.generateTexture('obj_stove', OBJECT_SIZE, OBJECT_SIZE)
-  stoveGfx.destroy()
-
-  // Stove (cooking): dark grey with red burner circles
-  const stoveCookGfx = scene.make.graphics({ x: 0, y: 0 })
-  stoveCookGfx.fillStyle(0x444444)
-  stoveCookGfx.fillRect(0, 0, OBJECT_SIZE, OBJECT_SIZE)
-  stoveCookGfx.lineStyle(1, 0x333333)
-  stoveCookGfx.strokeRect(1, 1, OBJECT_SIZE - 2, OBJECT_SIZE - 2)
-  stoveCookGfx.fillStyle(0xff3311)
-  stoveCookGfx.fillCircle(10, 10, 5)
-  stoveCookGfx.fillCircle(22, 10, 5)
-  stoveCookGfx.fillCircle(10, 22, 5)
-  stoveCookGfx.fillCircle(22, 22, 5)
-  stoveCookGfx.generateTexture('obj_stove_cooking', OBJECT_SIZE, OBJECT_SIZE)
-  stoveCookGfx.destroy()
-
-  // Stove (done): dark grey with green indicator
-  const stoveDoneGfx = scene.make.graphics({ x: 0, y: 0 })
-  stoveDoneGfx.fillStyle(0x444444)
-  stoveDoneGfx.fillRect(0, 0, OBJECT_SIZE, OBJECT_SIZE)
-  stoveDoneGfx.lineStyle(1, 0x333333)
-  stoveDoneGfx.strokeRect(1, 1, OBJECT_SIZE - 2, OBJECT_SIZE - 2)
-  stoveDoneGfx.fillStyle(0x33cc33)
-  stoveDoneGfx.fillCircle(16, 16, 8)
-  stoveDoneGfx.generateTexture('obj_stove_done', OBJECT_SIZE, OBJECT_SIZE)
-  stoveDoneGfx.destroy()
+  // Stove textures loaded from spritesheet in GameScene.preload()
 
   // Counter: light brown surface
   const counterGfx = scene.make.graphics({ x: 0, y: 0 })

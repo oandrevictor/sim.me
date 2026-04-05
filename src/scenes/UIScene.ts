@@ -21,7 +21,7 @@ export class UIScene extends Phaser.Scene {
       () => gameScene.isPlayerInsideRestaurant(),
     )
 
-    this.helpText = this.add.text(10, 10, 'Move: WASD / Arrows  |  Shop: place & move objects  |  ESC to cancel', {
+    this.helpText = this.add.text(10, 10, 'Move: WASD / Arrows  |  Shop: place & move objects  |  R: rotate  |  ESC to cancel', {
       fontSize: '12px',
       color: '#ffffff',
     })

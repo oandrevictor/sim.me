@@ -6,6 +6,7 @@ export interface PlacedObjectRecord {
   x: number
   y: number
   recipeId?: string
+  rotation?: number
 }
 
 const STORAGE_KEY = 'simme_placed_objects'

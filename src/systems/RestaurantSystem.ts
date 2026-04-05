@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { TILE_W } from '../utils/isoGrid'
+import { TILE_W, screenToGrid } from '../utils/isoGrid'
 import { getRecipe } from '../data/recipes'
 import type { Building } from '../entities/Building'
 import type { BotNirv } from '../entities/BotNirv'
@@ -124,9 +124,7 @@ export class RestaurantSystem {
         if (!chair.occupiedBy) continue
         if (chair.occupiedBy.state !== 'awaiting_service') continue
 
-        const dx = Math.abs(chair.x - table.x)
-        const dy = Math.abs(chair.y - table.y)
-        if (dx + dy > TILE_W) continue
+        if (!this.isGridAdjacent(chair.x, chair.y, table.x, table.y)) continue
 
         const recipe = getRecipe(foodSlot.plate.recipeId)
         const eatTime = recipe?.eatTimeMs ?? 5000
@@ -153,7 +151,7 @@ export class RestaurantSystem {
         chair.x, chair.y
       )
 
-      if (dist < 20) {
+      if (dist < 32) {
         bot.seat(chair.nextToTable)
       }
     }
@@ -217,13 +215,20 @@ export class RestaurantSystem {
 
   private isAdjacentToTable(cx: number, cy: number): boolean {
     for (const table of this.tables) {
-      const dx = Math.abs(cx - table.x)
-      const dy = Math.abs(cy - table.y)
-      if (dx + dy <= TILE_W) {
+      if (this.isGridAdjacent(cx, cy, table.x, table.y)) {
         return true
       }
     }
     return false
+  }
+
+  /** Check if two pixel positions are within 1 grid cell of each other */
+  private isGridAdjacent(ax: number, ay: number, bx: number, by: number): boolean {
+    const ga = screenToGrid(ax, ay)
+    const gb = screenToGrid(bx, by)
+    const gdx = Math.abs(Math.round(ga.gx) - Math.round(gb.gx))
+    const gdy = Math.abs(Math.round(ga.gy) - Math.round(gb.gy))
+    return gdx + gdy <= 1
   }
 
   private recalcChairAdjacency(): void {

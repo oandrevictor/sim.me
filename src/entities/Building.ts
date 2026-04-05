@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 import type { BuildingType } from '../storage/buildingPersistence'
-import { gridToScreen, TILE_W, TILE_H } from '../utils/isoGrid'
+import { gridToScreen } from '../utils/isoGrid'
 
 export { type BuildingType }
 
@@ -40,45 +40,57 @@ export class Building {
     const w = BUILDING_GRID_W
     const h = BUILDING_GRID_H
 
-    const WALL_THICK = 8
+    // Use small, densely-packed bodies along each diagonal edge line.
+    // Player body is 20×24, so gaps < 20px are impassable.
+    const BODY_SIZE = 14
+    const STEPS_PER_CELL = 2 // spacing ≈ 17.9px, gap ≈ 3.9px
 
-    const addWall = (cx: number, cy: number, bw: number, bh: number) => {
-      const key = `__wall_${bw}x${bh}`
-      if (!scene.textures.exists(key)) {
-        const gfx = scene.make.graphics({ x: 0, y: 0 })
-        gfx.fillStyle(0x000000, 0)
-        gfx.fillRect(0, 0, bw, bh)
-        gfx.generateTexture(key, bw, bh)
-        gfx.destroy()
-      }
-      const wall = obstacleGroup.create(cx, cy, key) as Phaser.Physics.Arcade.Sprite
+    const texKey = `__isowall_${BODY_SIZE}`
+    if (!scene.textures.exists(texKey)) {
+      const gfx = scene.make.graphics({ x: 0, y: 0 })
+      gfx.fillStyle(0x000000, 0)
+      gfx.fillRect(0, 0, BODY_SIZE, BODY_SIZE)
+      gfx.generateTexture(texKey, BODY_SIZE, BODY_SIZE)
+      gfx.destroy()
+    }
+
+    const addBody = (cx: number, cy: number) => {
+      const wall = obstacleGroup.create(cx, cy, texKey) as Phaser.Physics.Arcade.Sprite
       wall.setVisible(false)
       wall.refreshBody()
       this.wallBodies.push(wall)
     }
 
-    // Place wall bodies along each edge of the building perimeter
-    // Top-right edge (gridX varies, gridY fixed at gy)
-    for (let x = gx; x < gx + w; x++) {
-      const pos = gridToScreen(x, gy)
-      addWall(pos.x, pos.y, TILE_W * 0.6, WALL_THICK)
+    // Place bodies along a screen-space line, with optional door gap
+    const addEdge = (
+      sx: number, sy: number, ex: number, ey: number,
+      cells: number, doorStart?: number, doorEnd?: number,
+    ) => {
+      const totalSteps = cells * STEPS_PER_CELL
+      for (let i = 0; i <= totalSteps; i++) {
+        const t = i / totalSteps
+        if (doorStart !== undefined && doorEnd !== undefined) {
+          const cellPos = t * cells
+          if (cellPos >= doorStart && cellPos <= doorEnd) continue
+        }
+        addBody(sx + (ex - sx) * t, sy + (ey - sy) * t)
+      }
     }
-    // Top-left edge (gridX fixed at gx, gridY varies)
-    for (let y = gy; y < gy + h; y++) {
-      const pos = gridToScreen(gx, y)
-      addWall(pos.x, pos.y, WALL_THICK, TILE_H * 0.6)
-    }
-    // Bottom-right edge (gridX fixed at gx+w-1, gridY varies)
-    for (let y = gy; y < gy + h; y++) {
-      const pos = gridToScreen(gx + w - 1, y)
-      addWall(pos.x, pos.y, WALL_THICK, TILE_H * 0.6)
-    }
-    // Bottom-left edge (gridX varies, gridY fixed at gy+h-1) — with door gap
-    for (let x = gx; x < gx + w; x++) {
-      if (x === gx + 3 || x === gx + 4) continue // door gap
-      const pos = gridToScreen(x, gy + h - 1)
-      addWall(pos.x, pos.y, TILE_W * 0.6, WALL_THICK)
-    }
+
+    // Visual edge endpoints (matches the drawn wall outline)
+    const tl = gridToScreen(gx, gy)
+    const tr = gridToScreen(gx + w, gy)
+    const br = gridToScreen(gx + w, gy + h)
+    const bl = gridToScreen(gx, gy + h)
+
+    // Top edge: tl → tr
+    addEdge(tl.x, tl.y, tr.x, tr.y, w)
+    // Right edge: tr → br
+    addEdge(tr.x, tr.y, br.x, br.y, h)
+    // Bottom edge: bl → br (door gap at grid cells 3–5)
+    addEdge(bl.x, bl.y, br.x, br.y, w, 3, 5)
+    // Left edge: tl → bl
+    addEdge(tl.x, tl.y, bl.x, bl.y, h)
   }
 
   setType(type: BuildingType): void {

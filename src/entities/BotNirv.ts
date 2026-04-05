@@ -5,7 +5,8 @@ import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import { gridToScreen, screenToGrid } from '../utils/isoGrid'
 
 const BOT_SPEED = 120
-const ARRIVAL_THRESHOLD = 18
+const ARRIVAL_THRESHOLD = 24
+const CHAIR_ARRIVAL_THRESHOLD = 32
 
 export type BotState = 'walking' | 'waiting' | 'walking_to_chair' | 'seated' | 'awaiting_service' | 'eating'
 
@@ -140,7 +141,7 @@ export class BotNirv {
           sprite.x, sprite.y,
           this.redirectTarget.x, this.redirectTarget.y
         )
-        if (dist < ARRIVAL_THRESHOLD) {
+        if (dist < CHAIR_ARRIVAL_THRESHOLD) {
           sprite.setVelocity(0, 0)
           sprite.setPosition(this.redirectTarget.x, this.redirectTarget.y)
           this.nirv.updateAnimation(0, 0)
@@ -182,7 +183,7 @@ export class BotNirv {
   private followPath(): void {
     const sprite = this.nirv.sprite
 
-    // Stuck detection: if barely moved, skip current path node
+    // Stuck detection: if barely moved, try recovery
     const moved = Phaser.Math.Distance.Between(sprite.x, sprite.y, this.prevX, this.prevY)
     if (moved < 1) {
       this.stuckFrames++
@@ -193,9 +194,18 @@ export class BotNirv {
     this.prevY = sprite.y
 
     if (this.stuckFrames > 15 && this.pathNodeIndex < this.path.length) {
-      // Skip current node — it's likely blocked by furniture
+      // Skip current node
       this.pathNodeIndex++
       this.stuckFrames = 0
+    }
+    if (this.stuckFrames > 45) {
+      // Stuck too long — recompute entire path from current position
+      this.stuckFrames = 0
+      if (this._state === 'walking') {
+        this.computePathToWaypoint()
+      } else if (this._state === 'walking_to_chair' && this.redirectTarget) {
+        this.computePathToPixel(this.redirectTarget.x, this.redirectTarget.y)
+      }
     }
 
     if (this.pathNodeIndex >= this.path.length) {
