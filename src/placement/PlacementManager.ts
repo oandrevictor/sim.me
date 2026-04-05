@@ -1,83 +1,164 @@
 import Phaser from 'phaser'
-import { GRID_SIZE, OBJECT_TYPE_REGISTRY, type ObjectType } from '../objects/objectTypes'
-import type { StoreUI } from '../ui/StoreUI'
+import { OBJECT_TYPE_REGISTRY, type ObjectType } from '../objects/objectTypes'
+import { BUILDING_GRID_W, BUILDING_GRID_H } from '../entities/Building'
+import { STAGE_GRID_W, STAGE_GRID_H } from '../entities/Stage'
+import type { MenuUI } from '../ui/MenuUI'
+import { snapToIsoGrid, screenToGrid, gridToScreen } from '../utils/isoGrid'
+import { createObjectGhost, createBuildingGhost, createStageGhost, ROTATABLE_TYPES } from './GhostFactory'
+
+type PlacementMode = 'object' | 'building' | 'stage'
 
 export class PlacementManager {
-  private ghost: Phaser.GameObjects.Sprite | null = null
+  private ghost: Phaser.GameObjects.GameObject | null = null
   private activeType: ObjectType | null = null
+  private mode: PlacementMode | null = null
   private escKey: Phaser.Input.Keyboard.Key | null = null
+  private rotateKey: Phaser.Input.Keyboard.Key | null = null
+  private repositionMode = false
+  private inventoryMode = false
+  private rotation = 0
+  private stageRotation: 0 | 1 = 0
 
   private boundOnPointerMove: (pointer: Phaser.Input.Pointer) => void
-  private boundOnPointerDown: (
-    pointer: Phaser.Input.Pointer,
-    _gameObjects: Phaser.GameObjects.GameObject[]
-  ) => void
+  private boundOnPointerDown: (pointer: Phaser.Input.Pointer, _gos: Phaser.GameObjects.GameObject[]) => void
+  private boundOnPointerUp: (pointer: Phaser.Input.Pointer) => void
 
   constructor(
     private readonly scene: Phaser.Scene,
-    private readonly storeUI: StoreUI,
-    private readonly onPlace: (type: ObjectType, x: number, y: number) => void
+    private readonly menuUI: MenuUI,
+    private readonly onPlace: (type: ObjectType, x: number, y: number, rotation?: number) => void,
+    private readonly onPlaceBuilding: (gridX: number, gridY: number) => boolean,
+    private readonly onPlaceStage: (gridX: number, gridY: number, rotation: 0 | 1) => boolean = () => false,
   ) {
     this.boundOnPointerMove = this.onPointerMove.bind(this)
     this.boundOnPointerDown = this.onPointerDown.bind(this)
+    this.boundOnPointerUp = this.onPointerUp.bind(this)
   }
 
   enter(type: ObjectType): void {
-    if (this.activeType !== null) this.exit()
+    if (this.mode !== null) this.exit()
+    this.mode = 'object'; this.activeType = type; this.rotation = 0
+    this.ghost = createObjectGhost(this.scene, type, this.rotation)
+    this.bindInput()
+  }
 
-    this.activeType = type
-    const config = OBJECT_TYPE_REGISTRY[type]
+  enterReposition(type: ObjectType, startX: number, startY: number, rotation = 0): void {
+    if (this.mode !== null) this.exit()
+    this.mode = 'object'; this.activeType = type; this.repositionMode = true; this.rotation = rotation
+    this.ghost = createObjectGhost(this.scene, type, rotation)
+    ;(this.ghost as Phaser.GameObjects.Sprite).setPosition(startX, startY)
+    this.scene.game.canvas.style.cursor = 'grabbing'
+    this.bindInput()
+  }
 
-    this.ghost = this.scene.add.sprite(0, 0, 'obj_ghost')
-    this.ghost.setTint(config.previewColor)
-    this.ghost.setAlpha(0.55)
-    this.ghost.setDepth(10)
+  enterFromInventory(type: ObjectType): void {
+    if (this.mode !== null) this.exit()
+    this.mode = 'object'; this.activeType = type; this.inventoryMode = true; this.rotation = 0
+    this.ghost = createObjectGhost(this.scene, type, this.rotation)
+    this.bindInput()
+  }
 
-    this.scene.input.on('pointermove', this.boundOnPointerMove)
-    this.scene.input.on('pointerdown', this.boundOnPointerDown)
+  enterBuildingPlacement(): void {
+    if (this.mode !== null) this.exit()
+    this.mode = 'building'; this.activeType = null
+    this.ghost = createBuildingGhost(this.scene)
+    this.bindInput()
+  }
 
-    this.escKey = this.scene.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC)
-    this.escKey.on('down', () => this.exit())
+  enterStagePlacement(initialRotation: 0 | 1 = 0): void {
+    if (this.mode !== null) this.exit()
+    this.mode = 'stage'; this.activeType = null; this.stageRotation = initialRotation
+    this.ghost = createStageGhost(this.scene, initialRotation)
+    this.bindInput()
   }
 
   exit(): void {
-    if (this.ghost) {
-      this.ghost.destroy()
-      this.ghost = null
-    }
-
+    this.ghost?.destroy(); this.ghost = null
     this.scene.input.off('pointermove', this.boundOnPointerMove)
     this.scene.input.off('pointerdown', this.boundOnPointerDown)
+    this.scene.input.off('pointerup', this.boundOnPointerUp)
+    this.escKey?.removeAllListeners(); this.escKey = null
+    this.rotateKey?.removeAllListeners(); this.rotateKey = null
+    this.activeType = null; this.mode = null
+    this.repositionMode = false; this.inventoryMode = false
+    this.rotation = 0; this.stageRotation = 0
+    this.scene.game.canvas.style.cursor = ''
+  }
 
-    if (this.escKey) {
-      this.escKey.removeAllListeners()
-      this.escKey = null
+  isActive(): boolean { return this.mode !== null }
+
+  private cycleRotation(): void {
+    if (this.mode === 'stage') {
+      const oldPos = { x: (this.ghost as Phaser.GameObjects.Graphics).x, y: (this.ghost as Phaser.GameObjects.Graphics).y }
+      this.ghost?.destroy()
+      this.stageRotation = this.stageRotation === 0 ? 1 : 0
+      this.ghost = createStageGhost(this.scene, this.stageRotation)
+      ;(this.ghost as Phaser.GameObjects.Graphics).setPosition(oldPos.x, oldPos.y)
+      return
     }
-
-    this.activeType = null
+    if (!this.activeType || !ROTATABLE_TYPES.has(this.activeType)) return
+    const config = OBJECT_TYPE_REGISTRY[this.activeType]
+    if (config?.frame === undefined) return
+    this.rotation = (this.rotation + 1) % 4
+    if (this.ghost instanceof Phaser.GameObjects.Sprite) {
+      this.ghost.setFrame(config.frame + this.rotation)
+    }
   }
 
-  isActive(): boolean {
-    return this.activeType !== null
+  private bindInput(): void {
+    this.scene.input.on('pointermove', this.boundOnPointerMove)
+    this.scene.input.on('pointerdown', this.boundOnPointerDown)
+    this.scene.input.on('pointerup', this.boundOnPointerUp)
+    this.escKey = this.scene.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.ESC)
+    this.escKey.on('down', () => this.exit())
+    this.rotateKey = this.scene.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.R)
+    this.rotateKey.on('down', () => this.cycleRotation())
   }
 
-  private snap(val: number): number {
-    return Math.round(val / GRID_SIZE) * GRID_SIZE
-  }
+  private stageGW(): number { return this.stageRotation === 0 ? STAGE_GRID_W : STAGE_GRID_H }
+  private stageGH(): number { return this.stageRotation === 0 ? STAGE_GRID_H : STAGE_GRID_W }
 
   private onPointerMove(pointer: Phaser.Input.Pointer): void {
     if (!this.ghost) return
-    this.ghost.setPosition(this.snap(pointer.worldX), this.snap(pointer.worldY))
+    if (this.mode === 'object') {
+      const snapped = snapToIsoGrid(pointer.worldX, pointer.worldY)
+      ;(this.ghost as Phaser.GameObjects.Sprite).setPosition(snapped.x, snapped.y)
+    } else if (this.mode === 'building') {
+      const g = screenToGrid(pointer.worldX, pointer.worldY)
+      const center = gridToScreen(Math.floor(g.gx) + BUILDING_GRID_W / 2, Math.floor(g.gy) + BUILDING_GRID_H / 2)
+      ;(this.ghost as Phaser.GameObjects.Graphics).setPosition(center.x, center.y)
+    } else if (this.mode === 'stage') {
+      const g = screenToGrid(pointer.worldX, pointer.worldY)
+      const center = gridToScreen(Math.floor(g.gx) + this.stageGW() / 2, Math.floor(g.gy) + this.stageGH() / 2)
+      ;(this.ghost as Phaser.GameObjects.Graphics).setPosition(center.x, center.y)
+    }
   }
 
-  private onPointerDown(
-    pointer: Phaser.Input.Pointer,
-    _gameObjects: Phaser.GameObjects.GameObject[]
-  ): void {
+  private onPointerDown(pointer: Phaser.Input.Pointer, _gos: Phaser.GameObjects.GameObject[]): void {
     if (!pointer.leftButtonDown()) return
-    if (this.storeUI.isPointerOverUI(pointer)) return
-    if (!this.activeType) return
+    if (this.menuUI.isPointerOverUI(pointer)) return
+    if (this.repositionMode) return
 
-    this.onPlace(this.activeType, this.snap(pointer.worldX), this.snap(pointer.worldY))
+    if (this.mode === 'object' && this.activeType) {
+      const snapped = snapToIsoGrid(pointer.worldX, pointer.worldY)
+      const rot = ROTATABLE_TYPES.has(this.activeType) ? this.rotation : undefined
+      this.onPlace(this.activeType, snapped.x, snapped.y, rot)
+      if (this.inventoryMode) { this.exit(); return }
+    } else if (this.mode === 'building') {
+      const g = screenToGrid(pointer.worldX, pointer.worldY)
+      if (this.onPlaceBuilding(Math.floor(g.gx), Math.floor(g.gy))) this.exit()
+    } else if (this.mode === 'stage') {
+      const g = screenToGrid(pointer.worldX, pointer.worldY)
+      if (this.onPlaceStage(Math.floor(g.gx), Math.floor(g.gy), this.stageRotation)) this.exit()
+    }
+  }
+
+  private onPointerUp(pointer: Phaser.Input.Pointer): void {
+    if (!this.repositionMode || !this.activeType) return
+    if (this.menuUI.isPointerOverUI(pointer)) return
+    const snapped = snapToIsoGrid(pointer.worldX, pointer.worldY)
+    const rot = ROTATABLE_TYPES.has(this.activeType) ? this.rotation : undefined
+    this.onPlace(this.activeType, snapped.x, snapped.y, rot)
+    this.exit()
   }
 }

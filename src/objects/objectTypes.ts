@@ -11,6 +11,7 @@ export interface ObjectTypeConfig {
   label: string
   description: string
   textureKey: string
+  frame?: number
   previewColor: number
   depth: number
   hasPhysicsBody: boolean
@@ -47,6 +48,80 @@ export const OBJECT_TYPE_REGISTRY: Record<ObjectType, ObjectTypeConfig> = {
     depth: 1,
     hasPhysicsBody: false,
     isInteractable: false,
+  },
+  table2: {
+    type: 'table2',
+    label: 'Table (2)',
+    description: '2-seat table',
+    textureKey: 'furniture_table',
+    frame: 0,
+    previewColor: 0x8b6914,
+    depth: 2,
+    hasPhysicsBody: true,
+    isInteractable: false,
+  },
+  table4: {
+    type: 'table4',
+    label: 'Table (4)',
+    description: '4-seat table',
+    textureKey: 'furniture_table',
+    frame: 1,
+    previewColor: 0x8b6914,
+    depth: 2,
+    hasPhysicsBody: true,
+    isInteractable: false,
+  },
+  chair: {
+    type: 'chair',
+    label: 'Chair',
+    description: 'Seat for Nirvs',
+    textureKey: 'furniture_chair',
+    frame: 0,
+    previewColor: 0xa0784c,
+    depth: 2,
+    hasPhysicsBody: false,
+    isInteractable: false,
+  },
+  stove: {
+    type: 'stove',
+    label: 'Stove',
+    description: 'Cook recipes',
+    textureKey: 'furniture_stove',
+    frame: 0,
+    previewColor: 0x444444,
+    depth: 2,
+    hasPhysicsBody: true,
+    isInteractable: true,
+  },
+  counter: {
+    type: 'counter',
+    label: 'Counter',
+    description: 'Kitchen surface',
+    textureKey: 'obj_counter',
+    previewColor: 0x9b8b6b,
+    depth: 2,
+    hasPhysicsBody: true,
+    isInteractable: false,
+  },
+  food_plate: {
+    type: 'food_plate',
+    label: 'Food Plate',
+    description: 'A prepared dish',
+    textureKey: 'obj_food_plate',
+    previewColor: 0xffffff,
+    depth: 3,
+    hasPhysicsBody: false,
+    isInteractable: false,
+  },
+  trash: {
+    type: 'trash',
+    label: 'Trash',
+    description: 'Discard carried items',
+    textureKey: 'obj_trash',
+    previewColor: 0x4a5a4a,
+    depth: 2,
+    hasPhysicsBody: true,
+    isInteractable: true,
   },
 }
 
@@ -86,6 +161,60 @@ export function generateObjectTextures(scene: Phaser.Scene): void {
   backgroundGfx.fillRoundedRect(0, 0, OBJECT_SIZE, OBJECT_SIZE, 8)
   backgroundGfx.generateTexture('obj_background', OBJECT_SIZE, OBJECT_SIZE)
   backgroundGfx.destroy()
+
+  // Table textures loaded from spritesheet in GameScene.preload()
+
+  // Chair texture loaded from spritesheet in GameScene.preload()
+
+  // Sign: brown post with tan sign board
+  const signGfx = scene.make.graphics({ x: 0, y: 0 })
+  signGfx.fillStyle(0x5a3e1b)
+  signGfx.fillRect(13, 14, 6, 18)
+  signGfx.fillStyle(0xd4c4a0)
+  signGfx.fillRect(2, 2, 28, 14)
+  signGfx.lineStyle(1, 0x3a2a10)
+  signGfx.strokeRect(2, 2, 28, 14)
+  signGfx.generateTexture('obj_sign', OBJECT_SIZE, OBJECT_SIZE)
+  signGfx.destroy()
+
+  // Stove textures loaded from spritesheet in GameScene.preload()
+
+  // Counter: light brown surface
+  const counterGfx = scene.make.graphics({ x: 0, y: 0 })
+  counterGfx.fillStyle(0x9b8b6b)
+  counterGfx.fillRect(0, 0, OBJECT_SIZE, OBJECT_SIZE)
+  counterGfx.fillStyle(0xb0a080)
+  counterGfx.fillRect(2, 2, OBJECT_SIZE - 4, OBJECT_SIZE - 4)
+  counterGfx.lineStyle(1, 0x7a6b4b)
+  counterGfx.strokeRect(1, 1, OBJECT_SIZE - 2, OBJECT_SIZE - 2)
+  counterGfx.generateTexture('obj_counter', OBJECT_SIZE, OBJECT_SIZE)
+  counterGfx.destroy()
+
+  // Food plate: small white circle (fits on table slots)
+  const plateGfx = scene.make.graphics({ x: 0, y: 0 })
+  plateGfx.fillStyle(0xffffff)
+  plateGfx.fillCircle(16, 16, 6)
+  plateGfx.lineStyle(1, 0xbbbbbb)
+  plateGfx.strokeCircle(16, 16, 6)
+  plateGfx.fillStyle(0xdddddd)
+  plateGfx.fillCircle(16, 16, 3)
+  plateGfx.generateTexture('obj_food_plate', OBJECT_SIZE, OBJECT_SIZE)
+  plateGfx.destroy()
+
+  // Trash: dark bin with open top
+  const trashGfx = scene.make.graphics({ x: 0, y: 0 })
+  trashGfx.fillStyle(0x4a5a4a)
+  trashGfx.fillRect(6, 8, 20, 22)
+  trashGfx.lineStyle(1, 0x333a33)
+  trashGfx.strokeRect(6, 8, 20, 22)
+  // Lid rim
+  trashGfx.fillStyle(0x3a4a3a)
+  trashGfx.fillRect(4, 6, 24, 4)
+  // Open top highlight
+  trashGfx.fillStyle(0x2a2a2a)
+  trashGfx.fillRect(8, 10, 16, 4)
+  trashGfx.generateTexture('obj_trash', OBJECT_SIZE, OBJECT_SIZE)
+  trashGfx.destroy()
 
   // Ghost: white semi-transparent square (tinted at runtime per type)
   const ghostGfx = scene.make.graphics({ x: 0, y: 0 })
