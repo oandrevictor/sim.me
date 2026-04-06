@@ -180,6 +180,8 @@ export class RestaurantSystem {
       if (bot.state !== 'waiting') continue
       // Prefer water when thirsty so bots don't take a restaurant seat instead
       if (bot.nirv.getHydrationLevel() <= 60) continue
+      // Prefer snack when hungry
+      if (bot.nirv.getSatiation() <= bot.nirv.hungerThreshold) continue
       if (Math.random() > ENTER_PROBABILITY) continue
 
       let bestChair: ChairRecord | null = null

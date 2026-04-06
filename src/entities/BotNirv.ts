@@ -8,6 +8,7 @@ import type { NirvProfession } from '../data/professions'
 import { rollLeaveEarly } from '../systems/stageAffinity'
 import { DEPTH_UI } from '../config/world'
 import { EARLY_LEAVE_CHECK_INTERVAL_MS } from '../systems/stagePerformanceRuntime'
+import { fruitSlotWorldPosition } from '../systems/fruitCrateLayout'
 
 const BOT_SPEED = 120
 const ARRIVAL_THRESHOLD = 24
@@ -28,6 +29,18 @@ export type BotState =
   | 'walking_to_water_queue'
   | 'waiting_at_water_queue'
   | 'drinking_water'
+  | 'walking_to_snack'
+  | 'walking_to_snack_queue'
+  | 'waiting_at_snack_queue'
+  | 'snack_interact'
+  | 'snack_wander'
+  | 'snack_eat'
+  | 'walking_to_fruit'
+  | 'walking_to_fruit_queue'
+  | 'waiting_at_fruit_queue'
+  | 'fruit_interact'
+  | 'fruit_wander'
+  | 'fruit_eat'
   | 'walking_to_bed'
   | 'sleeping'
 
@@ -54,6 +67,9 @@ export class BotNirv {
   private sleepZText: Phaser.GameObjects.Text | null = null
   private scene: Phaser.Scene
   private eatingColor = 0xffffff
+  /** Snack / fruit crate anchor (wander offset from station center). */
+  private satiationAnchor: { x: number; y: number } | null = null
+  private snackBubblePhase = 0
   private pathfinder: GridPathfinder
 
   // Path following
@@ -277,6 +293,119 @@ export class BotNirv {
     this.computePathToWaypoint()
   }
 
+  /** Leave seat for food (critical hunger). */
+  interruptSeatForFood(): void {
+    this.hideStatusIcon()
+    this.nirv.sprite.setVelocity(0, 0)
+    this._state = 'walking'
+    this.currentIndex = (this.currentIndex + 1) % this.waypoints.length
+    this.computePathToWaypoint()
+  }
+
+  redirectToSnack(stationX: number, stationY: number): void {
+    this.performInterior = null
+    this.pathEndCell = null
+    this.satiationAnchor = { x: stationX, y: stationY }
+    this.redirectTarget = { x: stationX, y: stationY }
+    this._state = 'walking_to_snack'
+    this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToPixel(stationX, stationY)
+  }
+
+  redirectToSnackQueueSlot(x: number, y: number): void {
+    this.performInterior = null
+    this.pathEndCell = null
+    this.redirectTarget = { x, y }
+    this._state = 'walking_to_snack_queue'
+    this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToPixel(x, y)
+  }
+
+  arriveAtSnackQueueSlot(): void {
+    this.nirv.sprite.setVelocity(0, 0)
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.updateAnimation(0, 0)
+    this._state = 'waiting_at_snack_queue'
+  }
+
+  /** Cancel snack machine or fruit crate flow (thirst/sleep interrupts, station removed). */
+  cancelSatiationQueue(): void {
+    if (
+      this._state !== 'walking_to_snack' &&
+      this._state !== 'snack_interact' &&
+      this._state !== 'snack_wander' &&
+      this._state !== 'snack_eat' &&
+      this._state !== 'walking_to_snack_queue' &&
+      this._state !== 'waiting_at_snack_queue' &&
+      this._state !== 'walking_to_fruit' &&
+      this._state !== 'fruit_interact' &&
+      this._state !== 'fruit_wander' &&
+      this._state !== 'fruit_eat' &&
+      this._state !== 'walking_to_fruit_queue' &&
+      this._state !== 'waiting_at_fruit_queue'
+    ) {
+      return
+    }
+    this.hideStatusIcon()
+    this.satiationAnchor = null
+    this._state = 'walking'
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToWaypoint()
+  }
+
+  redirectToFruit(stationX: number, stationY: number, slotIndex: number): void {
+    this.performInterior = null
+    this.pathEndCell = null
+    this.satiationAnchor = { x: stationX, y: stationY }
+    const p = fruitSlotWorldPosition(stationX, stationY, slotIndex)
+    this.redirectTarget = { x: p.x, y: p.y }
+    this._state = 'walking_to_fruit'
+    this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToPixel(p.x, p.y)
+  }
+
+  redirectToFruitQueueSlot(x: number, y: number): void {
+    this.performInterior = null
+    this.pathEndCell = null
+    this.redirectTarget = { x, y }
+    this._state = 'walking_to_fruit_queue'
+    this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToPixel(x, y)
+  }
+
+  arriveAtFruitQueueSlot(): void {
+    this.nirv.sprite.setVelocity(0, 0)
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.updateAnimation(0, 0)
+    this._state = 'waiting_at_fruit_queue'
+  }
+
+  /** Called by HungerSystem when bot reaches their fruit slot. */
+  arriveAtFruitStation(): void {
+    this.nirv.sprite.setVelocity(0, 0)
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.updateAnimation(0, 0)
+    this._state = 'fruit_interact'
+    this.seatTimer = Phaser.Math.Between(1000, 2000)
+    this.showStatusIcon()
+  }
+
+  /** Called by HungerSystem when bot reaches the snack machine. */
+  arriveAtSnackStation(): void {
+    this.nirv.sprite.setVelocity(0, 0)
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.updateAnimation(0, 0)
+    this._state = 'snack_interact'
+    this.seatTimer = Phaser.Math.Between(1000, 2000)
+    this.showStatusIcon()
+  }
+
   /** Redirect bot to walk to a chair position */
   redirectToChair(x: number, y: number): void {
     this.performInterior = null
@@ -429,6 +558,144 @@ export class BotNirv {
         if (this.seatTimer <= 0) this.finishDrinkingWater()
         return
 
+      case 'walking_to_snack': {
+        if (!this.redirectTarget) {
+          this._state = 'walking'
+          this.computePathToWaypoint()
+          return
+        }
+        this.followPath()
+        const snSprite = this.nirv.sprite
+        this.nirv.updateAnimation(snSprite.body!.velocity.x, snSprite.body!.velocity.y)
+        return
+      }
+
+      case 'walking_to_snack_queue': {
+        if (!this.redirectTarget) {
+          this._state = 'walking'
+          this.computePathToWaypoint()
+          return
+        }
+        this.followPath()
+        const sqSprite = this.nirv.sprite
+        this.nirv.updateAnimation(sqSprite.body!.velocity.x, sqSprite.body!.velocity.y)
+        return
+      }
+
+      case 'waiting_at_snack_queue':
+        this.nirv.updateAnimation(0, 0)
+        return
+
+      case 'snack_interact':
+        this.snackBubblePhase += delta
+        this.nirv.updateAnimation(0, 0)
+        this.seatTimer -= delta
+        this.updateStatusIconPosition()
+        if (this.seatTimer <= 0) this.beginSatiationWander()
+        return
+
+      case 'fruit_interact':
+        this.snackBubblePhase += delta
+        this.nirv.updateAnimation(0, 0)
+        this.seatTimer -= delta
+        this.updateStatusIconPosition()
+        if (this.seatTimer <= 0) this.beginSatiationWander()
+        return
+
+      case 'walking_to_fruit': {
+        if (!this.redirectTarget) {
+          this._state = 'walking'
+          this.computePathToWaypoint()
+          return
+        }
+        this.followPath()
+        const frSprite = this.nirv.sprite
+        this.nirv.updateAnimation(frSprite.body!.velocity.x, frSprite.body!.velocity.y)
+        return
+      }
+
+      case 'walking_to_fruit_queue': {
+        if (!this.redirectTarget) {
+          this._state = 'walking'
+          this.computePathToWaypoint()
+          return
+        }
+        this.followPath()
+        const fqSprite = this.nirv.sprite
+        this.nirv.updateAnimation(fqSprite.body!.velocity.x, fqSprite.body!.velocity.y)
+        return
+      }
+
+      case 'waiting_at_fruit_queue':
+        this.nirv.updateAnimation(0, 0)
+        return
+
+      case 'snack_wander': {
+        if (!this.redirectTarget) {
+          this.abortSatiationMidFlow()
+          return
+        }
+        this.followPath()
+        const swSprite = this.nirv.sprite
+        this.nirv.updateAnimation(swSprite.body!.velocity.x, swSprite.body!.velocity.y)
+        const swd = Phaser.Math.Distance.Between(
+          swSprite.x, swSprite.y,
+          this.redirectTarget.x, this.redirectTarget.y,
+        )
+        if (swd < CHAIR_ARRIVAL_THRESHOLD) {
+          swSprite.setVelocity(0, 0)
+          this.nirv.updateAnimation(0, 0)
+          this.path = []
+          this.redirectTarget = null
+          this._state = 'snack_eat'
+          this.seatTimer = Phaser.Math.Between(1000, 4000)
+          this.eatingColor = 0xcc8844
+          this.showStatusIcon()
+        }
+        return
+      }
+
+      case 'fruit_wander': {
+        if (!this.redirectTarget) {
+          this.abortSatiationMidFlow()
+          return
+        }
+        this.followPath()
+        const fwSprite = this.nirv.sprite
+        this.nirv.updateAnimation(fwSprite.body!.velocity.x, fwSprite.body!.velocity.y)
+        const fwd = Phaser.Math.Distance.Between(
+          fwSprite.x, fwSprite.y,
+          this.redirectTarget.x, this.redirectTarget.y,
+        )
+        if (fwd < CHAIR_ARRIVAL_THRESHOLD) {
+          fwSprite.setVelocity(0, 0)
+          this.nirv.updateAnimation(0, 0)
+          this.path = []
+          this.redirectTarget = null
+          this._state = 'fruit_eat'
+          this.seatTimer = Phaser.Math.Between(1000, 4000)
+          this.eatingColor = 0x66aa44
+          this.showStatusIcon()
+        }
+        return
+      }
+
+      case 'snack_eat':
+        this.snackBubblePhase += delta
+        this.nirv.updateAnimation(0, 0)
+        this.seatTimer -= delta
+        this.updateStatusIconPosition()
+        if (this.seatTimer <= 0) this.finishSatiationEating()
+        return
+
+      case 'fruit_eat':
+        this.snackBubblePhase += delta
+        this.nirv.updateAnimation(0, 0)
+        this.seatTimer -= delta
+        this.updateStatusIconPosition()
+        if (this.seatTimer <= 0) this.finishSatiationEating()
+        return
+
       case 'seated':
       case 'awaiting_service':
       case 'eating':
@@ -560,7 +827,7 @@ export class BotNirv {
       this.stuckFrames = 0
       if (this._state === 'walking') {
         this.computePathToWaypoint()
-      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_water' || this._state === 'walking_to_water_queue' || this._state === 'walking_to_bed' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform') && this.redirectTarget) {
+      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_water' || this._state === 'walking_to_water_queue' || this._state === 'walking_to_snack' || this._state === 'walking_to_snack_queue' || this._state === 'snack_wander' || this._state === 'walking_to_fruit' || this._state === 'walking_to_fruit_queue' || this._state === 'fruit_wander' || this._state === 'walking_to_bed' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform') && this.redirectTarget) {
         this.computePathToPixel(this.redirectTarget.x, this.redirectTarget.y, this.pathEndCell)
       }
     }
@@ -571,7 +838,7 @@ export class BotNirv {
         const target = this.waypoints[this.currentIndex]
         const dest = gridToScreen(target.gridX, target.gridY)
         this.moveToward(dest.x, dest.y)
-      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_water' || this._state === 'walking_to_water_queue' || this._state === 'walking_to_bed' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform') && this.redirectTarget) {
+      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_water' || this._state === 'walking_to_water_queue' || this._state === 'walking_to_snack' || this._state === 'walking_to_snack_queue' || this._state === 'snack_wander' || this._state === 'walking_to_fruit' || this._state === 'walking_to_fruit_queue' || this._state === 'fruit_wander' || this._state === 'walking_to_bed' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform') && this.redirectTarget) {
         this.moveToward(this.redirectTarget.x, this.redirectTarget.y)
       }
       return
@@ -633,6 +900,26 @@ export class BotNirv {
       gfx.fillRect(bx - 4, by - 8, 8, 10)
       gfx.lineStyle(1, 0x5599bb)
       gfx.strokeRect(bx - 4, by - 8, 8, 10)
+    } else if (this._state === 'snack_interact') {
+      const pulse = 0.75 + 0.25 * Math.sin(this.snackBubblePhase / 180)
+      gfx.fillStyle(0x8b6914, pulse)
+      gfx.fillRoundedRect(bx - 8, by - 8, 16, 12, 2)
+      gfx.lineStyle(1, 0x5c4a26, pulse)
+      gfx.strokeRoundedRect(bx - 8, by - 8, 16, 12, 2)
+      gfx.fillStyle(0x333333, pulse)
+      gfx.fillRect(bx - 5, by - 4, 10, 2)
+    } else if (this._state === 'snack_eat' || this._state === 'fruit_eat') {
+      const pulse = 0.85 + 0.15 * Math.sin(this.snackBubblePhase / 220)
+      gfx.fillStyle(this.eatingColor, pulse)
+      gfx.fillCircle(bx, by - 2, 5)
+      gfx.lineStyle(1, 0x666666, pulse)
+      gfx.strokeCircle(bx, by - 2, 5)
+    } else if (this._state === 'fruit_interact') {
+      const pulse = 0.75 + 0.25 * Math.sin(this.snackBubblePhase / 180)
+      gfx.fillStyle(0x5a8c3a, pulse)
+      gfx.fillRoundedRect(bx - 9, by - 8, 18, 12, 2)
+      gfx.lineStyle(1, 0x3a5c2a, pulse)
+      gfx.strokeRoundedRect(bx - 9, by - 8, 18, 12, 2)
     } else if (this._state === 'sleeping') {
       if (!this.sleepZText) {
         this.sleepZText = this.scene.add.text(bx, by - 4, 'Z z Z', {
@@ -675,6 +962,44 @@ export class BotNirv {
   private finishDrinkingWater(): void {
     this.nirv.addHydration(30)
     this.hideStatusIcon()
+    this._state = 'walking'
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToWaypoint()
+  }
+
+  private beginSatiationWander(): void {
+    if (!this.satiationAnchor) {
+      this.abortSatiationMidFlow()
+      return
+    }
+    this.hideStatusIcon()
+    const sx = this.satiationAnchor.x
+    const sy = this.satiationAnchor.y
+    const tx = sx + Phaser.Math.Between(-70, 70)
+    const ty = sy + Phaser.Math.Between(45, 110)
+    this.redirectTarget = { x: tx, y: ty }
+    if (this._state === 'snack_interact') this._state = 'snack_wander'
+    else if (this._state === 'fruit_interact') this._state = 'fruit_wander'
+    this.computePathToPixel(tx, ty)
+  }
+
+  private finishSatiationEating(): void {
+    this.nirv.addSatiation(20)
+    this.hideStatusIcon()
+    this.satiationAnchor = null
+    this._state = 'walking'
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToWaypoint()
+  }
+
+  /** Satiation flow broke (no station ref); no reward. */
+  private abortSatiationMidFlow(): void {
+    this.hideStatusIcon()
+    this.satiationAnchor = null
     this._state = 'walking'
     this.redirectTarget = null
     this.path = []

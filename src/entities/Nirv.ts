@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { DEPTH_UI } from '../config/world'
 import { HYDRATION_START, sampleDehydrationRate } from './nirvHydration'
+import { SATIATION_START, sampleHungerStep, sampleHungerThreshold } from './nirvHunger'
 import {
   REST_START, REST_DECAY_MIN, REST_DECAY_MAX,
   sampleSleepyRate, sampleRestThreshold, sampleSleepRecharges,
@@ -30,8 +31,11 @@ export class Nirv {
   readonly sleepyRate: number
   readonly restThreshold: number
   readonly sleepRecharges: number
+  readonly hungerStep: number
+  readonly hungerThreshold: number
   private hydrationLevel: number
   private restLevel: number
+  private satiation: number
   private variant: NirvVariant
   private lastDir = 'down'
   private isMoving = false
@@ -59,6 +63,9 @@ export class Nirv {
     this.restThreshold = sampleRestThreshold()
     this.sleepRecharges = sampleSleepRecharges()
     this.restLevel = REST_START
+    this.hungerStep = sampleHungerStep()
+    this.hungerThreshold = sampleHungerThreshold()
+    this.satiation = SATIATION_START
 
     const textureKey = `${variant}_idle`
     this.sprite = scene.physics.add.sprite(x, y, textureKey, 16)
@@ -126,6 +133,19 @@ export class Nirv {
 
   addHydration(amount: number): void {
     this.hydrationLevel = Math.min(100, this.hydrationLevel + amount)
+  }
+
+  getSatiation(): number {
+    return this.satiation
+  }
+
+  /** One game-minute tick: lose hungerStep points. */
+  applyMinuteSatiation(): void {
+    this.satiation = Math.max(0, this.satiation - this.hungerStep)
+  }
+
+  addSatiation(amount: number): void {
+    this.satiation = Math.min(100, this.satiation + amount)
   }
 
   getRestLevel(): number {

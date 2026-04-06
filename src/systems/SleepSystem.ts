@@ -232,6 +232,7 @@ export class SleepSystem {
       if (!critical) {
         if (stBot !== 'walking' && stBot !== 'waiting') continue
       } else {
+        bot.cancelSatiationQueue()
         this.restaurant.releaseChairForBot(bot)
         if (stBot === 'watching_stage') bot.leaveStage()
         else if (stBot === 'walking_to_stage') bot.abortStageApproach()

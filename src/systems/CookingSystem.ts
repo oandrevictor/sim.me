@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 import { getRecipe } from '../data/recipes'
-import { playStoveIdle, STOVE_ANIM_COOKING } from '../animations/stoveAnims'
+import { playStoveIdle, isSpritesheetStoveTexture, STOVE_ANIM_COOKING } from '../animations/stoveAnims'
 import { DEPTH_UI } from '../config/world'
 
 type StoveStatus = 'idle' | 'cooking' | 'done'
@@ -56,7 +56,8 @@ export class CookingSystem {
     stove.cookProgress = 0
     stove.cookDuration = recipe.cookTimeMs
     stove.sprite.clearTint()
-    if (stove.sprite.scene.anims.exists(STOVE_ANIM_COOKING)) {
+    // Clay oven: single image only — never play furniture_stove cooking animation.
+    if (isSpritesheetStoveTexture(stove.sprite.texture.key) && stove.sprite.scene.anims.exists(STOVE_ANIM_COOKING)) {
       stove.sprite.play(STOVE_ANIM_COOKING)
     }
 
@@ -88,7 +89,7 @@ export class CookingSystem {
       if (stove.cookProgress >= stove.cookDuration) {
         stove.status = 'done'
         stove.sprite.anims.stop()
-        stove.sprite.setFrame(stove.rotation)
+        playStoveIdle(stove.sprite, stove.rotation)
         stove.sprite.setTint(0x33cc33) // green tint when done
         if (stove.progressBar) {
           stove.progressBar.destroy()

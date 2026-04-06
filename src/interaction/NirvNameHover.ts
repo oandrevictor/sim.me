@@ -6,6 +6,7 @@ export type NirvHoverSubject = {
   name: string
   hydrationLevel: number
   restLevel: number
+  satiation: number
 }
 
 /** World-space name tag when the pointer is over a Nirv sprite */
@@ -51,7 +52,7 @@ export class NirvNameHover {
     }
 
     this.label.setText(
-      `${best.name}\nWater: ${Math.round(best.hydrationLevel)}\nRest: ${Math.round(best.restLevel)}`,
+      `${best.name}\nWater: ${Math.round(best.hydrationLevel)}\nRest: ${Math.round(best.restLevel)}\nSatiation: ${Math.round(best.satiation)}`,
     )
     this.label.setPosition(best.sprite.x, best.sprite.y - 44)
     this.label.setVisible(true)

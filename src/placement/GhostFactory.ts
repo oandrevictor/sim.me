@@ -7,7 +7,7 @@ import { TILE_W, TILE_H } from '../utils/isoGrid'
 import { DEPTH_UI } from '../config/world'
 
 /** Object types that support rotation (spritesheet with directional frames) */
-export const ROTATABLE_TYPES: Set<ObjectType> = new Set(['chair', 'stove'])
+export const ROTATABLE_TYPES: Set<ObjectType> = new Set(['chair', 'stove', 'stove_white_clay'])
 
 export function createObjectGhost(
   scene: Phaser.Scene,
@@ -17,7 +17,8 @@ export function createObjectGhost(
   const config = OBJECT_TYPE_REGISTRY[type]
 
   if (ROTATABLE_TYPES.has(type) && config.frame !== undefined) {
-    const sprite = scene.add.sprite(0, 0, config.textureKey, config.frame + rotation)
+    const frame = type === 'stove_white_clay' ? config.frame : config.frame + rotation
+    const sprite = scene.add.sprite(0, 0, config.textureKey, frame)
     const { w, h } = getFramedObjectDisplaySize(type, 1.6)
     sprite.setDisplaySize(w, h)
     sprite.setAlpha(0.65)
@@ -39,6 +40,27 @@ export function createObjectGhost(
     const sprite = scene.add.sprite(0, 0, config.textureKey)
     sprite.setDisplaySize(TILE_W, TILE_H)
     sprite.setAlpha(0.55)
+    sprite.setDepth(DEPTH_UI + 10)
+    return sprite
+  }
+
+  if (type === 'snack_machine' && scene.textures.exists(config.textureKey)) {
+    const sprite = scene.add.sprite(0, 0, config.textureKey)
+    const displayH = OBJECT_SIZE * 2.5
+    const displayW = displayH * (450 / 555)
+    sprite.setDisplaySize(displayW, displayH)
+    sprite.setOrigin(0.5, 1)
+    sprite.setAlpha(0.65)
+    sprite.setDepth(DEPTH_UI + 10)
+    return sprite
+  }
+
+  if (type === 'fruit_crate' && scene.textures.exists(config.textureKey)) {
+    const sprite = scene.add.sprite(0, 0, config.textureKey)
+    const { w, h } = getFramedObjectDisplaySize(type, 2.5)
+    sprite.setDisplaySize(w, h)
+    sprite.setOrigin(0.5, 1)
+    sprite.setAlpha(0.65)
     sprite.setDepth(DEPTH_UI + 10)
     return sprite
   }

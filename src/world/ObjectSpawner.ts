@@ -7,6 +7,7 @@ import { addToInventory } from '../storage/inventoryPersistence'
 import type { RestaurantSystem } from '../systems/RestaurantSystem'
 import type { CookingSystem } from '../systems/CookingSystem'
 import type { HydrationSystem } from '../systems/HydrationSystem'
+import type { HungerSystem } from '../systems/HungerSystem'
 import type { SleepSystem } from '../systems/SleepSystem'
 import { getBedTextureKey, isBedType } from '../objects/bedTypes'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
@@ -55,11 +56,16 @@ export class ObjectSpawner {
     private readonly onPlateClicked: (entry: PlateEntry) => void,
     private readonly hydrationSystem: HydrationSystem,
     private readonly sleepSystem: SleepSystem,
+    private readonly hungerSystem: HungerSystem,
   ) {}
 
   spawn(type: ObjectType, x: number, y: number, persist: boolean, recipeId?: string, rotation?: number): void {
     const config = OBJECT_TYPE_REGISTRY[type]
-    const frame = config.frame !== undefined ? config.frame + (rotation ?? 0) : 0
+    const rot = rotation ?? 0
+    const frame =
+      config.frame !== undefined
+        ? (type === 'stove_white_clay' ? config.frame : config.frame + rot)
+        : 0
 
     if (config.hasPhysicsBody) {
       const sprite = this.obstacleGroup.create(x, y, config.textureKey, frame) as Phaser.Physics.Arcade.Sprite
@@ -81,10 +87,10 @@ export class ObjectSpawner {
         this.restaurantSystem.registerTable(sprite, x, y, type)
       } else if (type === 'counter') {
         this.state.counterSprites.push({ sprite, x, y })
-      } else if (type === 'stove') {
+      } else if (type === 'stove' || type === 'stove_white_clay') {
         sprite.setInteractive({ useHandCursor: true })
         sprite.on('pointerdown', () => this.onStoveClicked(sprite))
-        this.cookingSystem.registerStove(sprite, x, y, rotation ?? 0)
+        this.cookingSystem.registerStove(sprite, x, y, rot)
       } else if (type === 'trash') {
         sprite.setInteractive({ useHandCursor: true })
         sprite.on('pointerdown', () => this.onTrashClicked(sprite))
@@ -118,6 +124,9 @@ export class ObjectSpawner {
       if (config.frame !== undefined) {
         const { w, h } = getFramedObjectDisplaySize(type, 1.6)
         sprite.setDisplaySize(w, h)
+      } else if (config.displayAspectWidthOverHeight !== undefined && type !== 'snack_machine' && type !== 'fruit_crate') {
+        const { w, h } = getFramedObjectDisplaySize(type, 1.6)
+        sprite.setDisplaySize(w, h)
       }
       if (type !== 'food_plate') {
         this.state.placedSprites.push({ sprite, type, x, y, rotation })
@@ -143,6 +152,40 @@ export class ObjectSpawner {
         const g = screenToGrid(x, y)
         this.pathfinder.blockCell(Math.round(g.gx), Math.round(g.gy))
         this.hydrationSystem.registerStation(sprite as unknown as Phaser.Physics.Arcade.Sprite, x, y)
+      } else if (type === 'snack_machine') {
+        // Match tall prop scale (cf. drinking_water); PNG 450×555; anchor bottom so it sits on the tile.
+        const displayH = OBJECT_SIZE * 2.5
+        const displayW = displayH * (450 / 555)
+        sprite.setDisplaySize(displayW, displayH)
+        sprite.setOrigin(0.5, 1)
+        sprite.setDepth(y)
+        // Invisible physics sprite: default 32×32 texture, center origin. (x,y) = ground line (vending bottom).
+        // Body bottom must sit on y; offset is from sprite top-left to body top-left (Arcade convention).
+        const footH = OBJECT_SIZE / 2
+        const footW = Math.max(OBJECT_SIZE, Math.round(displayW * 0.62))
+        const blocker = this.obstacleGroup.create(x, y - footH / 2, '__DEFAULT') as Phaser.Physics.Arcade.Sprite
+        blocker.setVisible(false)
+        blocker.body!.setSize(footW, footH)
+        blocker.body!.setOffset(16 - footW / 2, 8)
+        blocker.refreshBody()
+        const g = screenToGrid(x, y)
+        this.pathfinder.blockCell(Math.round(g.gx), Math.round(g.gy))
+        this.hungerSystem.registerStation(sprite as unknown as Phaser.Physics.Arcade.Sprite, x, y)
+      } else if (type === 'fruit_crate') {
+        const { w, h } = getFramedObjectDisplaySize(type, 2.5)
+        sprite.setDisplaySize(w, h)
+        sprite.setOrigin(0.5, 1)
+        sprite.setDepth(y)
+        const footH = OBJECT_SIZE / 2
+        const footW = Math.max(OBJECT_SIZE, Math.round(w * 0.52))
+        const blocker = this.obstacleGroup.create(x, y - footH / 2, '__DEFAULT') as Phaser.Physics.Arcade.Sprite
+        blocker.setVisible(false)
+        blocker.body!.setSize(footW, footH)
+        blocker.body!.setOffset(16 - footW / 2, 8)
+        blocker.refreshBody()
+        const g = screenToGrid(x, y)
+        this.pathfinder.blockCell(Math.round(g.gx), Math.round(g.gy))
+        this.hungerSystem.registerFruitCrate(sprite as unknown as Phaser.Physics.Arcade.Sprite, x, y)
       } else if (type === 'interactable') {
         this.state.interactableSprites.push(sprite)
         sprite.setInteractive({ useHandCursor: true })
@@ -204,6 +247,14 @@ export class ObjectSpawner {
       this.restaurantSystem.unregisterChair(sprite as Phaser.GameObjects.Sprite)
     } else if (type === 'drinking_water') {
       this.hydrationSystem.unregisterStation(sprite as Phaser.Physics.Arcade.Sprite)
+      const g = screenToGrid(x, y)
+      this.pathfinder.unblockCell(Math.round(g.gx), Math.round(g.gy))
+    } else if (type === 'snack_machine') {
+      this.hungerSystem.unregisterStation(sprite as Phaser.Physics.Arcade.Sprite)
+      const g = screenToGrid(x, y)
+      this.pathfinder.unblockCell(Math.round(g.gx), Math.round(g.gy))
+    } else if (type === 'fruit_crate') {
+      this.hungerSystem.unregisterFruitCrate(sprite as Phaser.Physics.Arcade.Sprite)
       const g = screenToGrid(x, y)
       this.pathfinder.unblockCell(Math.round(g.gx), Math.round(g.gy))
     } else if (isBedType(type)) {

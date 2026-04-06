@@ -100,9 +100,11 @@ export class HydrationSystem {
     while (this.minuteAccum >= MINUTE_MS) {
       this.minuteAccum -= MINUTE_MS
       this.getPlayer().applyMinuteDehydration()
+      this.getPlayer().applyMinuteSatiation()
       if (!this.isPlayerSleeping()) this.getPlayer().applyMinuteRestDecay()
       for (const b of this.bots) {
         b.nirv.applyMinuteDehydration()
+        b.nirv.applyMinuteSatiation()
         if (b.state !== 'sleeping') b.nirv.applyMinuteRestDecay()
       }
     }
@@ -208,6 +210,7 @@ export class HydrationSystem {
         if (stBot !== 'walking' && stBot !== 'waiting') continue
       } else {
         if (stBot === 'sleeping' || stBot === 'walking_to_bed') bot.cancelSleep()
+        bot.cancelSatiationQueue()
         this.restaurant.releaseChairForBot(bot)
         if (stBot === 'watching_stage') bot.leaveStage()
         else if (stBot === 'walking_to_stage') bot.abortStageApproach()
