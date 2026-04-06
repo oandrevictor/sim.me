@@ -1,6 +1,12 @@
 import Phaser from 'phaser'
+import { DEPTH_UI } from '../config/world'
 
-export type NirvHoverSubject = { sprite: Phaser.GameObjects.Sprite; name: string; hydrationLevel: number }
+export type NirvHoverSubject = {
+  sprite: Phaser.GameObjects.Sprite
+  name: string
+  hydrationLevel: number
+  restLevel: number
+}
 
 /** World-space name tag when the pointer is over a Nirv sprite */
 export class NirvNameHover {
@@ -14,7 +20,7 @@ export class NirvNameHover {
       padding: { x: 8, y: 4 },
     })
     this.label.setOrigin(0.5, 1)
-    this.label.setDepth(22)
+    this.label.setDepth(DEPTH_UI + 22)
     this.label.setVisible(false)
   }
 
@@ -44,7 +50,9 @@ export class NirvNameHover {
       return
     }
 
-    this.label.setText(`${best.name}\nWater: ${Math.round(best.hydrationLevel)}`)
+    this.label.setText(
+      `${best.name}\nWater: ${Math.round(best.hydrationLevel)}\nRest: ${Math.round(best.restLevel)}`,
+    )
     this.label.setPosition(best.sprite.x, best.sprite.y - 44)
     this.label.setVisible(true)
   }

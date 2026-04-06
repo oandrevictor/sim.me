@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { generateObjectTextures, type ObjectType } from '../objects/objectTypes'
+import { preloadBedAssets } from '../objects/bedTypes'
 import { WORLD_WIDTH, WORLD_HEIGHT, GRID_COLS, GRID_ROWS } from '../config/world'
 import { gridToScreen, getTileCorners, snapToIsoGrid } from '../utils/isoGrid'
 import { MenuUI } from '../ui/MenuUI'
@@ -20,6 +21,7 @@ import { Stage } from '../entities/Stage'
 import { BuildingTypeUI } from '../ui/BuildingTypeUI'
 import { RestaurantSystem } from '../systems/RestaurantSystem'
 import { HydrationSystem } from '../systems/HydrationSystem'
+import { SleepSystem } from '../systems/SleepSystem'
 import { StageSystem } from '../systems/StageSystem'
 import { CookingSystem } from '../systems/CookingSystem'
 import { RecipeSelectUI } from '../ui/RecipeSelectUI'
@@ -50,6 +52,7 @@ export class GameScene extends Phaser.Scene {
   private buildingTypeUI!: BuildingTypeUI
   private restaurantSystem!: RestaurantSystem
   private hydrationSystem!: HydrationSystem
+  private sleepSystem!: SleepSystem
   private stageSystem!: StageSystem
   private cookingSystem!: CookingSystem
   private recipeSelectUI!: RecipeSelectUI
@@ -69,6 +72,7 @@ export class GameScene extends Phaser.Scene {
 
   preload(): void {
     generateObjectTextures(this)
+    preloadBedAssets(this)
     const frameConfig = { frameWidth: 48, frameHeight: 48 }
     this.load.spritesheet('m_idle', 'assets/Player/MPlayer 1 idle.png', frameConfig)
     this.load.spritesheet('m_walk', 'assets/Player/MPlayer 1 walking.png', frameConfig)
@@ -82,6 +86,8 @@ export class GameScene extends Phaser.Scene {
     this.load.spritesheet('furniture_chair', 'assets/Furniture/chair sprite.png', { frameWidth: 250, frameHeight: 250 })
     this.load.spritesheet('furniture_stove', 'assets/Furniture/new-oven.png', { frameWidth: 528, frameHeight: 288 })
     this.load.spritesheet('furniture_stage_solo', 'assets/Furniture/stage-variant.png', { frameWidth: 382, frameHeight: 382 })
+    this.load.image('water_station', 'assets/Furniture/water_station.png')
+    this.load.image('floor_yellow', 'assets/Build/floorFull_yellow.png')
   }
 
   create(): void {
@@ -124,6 +130,8 @@ export class GameScene extends Phaser.Scene {
       this.restaurantSystem,
     )
 
+    this.sleepSystem = new SleepSystem(this.botNirvs, this.restaurantSystem)
+
     this.objectSpawner = new ObjectSpawner(
       this, this.obstacleGroup, this.pathfinder,
       this.restaurantSystem, this.cookingSystem, this.spawnerState,
@@ -137,6 +145,7 @@ export class GameScene extends Phaser.Scene {
       },
       (e) => this.foodHandler.onPlateClicked(e, () => this.menuUI?.isShopMode() ?? false),
       this.hydrationSystem,
+      this.sleepSystem,
       (_sprite, wx, wy) => {
         if (this.placementManager?.isActive()) return
         this.hydrationSystem.tryInteractWaterStation(
@@ -219,6 +228,7 @@ export class GameScene extends Phaser.Scene {
     applyNirvSeparation(this.botNirvs, this.playerNirv)
 
     this.hydrationSystem.updateStations(delta)
+    this.sleepSystem.updateBeds(delta)
 
     this.cookingSystem.update(delta)
     this.restaurantSystem.update(delta)
@@ -235,11 +245,13 @@ export class GameScene extends Phaser.Scene {
         sprite: this.playerNirv.sprite,
         name: this.playerNirv.name,
         hydrationLevel: this.playerNirv.getHydrationLevel(),
+        restLevel: this.playerNirv.getRestLevel(),
       },
       ...this.botNirvs.map(b => ({
         sprite: b.nirv.sprite,
         name: b.nirv.name,
         hydrationLevel: b.nirv.getHydrationLevel(),
+        restLevel: b.nirv.getRestLevel(),
       })),
     ], hideNameHover)
 

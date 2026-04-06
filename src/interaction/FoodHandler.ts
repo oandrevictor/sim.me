@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { snapToIsoGrid, TILE_W } from '../utils/isoGrid'
+import { DEPTH_UI } from '../config/world'
 import { getRecipe } from '../data/recipes'
 import { removeObjectByType } from '../storage/persistence'
 import type { CookingSystem } from '../systems/CookingSystem'
@@ -183,6 +184,6 @@ export class FoodHandler {
   private createCarryIndicator(): void {
     if (this.carryIndicator) this.carryIndicator.destroy()
     this.carryIndicator = this.scene.add.graphics()
-    this.carryIndicator.setDepth(5)
+    this.carryIndicator.setDepth(DEPTH_UI + 5)
   }
 }

@@ -55,6 +55,7 @@ function isMovingState(state: string): boolean {
     state === 'walking_to_chair' ||
     state === 'walking_to_water' ||
     state === 'walking_to_water_queue' ||
+    state === 'walking_to_bed' ||
     state === 'walking_to_stage' ||
     state === 'walking_to_perform'
   )

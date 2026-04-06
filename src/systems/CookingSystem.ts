@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { getRecipe } from '../data/recipes'
 import { playStoveIdle, STOVE_ANIM_COOKING } from '../animations/stoveAnims'
+import { DEPTH_UI } from '../config/world'
 
 type StoveStatus = 'idle' | 'cooking' | 'done'
 
@@ -61,7 +62,7 @@ export class CookingSystem {
 
     // Create progress bar
     stove.progressBar = this.scene.add.graphics()
-    stove.progressBar.setDepth(5)
+    stove.progressBar.setDepth(DEPTH_UI + 5)
   }
 
   collectFood(stove: StoveState): string | null {

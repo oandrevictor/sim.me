@@ -96,7 +96,11 @@ export class HydrationSystem {
     while (this.minuteAccum >= MINUTE_MS) {
       this.minuteAccum -= MINUTE_MS
       this.getPlayer().applyMinuteDehydration()
-      for (const b of this.bots) b.nirv.applyMinuteDehydration()
+      this.getPlayer().applyMinuteRestDecay()
+      for (const b of this.bots) {
+        b.nirv.applyMinuteDehydration()
+        if (b.state !== 'sleeping') b.nirv.applyMinuteRestDecay()
+      }
     }
   }
 
@@ -196,8 +200,10 @@ export class HydrationSystem {
 
       const critical = h <= CRITICAL_HYDRATION_THRESHOLD
       if (!critical) {
+        if (stBot === 'walking_to_bed' || stBot === 'sleeping') continue
         if (stBot !== 'walking' && stBot !== 'waiting') continue
       } else {
+        if (stBot === 'sleeping' || stBot === 'walking_to_bed') bot.cancelSleep()
         this.restaurant.releaseChairForBot(bot)
         if (stBot === 'watching_stage') bot.leaveStage()
         else if (stBot === 'walking_to_stage') bot.abortStageApproach()

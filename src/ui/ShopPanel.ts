@@ -12,20 +12,23 @@ const CARDS_PER_ROW = 6
 const CAT_TAB_H = 28
 const CAT_GAP = 4
 
-type Category = 'build' | 'dine' | 'decoration' | 'misc' | 'inventory'
+type Category = 'build' | 'dine' | 'bedroom' | 'decoration' | 'misc' | 'inventory'
 
 const CATEGORIES: { key: Category; label: string }[] = [
   { key: 'build', label: 'Build' },
   { key: 'dine', label: 'Dine' },
+  { key: 'bedroom', label: 'Bedroom' },
   { key: 'decoration', label: 'Decoration' },
   { key: 'misc', label: 'Misc' },
   { key: 'inventory', label: 'Inventory' },
 ]
 
 const CATEGORY_MAP: Record<string, Category> = {
-  obstacle: 'build', table2: 'dine', table4: 'dine', chair: 'dine',
+  obstacle: 'build', floor_yellow: 'build', table2: 'dine', table4: 'dine', chair: 'dine',
   stove: 'dine', counter: 'dine', drinking_water: 'dine', background: 'decoration',
   interactable: 'misc', trash: 'misc',
+  bed_ms_blue: 'bedroom', bed_ms_red: 'bedroom', bed_ms_grey: 'bedroom', bed_ms_space: 'bedroom',
+  bed_ws_blue: 'bedroom', bed_ws_red: 'bedroom', bed_ws_grey: 'bedroom', bed_ws_space: 'bedroom',
 }
 
 const HIDDEN_TYPES = new Set<string>(['food_plate'])

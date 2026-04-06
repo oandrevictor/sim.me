@@ -1,8 +1,10 @@
 import Phaser from 'phaser'
 import { SOLO_STAGE_TEXTURE_KEY, stageFootprint, type StageVariant } from '../config/stageVariants'
-import { OBJECT_TYPE_REGISTRY, getFramedObjectDisplaySize, type ObjectType } from '../objects/objectTypes'
+import { OBJECT_TYPE_REGISTRY, OBJECT_SIZE, getFramedObjectDisplaySize, type ObjectType } from '../objects/objectTypes'
+import { getBedTextureKey, isBedType } from '../objects/bedTypes'
 import { BUILDING_GRID_W, BUILDING_GRID_H } from '../entities/Building'
 import { TILE_W, TILE_H } from '../utils/isoGrid'
+import { DEPTH_UI } from '../config/world'
 
 /** Object types that support rotation (spritesheet with directional frames) */
 export const ROTATABLE_TYPES: Set<ObjectType> = new Set(['chair', 'stove'])
@@ -19,14 +21,32 @@ export function createObjectGhost(
     const { w, h } = getFramedObjectDisplaySize(type, 1.6)
     sprite.setDisplaySize(w, h)
     sprite.setAlpha(0.65)
-    sprite.setDepth(10)
+    sprite.setDepth(DEPTH_UI + 10)
+    return sprite
+  }
+
+  if (isBedType(type)) {
+    const r = rotation % 2
+    const sprite = scene.add.sprite(0, 0, getBedTextureKey(type, r))
+    const displayH = OBJECT_SIZE * 2.2
+    sprite.setDisplaySize(displayH * 1.45, displayH)
+    sprite.setAlpha(0.65)
+    sprite.setDepth(DEPTH_UI + 10)
+    return sprite
+  }
+
+  if (type === 'floor_yellow') {
+    const sprite = scene.add.sprite(0, 0, config.textureKey)
+    sprite.setDisplaySize(TILE_W, TILE_H)
+    sprite.setAlpha(0.55)
+    sprite.setDepth(DEPTH_UI + 10)
     return sprite
   }
 
   const sprite = scene.add.sprite(0, 0, 'obj_ghost')
   sprite.setTint(config.previewColor)
   sprite.setAlpha(0.55)
-  sprite.setDepth(10)
+  sprite.setDepth(DEPTH_UI + 10)
   return sprite
 }
 
@@ -44,7 +64,7 @@ export function createBuildingGhost(scene: Phaser.Scene): Phaser.GameObjects.Gra
   gfx.closePath()
   gfx.fillPath()
   gfx.strokePath()
-  gfx.setDepth(10)
+  gfx.setDepth(DEPTH_UI + 10)
   return gfx
 }
 
@@ -56,7 +76,7 @@ export function createStageGhost(
   if (variant === 'solo_platform') {
     const sprite = scene.add.sprite(0, 0, SOLO_STAGE_TEXTURE_KEY)
     sprite.setAlpha(0.55)
-    sprite.setDepth(10)
+    sprite.setDepth(DEPTH_UI + 10)
     return sprite
   }
 
@@ -73,7 +93,7 @@ export function createStageGhost(
 
   const gfx = scene.add.graphics()
   gfx.setAlpha(0.7)
-  gfx.setDepth(10)
+  gfx.setDepth(DEPTH_UI + 10)
 
   const tl = lp(0, 0), tr = lp(gw, 0), br = lp(gw, gh), bl = lp(0, gh)
 

@@ -16,3 +16,6 @@ export const WORLD_OFFSET_Y = bounds.offsetY
 
 // Apply offset so all gridToScreen calls produce positive coordinates
 setWorldOffset(WORLD_OFFSET_X, WORLD_OFFSET_Y)
+
+/** Depth offset for UI/overlay elements that must render above all Y-sorted world sprites. */
+export const DEPTH_UI = WORLD_HEIGHT + 100

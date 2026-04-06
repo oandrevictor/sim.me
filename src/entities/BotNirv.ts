@@ -6,6 +6,7 @@ import { gridToScreen, screenToGrid } from '../utils/isoGrid'
 import type { MusicTag } from '../data/musicTags'
 import type { NirvProfession } from '../data/professions'
 import { rollLeaveEarly } from '../systems/stageAffinity'
+import { DEPTH_UI } from '../config/world'
 import { EARLY_LEAVE_CHECK_INTERVAL_MS } from '../systems/stagePerformanceRuntime'
 
 const BOT_SPEED = 120
@@ -27,6 +28,8 @@ export type BotState =
   | 'walking_to_water_queue'
   | 'waiting_at_water_queue'
   | 'drinking_water'
+  | 'walking_to_bed'
+  | 'sleeping'
 
 export class BotNirv {
   readonly id: string
@@ -137,6 +140,48 @@ export class BotNirv {
     this.path = []
     this.stageEarlyLeaveAccum = 0
     this.currentIndex = (this.currentIndex + 1) % this.waypoints.length
+    this.computePathToWaypoint()
+  }
+
+  /** Walk to bed pixel (SleepSystem reserves the station). */
+  redirectToBed(x: number, y: number): void {
+    this.performInterior = null
+    this.pathEndCell = null
+    this.redirectTarget = { x, y }
+    this._state = 'walking_to_bed'
+    this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToPixel(x, y)
+  }
+
+  arriveAtBed(): void {
+    this.nirv.sprite.setVelocity(0, 0)
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.updateAnimation(0, 0)
+    this._state = 'sleeping'
+    this.showStatusIcon()
+  }
+
+  /** Leave sleep flow (thirst interrupt, bed removed, or stuck recovery). */
+  cancelSleep(): void {
+    if (this._state !== 'walking_to_bed' && this._state !== 'sleeping') return
+    this.hideStatusIcon()
+    this._state = 'walking'
+    this.redirectTarget = null
+    this.path = []
+    this.pathEndCell = null
+    this.performInterior = null
+    this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToWaypoint()
+  }
+
+  /** Restored to full; called by SleepSystem. */
+  finishSleeping(): void {
+    this.hideStatusIcon()
+    this._state = 'walking'
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.sprite.setVelocity(0, 0)
     this.computePathToWaypoint()
   }
 
@@ -341,6 +386,23 @@ export class BotNirv {
         return
       }
 
+      case 'walking_to_bed': {
+        if (!this.redirectTarget) {
+          this._state = 'walking'
+          this.computePathToWaypoint()
+          return
+        }
+        this.followPath()
+        const bedSprite = this.nirv.sprite
+        this.nirv.updateAnimation(bedSprite.body!.velocity.x, bedSprite.body!.velocity.y)
+        return
+      }
+
+      case 'sleeping':
+        this.nirv.updateAnimation(0, 0)
+        this.updateStatusIconPosition()
+        return
+
       case 'walking_to_water_queue': {
         if (!this.redirectTarget) {
           this._state = 'walking'
@@ -495,7 +557,7 @@ export class BotNirv {
       this.stuckFrames = 0
       if (this._state === 'walking') {
         this.computePathToWaypoint()
-      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_water' || this._state === 'walking_to_water_queue' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform') && this.redirectTarget) {
+      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_water' || this._state === 'walking_to_water_queue' || this._state === 'walking_to_bed' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform') && this.redirectTarget) {
         this.computePathToPixel(this.redirectTarget.x, this.redirectTarget.y, this.pathEndCell)
       }
     }
@@ -506,7 +568,7 @@ export class BotNirv {
         const target = this.waypoints[this.currentIndex]
         const dest = gridToScreen(target.gridX, target.gridY)
         this.moveToward(dest.x, dest.y)
-      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_water' || this._state === 'walking_to_water_queue' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform') && this.redirectTarget) {
+      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_water' || this._state === 'walking_to_water_queue' || this._state === 'walking_to_bed' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform') && this.redirectTarget) {
         this.moveToward(this.redirectTarget.x, this.redirectTarget.y)
       }
       return
@@ -535,7 +597,7 @@ export class BotNirv {
   private showStatusIcon(): void {
     if (this.statusIcon) return
     const gfx = this.scene.add.graphics()
-    gfx.setDepth(5)
+    gfx.setDepth(DEPTH_UI + 5)
     this.statusIcon = gfx
     this.drawStatusIcon()
   }
@@ -564,6 +626,12 @@ export class BotNirv {
       gfx.fillRect(bx - 4, by - 8, 8, 10)
       gfx.lineStyle(1, 0x5599bb)
       gfx.strokeRect(bx - 4, by - 8, 8, 10)
+    } else if (this._state === 'sleeping') {
+      // "Zzz" — minimal sleep glyph
+      gfx.fillStyle(0x333333)
+      gfx.fillRect(bx - 10, by - 6, 4, 4)
+      gfx.fillRect(bx - 4, by - 8, 4, 4)
+      gfx.fillRect(bx + 2, by - 10, 4, 4)
     } else {
       // Three dots "..." for awaiting service
       gfx.fillStyle(0x333333)

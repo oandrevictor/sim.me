@@ -35,7 +35,9 @@ export function placeBotsAsStagePerformers(
       bot.state === 'walking_to_water' ||
       bot.state === 'walking_to_water_queue' ||
       bot.state === 'waiting_at_water_queue' ||
-      bot.state === 'drinking_water'
+      bot.state === 'drinking_water' ||
+      bot.state === 'walking_to_bed' ||
+      bot.state === 'sleeping'
     ) return
 
     const enRouteHere =

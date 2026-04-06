@@ -1,5 +1,9 @@
 import Phaser from 'phaser'
 import { HYDRATION_START, sampleDehydrationRate } from './nirvHydration'
+import {
+  REST_START, REST_DECAY_MIN, REST_DECAY_MAX,
+  sampleSleepyRate, sampleRestThreshold, sampleSleepRecharges,
+} from './nirvSleep'
 
 export type NirvVariant = 'm' | 'f' | 'f2' | 'f3'
 
@@ -20,7 +24,11 @@ export class Nirv {
   readonly color: number
   readonly isPlayer: boolean
   readonly dehydrationRate: number
+  readonly sleepyRate: number
+  readonly restThreshold: number
+  readonly sleepRecharges: number
   private hydrationLevel: number
+  private restLevel: number
   private variant: NirvVariant
   private lastDir = 'down'
   private isMoving = false
@@ -40,15 +48,24 @@ export class Nirv {
     this.variant = variant
     this.dehydrationRate = sampleDehydrationRate()
     this.hydrationLevel = HYDRATION_START
+    this.sleepyRate = sampleSleepyRate()
+    this.restThreshold = sampleRestThreshold()
+    this.sleepRecharges = sampleSleepRecharges()
+    this.restLevel = REST_START
 
     const textureKey = `${variant}_idle`
     this.sprite = scene.physics.add.sprite(x, y, textureKey, 16)
-    this.sprite.setDepth(4)
+    this.sprite.setDepth(y)
     this.sprite.body!.setSize(20, 24)
     this.sprite.body!.setOffset(14, 20)
   }
 
+  updateDepth(): void {
+    this.sprite.setDepth(this.sprite.y)
+  }
+
   updateAnimation(vx: number, vy: number): void {
+    this.updateDepth()
     const moving = Math.abs(vx) > 10 || Math.abs(vy) > 10
 
     if (moving) {
@@ -100,5 +117,21 @@ export class Nirv {
 
   addHydration(amount: number): void {
     this.hydrationLevel = Math.min(100, this.hydrationLevel + amount)
+  }
+
+  getRestLevel(): number {
+    return this.restLevel
+  }
+
+  /** One game-minute tick: new_rest = old * sleepyRate, decrease clamped to [3, 15]. */
+  applyMinuteRestDecay(): void {
+    const raw = this.restLevel * this.sleepyRate
+    let decrease = this.restLevel - raw
+    decrease = Math.max(REST_DECAY_MIN, Math.min(REST_DECAY_MAX, decrease))
+    this.restLevel = Math.max(0, this.restLevel - decrease)
+  }
+
+  addRest(amount: number): void {
+    this.restLevel = Math.min(100, this.restLevel + amount)
   }
 }

@@ -7,11 +7,23 @@ import { addToInventory } from '../storage/inventoryPersistence'
 import type { RestaurantSystem } from '../systems/RestaurantSystem'
 import type { CookingSystem } from '../systems/CookingSystem'
 import type { HydrationSystem } from '../systems/HydrationSystem'
+import type { SleepSystem } from '../systems/SleepSystem'
+import { getBedTextureKey, isBedType } from '../objects/bedTypes'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import type { PlacementManager } from '../placement/PlacementManager'
+import { DEPTH_UI } from '../config/world'
+import { FloorTileLayer } from './FloorTileLayer'
 
 export type PlateEntry = { sprite: Phaser.GameObjects.Sprite; tableX: number; tableY: number; recipeId: string }
-export type PlacedSpriteEntry = { sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite; type: ObjectType; x: number; y: number; rotation?: number }
+export type PlacedSpriteEntry = {
+  sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite
+  type: ObjectType
+  x: number
+  y: number
+  rotation?: number
+  /** Invisible footprint for beds (destroyed with the bed). */
+  bedBlocker?: Phaser.Physics.Arcade.Sprite
+}
 
 export interface SpawnerState {
   placedSprites: PlacedSpriteEntry[]
@@ -23,6 +35,13 @@ export interface SpawnerState {
 }
 
 export class ObjectSpawner {
+  private floorLayer: FloorTileLayer | null = null
+
+  private getFloorLayer(): FloorTileLayer {
+    if (!this.floorLayer) this.floorLayer = new FloorTileLayer(this.scene)
+    return this.floorLayer
+  }
+
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly obstacleGroup: Phaser.Physics.Arcade.StaticGroup,
@@ -35,6 +54,7 @@ export class ObjectSpawner {
     private readonly onInteractableClicked: (sprite: Phaser.GameObjects.Sprite) => void,
     private readonly onPlateClicked: (entry: PlateEntry) => void,
     private readonly hydrationSystem: HydrationSystem,
+    private readonly sleepSystem: SleepSystem,
     private readonly onWaterStationPointerDown: (sprite: Phaser.Physics.Arcade.Sprite, x: number, y: number) => void,
   ) {}
 
@@ -44,7 +64,7 @@ export class ObjectSpawner {
 
     if (config.hasPhysicsBody) {
       const sprite = this.obstacleGroup.create(x, y, config.textureKey, frame) as Phaser.Physics.Arcade.Sprite
-      sprite.setDepth(config.depth)
+      sprite.setDepth(y)
       if (config.frame !== undefined) {
         const { w, h } = getFramedObjectDisplaySize(type, 1.6)
         sprite.setDisplaySize(w, h)
@@ -69,19 +89,33 @@ export class ObjectSpawner {
       } else if (type === 'trash') {
         sprite.setInteractive({ useHandCursor: true })
         sprite.on('pointerdown', () => this.onTrashClicked(sprite))
-      } else if (type === 'drinking_water') {
-        const { w, h } = getFramedObjectDisplaySize(type, 1.6)
-        sprite.setDisplaySize(w, h)
-        sprite.body!.setSize(OBJECT_SIZE, OBJECT_SIZE)
-        sprite.body!.setOffset((sprite.width - OBJECT_SIZE) / 2, (sprite.height - OBJECT_SIZE) / 2)
-        sprite.refreshBody()
-        this.hydrationSystem.registerStation(sprite, x, y)
-        sprite.setInteractive({ useHandCursor: true })
-        sprite.on('pointerdown', () => this.onWaterStationPointerDown(sprite, x, y))
       }
     } else {
+      if (isBedType(type)) {
+        const rot = rotation ?? 0
+        const tex = getBedTextureKey(type, rot)
+        const sprite = this.scene.add.sprite(x, y, tex)
+        sprite.setDepth(y)
+        const displayH = OBJECT_SIZE * 2.2
+        const displayW = displayH * 1.45
+        sprite.setDisplaySize(displayW, displayH)
+        const blocker = this.obstacleGroup.create(x, y, '__DEFAULT') as Phaser.Physics.Arcade.Sprite
+        blocker.setVisible(false)
+        blocker.body!.setSize(OBJECT_SIZE, OBJECT_SIZE / 2)
+        blocker.body!.setOffset(-OBJECT_SIZE / 2, -OBJECT_SIZE / 4)
+        blocker.refreshBody()
+        const g = screenToGrid(x, y)
+        this.pathfinder.blockCell(Math.round(g.gx), Math.round(g.gy))
+        this.sleepSystem.registerBed(sprite, x, y)
+        this.state.placedSprites.push({ sprite, type, x, y, rotation: rot, bedBlocker: blocker })
+        if (persist) {
+          savePlacedObject({ id: crypto.randomUUID(), type, x, y, recipeId, rotation: rot })
+        }
+        return
+      }
+
       const sprite = this.scene.add.sprite(x, y, config.textureKey, frame)
-      sprite.setDepth(config.depth)
+      sprite.setDepth(y)
       if (config.frame !== undefined) {
         const { w, h } = getFramedObjectDisplaySize(type, 1.6)
         sprite.setDisplaySize(w, h)
@@ -90,7 +124,29 @@ export class ObjectSpawner {
         this.state.placedSprites.push({ sprite, type, x, y, rotation })
       }
 
-      if (type === 'interactable') {
+      if (type === 'floor_yellow') {
+        sprite.setVisible(false)
+        const g = screenToGrid(x, y)
+        this.getFloorLayer().add(Math.round(g.gx), Math.round(g.gy))
+      } else if (type === 'drinking_water') {
+        // Display the tall isometric sprite (357×700)
+        const displayH = OBJECT_SIZE * 2.7
+        const displayW = displayH * (357 / 700)
+        sprite.setDisplaySize(displayW, displayH)
+        // Depth at grid cell center (ground contact point)
+        sprite.setDepth(y)
+        // Invisible static body for ground footprint only
+        const blocker = this.obstacleGroup.create(x, y, '__DEFAULT') as Phaser.Physics.Arcade.Sprite
+        blocker.setVisible(false)
+        blocker.body!.setSize(OBJECT_SIZE, OBJECT_SIZE / 2)
+        blocker.body!.setOffset(-OBJECT_SIZE / 2, -OBJECT_SIZE / 4)
+        blocker.refreshBody()
+        const g = screenToGrid(x, y)
+        this.pathfinder.blockCell(Math.round(g.gx), Math.round(g.gy))
+        this.hydrationSystem.registerStation(sprite as unknown as Phaser.Physics.Arcade.Sprite, x, y)
+        sprite.setInteractive({ useHandCursor: true })
+        sprite.on('pointerdown', () => this.onWaterStationPointerDown(sprite as unknown as Phaser.Physics.Arcade.Sprite, x, y))
+      } else if (type === 'interactable') {
         this.state.interactableSprites.push(sprite)
         sprite.setInteractive({ useHandCursor: true })
         sprite.on('pointerdown', () => this.onInteractableClicked(sprite))
@@ -101,7 +157,7 @@ export class ObjectSpawner {
           const plateEntry: PlateEntry = { sprite, tableX: x, tableY: y, recipeId }
           this.state.plateSprites.push(plateEntry)
           sprite.setInteractive({ useHandCursor: true, pixelPerfect: false })
-          sprite.setDepth(5)
+          sprite.setDepth(DEPTH_UI + 5)
           sprite.on('pointerdown', () => this.onPlateClicked(plateEntry))
           this.restaurantSystem.placeFoodOnTable(x, y, recipeId, sprite)
         }
@@ -127,6 +183,7 @@ export class ObjectSpawner {
     const entry = this.state.placedSprites[idx]
     const { sprite, type, x, y, rotation } = entry
 
+    entry.bedBlocker?.destroy()
     sprite.destroy()
     this.state.placedSprites.splice(idx, 1)
     this.state.interactableSprites = this.state.interactableSprites.filter(s => s !== sprite)
@@ -143,10 +200,19 @@ export class ObjectSpawner {
       this.state.plateSprites = this.state.plateSprites.filter(p => p.tableX !== x || p.tableY !== y)
     }
 
-    if (type === 'chair') {
+    if (type === 'floor_yellow') {
+      const g = screenToGrid(x, y)
+      this.getFloorLayer().remove(Math.round(g.gx), Math.round(g.gy))
+    } else if (type === 'chair') {
       this.restaurantSystem.unregisterChair(sprite as Phaser.GameObjects.Sprite)
     } else if (type === 'drinking_water') {
       this.hydrationSystem.unregisterStation(sprite as Phaser.Physics.Arcade.Sprite)
+      const g = screenToGrid(x, y)
+      this.pathfinder.unblockCell(Math.round(g.gx), Math.round(g.gy))
+    } else if (isBedType(type)) {
+      this.sleepSystem.unregisterBed(sprite as Phaser.GameObjects.Sprite)
+      const g = screenToGrid(x, y)
+      this.pathfinder.unblockCell(Math.round(g.gx), Math.round(g.gy))
     } else if (type === 'table2' || type === 'table4') {
       this.restaurantSystem.unregisterTable(sprite)
     }

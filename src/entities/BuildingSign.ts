@@ -16,7 +16,7 @@ export class BuildingSign {
     )
 
     this.sprite = scene.add.sprite(doorPos.x + 20, doorPos.y + 10, 'obj_sign')
-    this.sprite.setDepth(3)
+    this.sprite.setDepth(doorPos.y + 10)
     this.sprite.setInteractive({ useHandCursor: true })
   }
 

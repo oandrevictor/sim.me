@@ -21,5 +21,8 @@ export function layoutSoloStageSprite(
   sprite.setScale(s)
   sprite.setOrigin(0.5, 1)
   sprite.setPosition(br.x, br.y)
-  sprite.setDepth(1.6)
+  // Depth at top vertex so Nirvs on stage render above the platform
+  const tl = gridToScreen(gridX, gridY)
+  const tr = gridToScreen(gridX + gridW, gridY)
+  sprite.setDepth(Math.min(tl.y, tr.y))
 }

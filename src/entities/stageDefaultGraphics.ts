@@ -93,5 +93,7 @@ export function drawDefaultStageGraphics(
     gfx.strokeCircle(lp.x, lp.y, 3)
   }
 
-  gfx.setDepth(1.6)
+  // Depth at top vertex so Nirvs on the stage platform render above it
+  const topY = Math.min(tl.y, tr.y)
+  gfx.setDepth(topY)
 }

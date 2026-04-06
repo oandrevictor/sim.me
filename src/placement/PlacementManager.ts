@@ -6,6 +6,7 @@ import type { MenuUI } from '../ui/MenuUI'
 import { snapToIsoGrid, screenToGrid, gridToScreen } from '../utils/isoGrid'
 import { layoutSoloStageSprite } from '../utils/soloStageSpriteLayout'
 import { createObjectGhost, createBuildingGhost, createStageGhost, ROTATABLE_TYPES } from './GhostFactory'
+import { isBedType } from '../objects/bedTypes'
 
 type PlacementMode = 'object' | 'building' | 'stage'
 
@@ -97,7 +98,17 @@ export class PlacementManager {
       this.onPointerMove(this.scene.input.activePointer)
       return
     }
-    if (!this.activeType || !ROTATABLE_TYPES.has(this.activeType)) return
+    if (!this.activeType) return
+    if (isBedType(this.activeType)) {
+      this.rotation = (this.rotation + 1) % 2
+      if (this.ghost instanceof Phaser.GameObjects.Sprite) {
+        this.ghost.destroy()
+        this.ghost = createObjectGhost(this.scene, this.activeType, this.rotation)
+        this.onPointerMove(this.scene.input.activePointer)
+      }
+      return
+    }
+    if (!ROTATABLE_TYPES.has(this.activeType)) return
     const config = OBJECT_TYPE_REGISTRY[this.activeType]
     if (config?.frame === undefined) return
     this.rotation = (this.rotation + 1) % 4
@@ -150,7 +161,7 @@ export class PlacementManager {
 
     if (this.mode === 'object' && this.activeType) {
       const snapped = snapToIsoGrid(pointer.worldX, pointer.worldY)
-      const rot = ROTATABLE_TYPES.has(this.activeType) ? this.rotation : undefined
+      const rot = ROTATABLE_TYPES.has(this.activeType) || isBedType(this.activeType) ? this.rotation : undefined
       this.onPlace(this.activeType, snapped.x, snapped.y, rot)
       if (this.inventoryMode) { this.exit(); return }
     } else if (this.mode === 'building') {
@@ -166,7 +177,7 @@ export class PlacementManager {
     if (!this.repositionMode || !this.activeType) return
     if (this.menuUI.isPointerOverUI(pointer)) return
     const snapped = snapToIsoGrid(pointer.worldX, pointer.worldY)
-    const rot = ROTATABLE_TYPES.has(this.activeType) ? this.rotation : undefined
+    const rot = ROTATABLE_TYPES.has(this.activeType) || isBedType(this.activeType) ? this.rotation : undefined
     this.onPlace(this.activeType, snapped.x, snapped.y, rot)
     this.exit()
   }

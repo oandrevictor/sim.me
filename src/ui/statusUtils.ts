@@ -4,6 +4,8 @@ export function getBotStatusLabel(state: BotState | string): string {
   switch (state) {
     case 'walking_to_chair': return 'Arriving...'
     case 'walking_to_water': return 'Getting water'
+    case 'walking_to_bed': return 'Going to bed'
+    case 'sleeping': return 'Sleeping'
     case 'walking_to_water_queue': return 'Joining water line'
     case 'waiting_at_water_queue': return 'In line for water'
     case 'drinking_water': return 'Drinking'
@@ -22,6 +24,8 @@ export function getBotStatusColor(state: BotState | string): string {
   switch (state) {
     case 'walking_to_chair': return '#8888aa'
     case 'walking_to_water': return '#6699cc'
+    case 'walking_to_bed': return '#8866aa'
+    case 'sleeping': return '#554466'
     case 'walking_to_water_queue': return '#5588bb'
     case 'waiting_at_water_queue': return '#77aadd'
     case 'drinking_water': return '#88ccff'
