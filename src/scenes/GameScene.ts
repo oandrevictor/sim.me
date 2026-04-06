@@ -34,6 +34,7 @@ import { FoodHandler } from '../interaction/FoodHandler'
 import { NirvNameHover } from '../interaction/NirvNameHover'
 import { removeObjectByType } from '../storage/persistence'
 import { registerStoveAnimations } from '../animations/stoveAnims'
+import { applyNirvSeparation } from '../entities/nirvSeparation'
 
 const PLAYER_SPEED = 200
 
@@ -215,6 +216,7 @@ export class GameScene extends Phaser.Scene {
     this.interactionManager.update(player)
 
     for (const bot of this.botNirvs) bot.update(delta)
+    applyNirvSeparation(this.botNirvs, this.playerNirv)
 
     this.hydrationSystem.updateStations(delta)
 
