@@ -22,6 +22,7 @@ import { BuildingTypeUI } from '../ui/BuildingTypeUI'
 import { RestaurantSystem } from '../systems/RestaurantSystem'
 import { HydrationSystem } from '../systems/HydrationSystem'
 import { HungerSystem } from '../systems/HungerSystem'
+import { BladderSystem } from '../systems/BladderSystem'
 import { SleepSystem } from '../systems/SleepSystem'
 import { StageSystem } from '../systems/StageSystem'
 import { CookingSystem } from '../systems/CookingSystem'
@@ -55,6 +56,7 @@ export class GameScene extends Phaser.Scene {
   private restaurantSystem!: RestaurantSystem
   private hydrationSystem!: HydrationSystem
   private hungerSystem!: HungerSystem
+  private bladderSystem!: BladderSystem
   private sleepSystem!: SleepSystem
   private stageSystem!: StageSystem
   private cookingSystem!: CookingSystem
@@ -94,6 +96,7 @@ export class GameScene extends Phaser.Scene {
     this.load.image('snack_machine', 'assets/Furniture/snack_machine.png')
     this.load.image('fruit_crate', 'assets/Furniture/fruit_crate.png')
     this.load.image('floor_yellow', 'assets/Build/floorFull_yellow.png')
+    this.load.image('portable_toilet', 'assets/Build/portable_toilet.png')
   }
 
   create(): void {
@@ -143,6 +146,13 @@ export class GameScene extends Phaser.Scene {
       () => this.sleepSystem.wakePlayerFromBed(),
     )
 
+    this.bladderSystem = new BladderSystem(
+      this.botNirvs,
+      () => this.playerNirv,
+      this.restaurantSystem,
+      this.pathfinder,
+    )
+
     this.objectSpawner = new ObjectSpawner(
       this, this.obstacleGroup, this.pathfinder,
       this.restaurantSystem, this.cookingSystem, this.spawnerState,
@@ -158,6 +168,7 @@ export class GameScene extends Phaser.Scene {
       this.hydrationSystem,
       this.sleepSystem,
       this.hungerSystem,
+      this.bladderSystem,
     )
 
     this.buildingPlacer = new BuildingPlacer(
@@ -218,6 +229,9 @@ export class GameScene extends Phaser.Scene {
       this.playerNirv.updateAnimation(0, 0)
       this.playerNirv.showDrinkingBubble()
       this.playerNirv.syncDrinkingBubblePosition()
+    } else if (this.bladderSystem.isPlayerUsingToilet()) {
+      player.setVelocity(0, 0)
+      this.playerNirv.updateAnimation(0, 0)
     } else {
       this.playerNirv.hideDrinkingBubble()
       const result = this.playerInput.update(player)
@@ -245,6 +259,7 @@ export class GameScene extends Phaser.Scene {
 
     this.hydrationSystem.updateStations(delta)
     this.hungerSystem.updateStations(delta)
+    this.bladderSystem.updateStations(delta)
     this.sleepSystem.updateBeds(delta)
 
     this.cookingSystem.update(delta)
@@ -265,6 +280,7 @@ export class GameScene extends Phaser.Scene {
         restLevel: this.playerNirv.getRestLevel(),
         satiation: this.playerNirv.getSatiation(),
         funLevel: this.playerNirv.getFunLevel(),
+        bladderLevel: this.playerNirv.getBladderLevel(),
       },
       ...this.botNirvs.map(b => ({
         sprite: b.nirv.sprite,
@@ -273,6 +289,7 @@ export class GameScene extends Phaser.Scene {
         restLevel: b.nirv.getRestLevel(),
         satiation: b.nirv.getSatiation(),
         funLevel: b.nirv.getFunLevel(),
+        bladderLevel: b.nirv.getBladderLevel(),
       })),
     ], hideNameHover)
 
@@ -314,6 +331,7 @@ export class GameScene extends Phaser.Scene {
         this.cameras.main,
         this.spawnerState.placedSprites,
         this.hydrationSystem,
+        this.bladderSystem,
         this.sleepSystem,
         this.playerNirv,
         (tx, ty) => this.playerInput.setWalkTarget(tx, ty),

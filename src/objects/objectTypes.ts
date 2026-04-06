@@ -182,6 +182,18 @@ export const OBJECT_TYPE_REGISTRY = {
     hasPhysicsBody: false,
     isInteractable: true,
   },
+  portable_toilet: {
+    type: 'portable_toilet',
+    label: 'Portable toilet',
+    description: 'Nirvs use when they need to go',
+    textureKey: 'portable_toilet',
+    /** PNG 152×223 — must match or the sprite is stretched (square looked vertically squashed). */
+    displayAspectWidthOverHeight: 152 / 223,
+    previewColor: 0x9a9aaa,
+    depth: 2,
+    hasPhysicsBody: false,
+    isInteractable: true,
+  },
   ...BED_REGISTRY_ENTRIES,
 } as Record<ObjectType, ObjectTypeConfig>
 

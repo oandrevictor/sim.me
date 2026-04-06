@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import type { Nirv } from '../entities/Nirv'
 import { isBedType } from '../objects/bedTypes'
 import type { HydrationSystem } from '../systems/HydrationSystem'
+import type { BladderSystem } from '../systems/BladderSystem'
 import type { SleepSystem } from '../systems/SleepSystem'
 import { TILE_W } from '../utils/isoGrid'
 import type { PlacedSpriteEntry } from './ObjectSpawner'
@@ -32,6 +33,7 @@ export function tryStationsAtPointer(
   camera: Phaser.Cameras.Scene2D.Camera,
   placedSprites: PlacedSpriteEntry[],
   hydrationSystem: HydrationSystem,
+  bladderSystem: BladderSystem,
   sleepSystem: SleepSystem,
   playerNirv: Nirv,
   setWalkTarget: (x: number, y: number) => void,
@@ -47,6 +49,9 @@ export function tryStationsAtPointer(
     if (type === 'drinking_water') {
       hydrationSystem.tryInteractWaterStation(x, y, playerNirv.sprite, setWalkTarget)
       return true
+    }
+    if (type === 'portable_toilet') {
+      if (bladderSystem.tryInteractPortableToilet(x, y, playerNirv.sprite, setWalkTarget)) return true
     }
     if (isBedType(type)) {
       sleepSystem.tryInteractBed(sprite, x, y, playerNirv, playerNirv.sprite, setWalkTarget)

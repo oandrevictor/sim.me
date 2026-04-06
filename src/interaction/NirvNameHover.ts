@@ -8,6 +8,7 @@ export type NirvHoverSubject = {
   restLevel: number
   satiation: number
   funLevel: number
+  bladderLevel: number
 }
 
 /** World-space name tag when the pointer is over a Nirv sprite */
@@ -38,6 +39,7 @@ export class NirvNameHover {
     let bestD = Infinity
 
     for (const s of subjects) {
+      if (!s.sprite.visible) continue
       const b = s.sprite.getBounds()
       if (!b.contains(wx, wy)) continue
       const d = Phaser.Math.Distance.Between(wx, wy, s.sprite.x, s.sprite.y)
@@ -53,7 +55,7 @@ export class NirvNameHover {
     }
 
     this.label.setText(
-      `${best.name}\nWater: ${Math.round(best.hydrationLevel)}\nRest: ${Math.round(best.restLevel)}\nSatiation: ${Math.round(best.satiation)}\nFun: ${Math.round(best.funLevel)}`,
+      `${best.name}\nWater: ${Math.round(best.hydrationLevel)}\nRest: ${Math.round(best.restLevel)}\nSatiation: ${Math.round(best.satiation)}\nFun: ${Math.round(best.funLevel)}\nBladder: ${Math.round(best.bladderLevel)}`,
     )
     this.label.setPosition(best.sprite.x, best.sprite.y - 58)
     this.label.setVisible(true)

@@ -8,6 +8,7 @@ import type { RestaurantSystem } from '../systems/RestaurantSystem'
 import type { CookingSystem } from '../systems/CookingSystem'
 import type { HydrationSystem } from '../systems/HydrationSystem'
 import type { HungerSystem } from '../systems/HungerSystem'
+import type { BladderSystem } from '../systems/BladderSystem'
 import type { SleepSystem } from '../systems/SleepSystem'
 import { getBedTextureKey, isBedType } from '../objects/bedTypes'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
@@ -57,6 +58,7 @@ export class ObjectSpawner {
     private readonly hydrationSystem: HydrationSystem,
     private readonly sleepSystem: SleepSystem,
     private readonly hungerSystem: HungerSystem,
+    private readonly bladderSystem: BladderSystem,
   ) {}
 
   spawn(type: ObjectType, x: number, y: number, persist: boolean, recipeId?: string, rotation?: number): void {
@@ -124,7 +126,7 @@ export class ObjectSpawner {
       if (config.frame !== undefined) {
         const { w, h } = getFramedObjectDisplaySize(type, 1.6)
         sprite.setDisplaySize(w, h)
-      } else if (config.displayAspectWidthOverHeight !== undefined && type !== 'snack_machine' && type !== 'fruit_crate') {
+      } else if (config.displayAspectWidthOverHeight !== undefined && type !== 'snack_machine' && type !== 'fruit_crate' && type !== 'portable_toilet') {
         const { w, h } = getFramedObjectDisplaySize(type, 1.6)
         sprite.setDisplaySize(w, h)
       }
@@ -186,6 +188,21 @@ export class ObjectSpawner {
         const g = screenToGrid(x, y)
         this.pathfinder.blockCell(Math.round(g.gx), Math.round(g.gy))
         this.hungerSystem.registerFruitCrate(sprite as unknown as Phaser.Physics.Arcade.Sprite, x, y)
+      } else if (type === 'portable_toilet') {
+        const { w, h } = getFramedObjectDisplaySize(type, 2.2)
+        sprite.setDisplaySize(w, h)
+        sprite.setOrigin(0.5, 1)
+        sprite.setDepth(y)
+        const footH = OBJECT_SIZE / 2
+        const footW = Math.max(OBJECT_SIZE, Math.round(w * 0.55))
+        const blocker = this.obstacleGroup.create(x, y - footH / 2, '__DEFAULT') as Phaser.Physics.Arcade.Sprite
+        blocker.setVisible(false)
+        blocker.body!.setSize(footW, footH)
+        blocker.body!.setOffset(16 - footW / 2, 8)
+        blocker.refreshBody()
+        const g = screenToGrid(x, y)
+        this.pathfinder.blockCell(Math.round(g.gx), Math.round(g.gy))
+        this.bladderSystem.registerStation(sprite as unknown as Phaser.Physics.Arcade.Sprite, x, y)
       } else if (type === 'interactable') {
         this.state.interactableSprites.push(sprite)
         sprite.setInteractive({ useHandCursor: true })
@@ -255,6 +272,10 @@ export class ObjectSpawner {
       this.pathfinder.unblockCell(Math.round(g.gx), Math.round(g.gy))
     } else if (type === 'fruit_crate') {
       this.hungerSystem.unregisterFruitCrate(sprite as Phaser.Physics.Arcade.Sprite)
+      const g = screenToGrid(x, y)
+      this.pathfinder.unblockCell(Math.round(g.gx), Math.round(g.gy))
+    } else if (type === 'portable_toilet') {
+      this.bladderSystem.unregisterStation(sprite as Phaser.Physics.Arcade.Sprite)
       const g = screenToGrid(x, y)
       this.pathfinder.unblockCell(Math.round(g.gx), Math.round(g.gy))
     } else if (isBedType(type)) {

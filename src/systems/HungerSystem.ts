@@ -200,7 +200,11 @@ export class HungerSystem {
         stBot === 'fruit_wander' ||
         stBot === 'fruit_eat' ||
         stBot === 'walking_to_fruit_queue' ||
-        stBot === 'waiting_at_fruit_queue'
+        stBot === 'waiting_at_fruit_queue' ||
+        stBot === 'walking_to_toilet' ||
+        stBot === 'using_toilet' ||
+        stBot === 'walking_to_toilet_queue' ||
+        stBot === 'waiting_at_toilet_queue'
       ) {
         continue
       }
@@ -215,6 +219,7 @@ export class HungerSystem {
       } else {
         if (stBot === 'sleeping' || stBot === 'walking_to_bed') bot.cancelSleep()
         bot.cancelWaterQueue()
+        bot.cancelToiletQueue()
         this.restaurant.releaseChairForBot(bot)
         if (stBot === 'watching_stage') bot.leaveStage()
         else if (stBot === 'walking_to_stage') bot.abortStageApproach()

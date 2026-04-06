@@ -244,6 +244,12 @@ export class SleepSystem {
           stBot === 'waiting_at_water_queue' ||
           stBot === 'drinking_water'
         ) bot.cancelWaterQueue()
+        else if (
+          stBot === 'walking_to_toilet' ||
+          stBot === 'walking_to_toilet_queue' ||
+          stBot === 'waiting_at_toilet_queue' ||
+          stBot === 'using_toilet'
+        ) bot.cancelToiletQueue()
       }
 
       let best: BedStation | null = null

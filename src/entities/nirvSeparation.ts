@@ -23,6 +23,7 @@ export function applyNirvSeparation(
     if (!isMovingState(bot.state)) continue
 
     const s = bot.nirv.sprite
+    if (!s.visible) continue
     const body = s.body as Phaser.Physics.Arcade.Body
     if (!body) continue
 
@@ -31,6 +32,7 @@ export function applyNirvSeparation(
 
     for (const other of sprites) {
       if (other === s) continue
+      if (!other.visible) continue
       const dx = s.x - other.x
       const dy = s.y - other.y
       const dist = Math.sqrt(dx * dx + dy * dy)
@@ -55,6 +57,8 @@ function isMovingState(state: string): boolean {
     state === 'walking_to_chair' ||
     state === 'walking_to_water' ||
     state === 'walking_to_water_queue' ||
+    state === 'walking_to_toilet' ||
+    state === 'walking_to_toilet_queue' ||
     state === 'walking_to_bed' ||
     state === 'walking_to_stage' ||
     state === 'walking_to_perform'

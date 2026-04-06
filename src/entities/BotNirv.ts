@@ -47,6 +47,10 @@ export type BotState =
   | 'fruit_eat'
   | 'walking_to_bed'
   | 'sleeping'
+  | 'walking_to_toilet'
+  | 'walking_to_toilet_queue'
+  | 'waiting_at_toilet_queue'
+  | 'using_toilet'
 
 export class BotNirv {
   readonly id: string
@@ -273,6 +277,59 @@ export class BotNirv {
     this._state = 'drinking_water'
     this.seatTimer = 3000
     this.showStatusIcon()
+  }
+
+  redirectToToilet(x: number, y: number): void {
+    this.performInterior = null
+    this.pathEndCell = null
+    this.redirectTarget = { x, y }
+    this._state = 'walking_to_toilet'
+    this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToPixel(x, y)
+  }
+
+  redirectToToiletQueueSlot(x: number, y: number): void {
+    this.performInterior = null
+    this.pathEndCell = null
+    this.redirectTarget = { x, y }
+    this._state = 'walking_to_toilet_queue'
+    this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToPixel(x, y)
+  }
+
+  arriveAtToiletQueueSlot(): void {
+    this.nirv.sprite.setVelocity(0, 0)
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.updateAnimation(0, 0)
+    this._state = 'waiting_at_toilet_queue'
+  }
+
+  cancelToiletQueue(): void {
+    if (
+      this._state !== 'walking_to_toilet' &&
+      this._state !== 'using_toilet' &&
+      this._state !== 'walking_to_toilet_queue' &&
+      this._state !== 'waiting_at_toilet_queue'
+    ) return
+    this.hideStatusIcon()
+    if (this._state === 'using_toilet') this.nirv.exitToilet()
+    this._state = 'walking'
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToWaypoint()
+  }
+
+  arriveAtToiletStation(stationX: number, stationY: number): void {
+    this.nirv.sprite.setVelocity(0, 0)
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.updateAnimation(0, 0)
+    this.hideStatusIcon()
+    this._state = 'using_toilet'
+    this.seatTimer = 3000
+    this.nirv.enterToiletInterior(stationX, stationY)
   }
 
   /** Abort walking to chair; caller must release restaurant chair first if reserved. */
@@ -575,6 +632,40 @@ export class BotNirv {
         if (this.seatTimer <= 0) this.finishDrinkingWater()
         return
 
+      case 'walking_to_toilet': {
+        if (!this.redirectTarget) {
+          this._state = 'walking'
+          this.computePathToWaypoint()
+          return
+        }
+        this.followPath()
+        const toilSprite = this.nirv.sprite
+        this.nirv.updateAnimation(toilSprite.body!.velocity.x, toilSprite.body!.velocity.y)
+        return
+      }
+
+      case 'walking_to_toilet_queue': {
+        if (!this.redirectTarget) {
+          this._state = 'walking'
+          this.computePathToWaypoint()
+          return
+        }
+        this.followPath()
+        const tqSprite = this.nirv.sprite
+        this.nirv.updateAnimation(tqSprite.body!.velocity.x, tqSprite.body!.velocity.y)
+        return
+      }
+
+      case 'waiting_at_toilet_queue':
+        this.nirv.updateAnimation(0, 0)
+        return
+
+      case 'using_toilet':
+        this.nirv.updateAnimation(0, 0)
+        this.seatTimer -= delta
+        if (this.seatTimer <= 0) this.finishUsingToilet()
+        return
+
       case 'walking_to_snack': {
         if (!this.redirectTarget) {
           this._state = 'walking'
@@ -849,7 +940,7 @@ export class BotNirv {
       this.stuckFrames = 0
       if (this._state === 'walking') {
         this.computePathToWaypoint()
-      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_water' || this._state === 'walking_to_water_queue' || this._state === 'walking_to_snack' || this._state === 'walking_to_snack_queue' || this._state === 'snack_wander' || this._state === 'walking_to_fruit' || this._state === 'walking_to_fruit_queue' || this._state === 'fruit_wander' || this._state === 'walking_to_bed' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform') && this.redirectTarget) {
+      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_water' || this._state === 'walking_to_water_queue' || this._state === 'walking_to_toilet' || this._state === 'walking_to_toilet_queue' || this._state === 'walking_to_snack' || this._state === 'walking_to_snack_queue' || this._state === 'snack_wander' || this._state === 'walking_to_fruit' || this._state === 'walking_to_fruit_queue' || this._state === 'fruit_wander' || this._state === 'walking_to_bed' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform') && this.redirectTarget) {
         this.computePathToPixel(this.redirectTarget.x, this.redirectTarget.y, this.pathEndCell)
       }
     }
@@ -860,7 +951,7 @@ export class BotNirv {
         const target = this.waypoints[this.currentIndex]
         const dest = gridToScreen(target.gridX, target.gridY)
         this.moveToward(dest.x, dest.y)
-      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_water' || this._state === 'walking_to_water_queue' || this._state === 'walking_to_snack' || this._state === 'walking_to_snack_queue' || this._state === 'snack_wander' || this._state === 'walking_to_fruit' || this._state === 'walking_to_fruit_queue' || this._state === 'fruit_wander' || this._state === 'walking_to_bed' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform') && this.redirectTarget) {
+      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_water' || this._state === 'walking_to_water_queue' || this._state === 'walking_to_toilet' || this._state === 'walking_to_toilet_queue' || this._state === 'walking_to_snack' || this._state === 'walking_to_snack_queue' || this._state === 'snack_wander' || this._state === 'walking_to_fruit' || this._state === 'walking_to_fruit_queue' || this._state === 'fruit_wander' || this._state === 'walking_to_bed' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform') && this.redirectTarget) {
         this.moveToward(this.redirectTarget.x, this.redirectTarget.y)
       }
       return
@@ -983,6 +1074,17 @@ export class BotNirv {
 
   private finishDrinkingWater(): void {
     this.nirv.addHydration(30)
+    this.hideStatusIcon()
+    this._state = 'walking'
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToWaypoint()
+  }
+
+  private finishUsingToilet(): void {
+    this.nirv.resetBladderAfterUse()
+    this.nirv.exitToilet()
     this.hideStatusIcon()
     this._state = 'walking'
     this.redirectTarget = null

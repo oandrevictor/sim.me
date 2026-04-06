@@ -11,6 +11,11 @@ import {
   REST_START, REST_DECAY_MIN, REST_DECAY_MAX,
   sampleSleepyRate, sampleRestThreshold, sampleSleepRecharges,
 } from './nirvSleep'
+import {
+  BLADDER_START,
+  sampleBladderIncreaseStep,
+  sampleBladderThreshold,
+} from './nirvBladder'
 import { getBedSleepWorldOffset } from './nirvSleepPose'
 
 export type NirvVariant = 'm' | 'f' | 'f2' | 'f3'
@@ -40,16 +45,21 @@ export class Nirv {
   readonly hungerThreshold: number
   readonly funDecayStep: number
   readonly funThreshold: number
+  readonly bladderIncreaseStep: number
+  readonly bladderLevelThreshold: number
   private hydrationLevel: number
   private restLevel: number
   private satiation: number
   private funLevel: number
+  private bladderLevel: number
   private variant: NirvVariant
   private lastDir = 'down'
   private isMoving = false
   private lyingDown = false
   private drinkBubbleGfx: Phaser.GameObjects.Graphics | null = null
   private sleepZText: Phaser.GameObjects.Text | null = null
+  /** World position before entering a toilet; restored on exit. */
+  private toiletExitPos: { x: number; y: number } | null = null
 
   constructor(
     scene: Phaser.Scene,
@@ -77,6 +87,9 @@ export class Nirv {
     this.funDecayStep = sampleFunDecayStep()
     this.funThreshold = sampleFunThreshold()
     this.funLevel = FUN_LEVEL_START
+    this.bladderIncreaseStep = sampleBladderIncreaseStep()
+    this.bladderLevelThreshold = sampleBladderThreshold()
+    this.bladderLevel = BLADDER_START
 
     const textureKey = `${variant}_idle`
     this.sprite = scene.physics.add.sprite(x, y, textureKey, 16)
@@ -190,6 +203,40 @@ export class Nirv {
 
   addFun(amount: number): void {
     this.funLevel = Math.min(100, this.funLevel + amount)
+  }
+
+  getBladderLevel(): number {
+    return this.bladderLevel
+  }
+
+  /** One game-minute tick: bladder fills toward need. */
+  applyMinuteBladder(): void {
+    this.bladderLevel = Math.min(100, this.bladderLevel + this.bladderIncreaseStep)
+  }
+
+  /** After using a toilet. */
+  resetBladderAfterUse(): void {
+    this.bladderLevel = 0
+  }
+
+  /** Move to stall interior and hide until exitToilet (player + bots). */
+  enterToiletInterior(stationX: number, stationY: number): void {
+    this.toiletExitPos = { x: this.sprite.x, y: this.sprite.y }
+    this.sprite.setPosition(stationX, stationY)
+    // Draw behind the toilet prop (prop uses depth ≈ ground Y).
+    this.sprite.setDepth(stationY - 4)
+    this.sprite.setVisible(false)
+    this.hideDrinkingBubble()
+  }
+
+  /** Restore visibility and position after using toilet. */
+  exitToilet(): void {
+    if (this.toiletExitPos) {
+      this.sprite.setPosition(this.toiletExitPos.x, this.toiletExitPos.y)
+      this.toiletExitPos = null
+    }
+    this.sprite.setVisible(true)
+    this.updateDepth()
   }
 
   /** Lay sprite on side (sleep pose); stops walk animation. */

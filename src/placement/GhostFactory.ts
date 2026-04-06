@@ -65,6 +65,16 @@ export function createObjectGhost(
     return sprite
   }
 
+  if (type === 'portable_toilet' && scene.textures.exists(config.textureKey)) {
+    const sprite = scene.add.sprite(0, 0, config.textureKey)
+    const { w, h } = getFramedObjectDisplaySize(type, 2.2)
+    sprite.setDisplaySize(w, h)
+    sprite.setOrigin(0.5, 1)
+    sprite.setAlpha(0.65)
+    sprite.setDepth(DEPTH_UI + 10)
+    return sprite
+  }
+
   const sprite = scene.add.sprite(0, 0, 'obj_ghost')
   sprite.setTint(config.previewColor)
   sprite.setAlpha(0.55)

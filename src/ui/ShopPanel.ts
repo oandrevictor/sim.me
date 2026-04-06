@@ -24,7 +24,7 @@ const CATEGORIES: { key: Category; label: string }[] = [
 ]
 
 const CATEGORY_MAP: Record<string, Category> = {
-  obstacle: 'build', floor_yellow: 'build', table2: 'dine', table4: 'dine', chair: 'dine',
+  obstacle: 'build', floor_yellow: 'build', portable_toilet: 'build', table2: 'dine', table4: 'dine', chair: 'dine',
   stove: 'dine', stove_white_clay: 'dine', counter: 'dine', drinking_water: 'dine', snack_machine: 'dine', fruit_crate: 'dine', background: 'decoration',
   interactable: 'misc', trash: 'misc',
   bed_ms_blue: 'bedroom', bed_ms_red: 'bedroom', bed_ms_grey: 'bedroom', bed_ms_space: 'bedroom',
