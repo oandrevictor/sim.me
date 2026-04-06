@@ -1,9 +1,11 @@
 import Phaser from 'phaser'
+import { DEPTH_UI } from '../config/world'
 import { HYDRATION_START, sampleDehydrationRate } from './nirvHydration'
 import {
   REST_START, REST_DECAY_MIN, REST_DECAY_MAX,
   sampleSleepyRate, sampleRestThreshold, sampleSleepRecharges,
 } from './nirvSleep'
+import { getBedSleepWorldOffset } from './nirvSleepPose'
 
 export type NirvVariant = 'm' | 'f' | 'f2' | 'f3'
 
@@ -19,6 +21,7 @@ export const NIRV_COLORS = [
 ]
 
 export class Nirv {
+  private readonly scene: Phaser.Scene
   readonly sprite: Phaser.Physics.Arcade.Sprite
   readonly name: string
   readonly color: number
@@ -32,6 +35,9 @@ export class Nirv {
   private variant: NirvVariant
   private lastDir = 'down'
   private isMoving = false
+  private lyingDown = false
+  private drinkBubbleGfx: Phaser.GameObjects.Graphics | null = null
+  private sleepZText: Phaser.GameObjects.Text | null = null
 
   constructor(
     scene: Phaser.Scene,
@@ -42,6 +48,7 @@ export class Nirv {
     isPlayer: boolean,
     variant: NirvVariant = 'm',
   ) {
+    this.scene = scene
     this.name = name
     this.color = NIRV_COLORS[colorIndex] ?? NIRV_COLORS[0]
     this.isPlayer = isPlayer
@@ -66,6 +73,8 @@ export class Nirv {
 
   updateAnimation(vx: number, vy: number): void {
     this.updateDepth()
+    if (this.lyingDown) return
+
     const moving = Math.abs(vx) > 10 || Math.abs(vy) > 10
 
     if (moving) {
@@ -133,5 +142,83 @@ export class Nirv {
 
   addRest(amount: number): void {
     this.restLevel = Math.min(100, this.restLevel + amount)
+  }
+
+  /** Lay sprite on side (sleep pose); stops walk animation. */
+  setLyingDown(active: boolean): void {
+    this.lyingDown = active
+    if (active) {
+      this.sprite.setRotation(Math.PI / 2)
+      this.sprite.anims.stop()
+    } else {
+      this.sprite.setRotation(0)
+    }
+  }
+
+  /** Move onto mattress then lie down (bedRotation 0 = left texture, 1 = right). */
+  snapToBedSleepPose(bedX: number, bedY: number, bedRotation: 0 | 1): void {
+    const o = getBedSleepWorldOffset(bedRotation)
+    this.sprite.setPosition(bedX + o.dx, bedY + o.dy)
+    this.setLyingDown(true)
+  }
+
+  showDrinkingBubble(): void {
+    if (!this.drinkBubbleGfx) {
+      const gfx = this.scene.add.graphics()
+      gfx.setDepth(DEPTH_UI + 5)
+      this.drinkBubbleGfx = gfx
+    }
+    this.drawDrinkingBubble()
+  }
+
+  private drawDrinkingBubble(): void {
+    if (!this.drinkBubbleGfx) return
+    const gfx = this.drinkBubbleGfx
+    gfx.clear()
+    const bx = this.sprite.x
+    const by = this.sprite.y - 28
+    gfx.fillStyle(0xffffff, 0.9)
+    gfx.fillRoundedRect(bx - 14, by - 10, 28, 16, 4)
+    gfx.fillStyle(0x88ccff)
+    gfx.fillRect(bx - 4, by - 8, 8, 10)
+    gfx.lineStyle(1, 0x5599bb)
+    gfx.strokeRect(bx - 4, by - 8, 8, 10)
+    gfx.fillStyle(0xffffff, 0.9)
+    gfx.fillTriangle(bx - 3, by + 6, bx + 3, by + 6, bx, by + 10)
+  }
+
+  syncDrinkingBubblePosition(): void {
+    if (this.drinkBubbleGfx) this.drawDrinkingBubble()
+  }
+
+  hideDrinkingBubble(): void {
+    if (this.drinkBubbleGfx) {
+      this.drinkBubbleGfx.destroy()
+      this.drinkBubbleGfx = null
+    }
+  }
+
+  showSleepZzZ(): void {
+    if (!this.sleepZText) {
+      this.sleepZText = this.scene.add.text(0, 0, 'Z z Z', {
+        fontSize: '11px',
+        color: '#333333',
+        fontStyle: 'bold',
+      }).setOrigin(0.5).setDepth(DEPTH_UI + 6)
+    }
+    this.syncSleepZzZPosition()
+    this.sleepZText.setVisible(true)
+  }
+
+  syncSleepZzZPosition(): void {
+    if (!this.sleepZText) return
+    this.sleepZText.setPosition(this.sprite.x, this.sprite.y - 36)
+  }
+
+  hideSleepZzZ(): void {
+    if (this.sleepZText) {
+      this.sleepZText.destroy()
+      this.sleepZText = null
+    }
   }
 }

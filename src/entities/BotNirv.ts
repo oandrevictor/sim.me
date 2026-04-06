@@ -51,6 +51,7 @@ export class BotNirv {
   /** Unblocked goal fallback stays inside this rect (platform tiles only) */
   private performInterior: StageInteriorBounds | null = null
   private statusIcon: Phaser.GameObjects.Graphics | null = null
+  private sleepZText: Phaser.GameObjects.Text | null = null
   private scene: Phaser.Scene
   private eatingColor = 0xffffff
   private pathfinder: GridPathfinder
@@ -153,18 +154,19 @@ export class BotNirv {
     this.computePathToPixel(x, y)
   }
 
-  arriveAtBed(): void {
+  arriveAtBed(bedX: number, bedY: number, bedRotation: 0 | 1): void {
     this.nirv.sprite.setVelocity(0, 0)
     this.redirectTarget = null
     this.path = []
-    this.nirv.updateAnimation(0, 0)
     this._state = 'sleeping'
+    this.nirv.snapToBedSleepPose(bedX, bedY, bedRotation)
     this.showStatusIcon()
   }
 
   /** Leave sleep flow (thirst interrupt, bed removed, or stuck recovery). */
   cancelSleep(): void {
     if (this._state !== 'walking_to_bed' && this._state !== 'sleeping') return
+    if (this._state === 'sleeping') this.nirv.setLyingDown(false)
     this.hideStatusIcon()
     this._state = 'walking'
     this.redirectTarget = null
@@ -177,6 +179,7 @@ export class BotNirv {
 
   /** Restored to full; called by SleepSystem. */
   finishSleeping(): void {
+    this.nirv.setLyingDown(false)
     this.hideStatusIcon()
     this._state = 'walking'
     this.redirectTarget = null
@@ -611,9 +614,13 @@ export class BotNirv {
     const bx = sprite.x
     const by = sprite.y - 28
 
-    // Bubble background
+    if (this._state !== 'sleeping') {
+      this.sleepZText?.setVisible(false)
+    }
+
+    const bubbleW = this._state === 'sleeping' ? 46 : 28
     gfx.fillStyle(0xffffff, 0.9)
-    gfx.fillRoundedRect(bx - 14, by - 10, 28, 16, 4)
+    gfx.fillRoundedRect(bx - bubbleW / 2, by - 10, bubbleW, 16, 4)
 
     if (this._state === 'eating') {
       // Food colored circle
@@ -627,11 +634,15 @@ export class BotNirv {
       gfx.lineStyle(1, 0x5599bb)
       gfx.strokeRect(bx - 4, by - 8, 8, 10)
     } else if (this._state === 'sleeping') {
-      // "Zzz" — minimal sleep glyph
-      gfx.fillStyle(0x333333)
-      gfx.fillRect(bx - 10, by - 6, 4, 4)
-      gfx.fillRect(bx - 4, by - 8, 4, 4)
-      gfx.fillRect(bx + 2, by - 10, 4, 4)
+      if (!this.sleepZText) {
+        this.sleepZText = this.scene.add.text(bx, by - 4, 'Z z Z', {
+          fontSize: '11px',
+          color: '#333333',
+          fontStyle: 'bold',
+        }).setOrigin(0.5).setDepth(DEPTH_UI + 6)
+      }
+      this.sleepZText.setPosition(bx, by - 4)
+      this.sleepZText.setVisible(true)
     } else {
       // Three dots "..." for awaiting service
       gfx.fillStyle(0x333333)
@@ -654,6 +665,10 @@ export class BotNirv {
     if (this.statusIcon) {
       this.statusIcon.destroy()
       this.statusIcon = null
+    }
+    if (this.sleepZText) {
+      this.sleepZText.destroy()
+      this.sleepZText = null
     }
   }
 

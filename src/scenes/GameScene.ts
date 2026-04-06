@@ -27,6 +27,7 @@ import { CookingSystem } from '../systems/CookingSystem'
 import { RecipeSelectUI } from '../ui/RecipeSelectUI'
 import { GridPathfinder } from '../pathfinding/GridPathfinder'
 import { ObjectSpawner, type SpawnerState } from '../world/ObjectSpawner'
+import { tryStationsAtPointer } from '../world/stationWorldClick'
 import { BuildingPlacer } from '../world/BuildingPlacer'
 import { StagePlacer } from '../world/StagePlacer'
 import { installStageBarrier } from '../world/stageBarrier'
@@ -124,13 +125,15 @@ export class GameScene extends Phaser.Scene {
       this.spawnerState.plateSprites = this.spawnerState.plateSprites.filter(p => p.sprite !== sprite)
     }
 
+    this.sleepSystem = new SleepSystem(this.botNirvs, this.restaurantSystem, () => this.playerNirv)
+
     this.hydrationSystem = new HydrationSystem(
       this.botNirvs,
       () => this.playerNirv,
       this.restaurantSystem,
+      () => this.sleepSystem.isPlayerSleeping(),
+      () => this.sleepSystem.wakePlayerFromBed(),
     )
-
-    this.sleepSystem = new SleepSystem(this.botNirvs, this.restaurantSystem)
 
     this.objectSpawner = new ObjectSpawner(
       this, this.obstacleGroup, this.pathfinder,
@@ -146,13 +149,6 @@ export class GameScene extends Phaser.Scene {
       (e) => this.foodHandler.onPlateClicked(e, () => this.menuUI?.isShopMode() ?? false),
       this.hydrationSystem,
       this.sleepSystem,
-      (_sprite, wx, wy) => {
-        if (this.placementManager?.isActive()) return
-        this.hydrationSystem.tryInteractWaterStation(
-          wx, wy, this.playerNirv.sprite,
-          (tx, ty) => this.playerInput.setWalkTarget(tx, ty),
-        )
-      },
     )
 
     this.buildingPlacer = new BuildingPlacer(
@@ -203,10 +199,18 @@ export class GameScene extends Phaser.Scene {
     let hasInput = false
     let arrivedAtTarget = false
 
-    if (this.hydrationSystem.isPlayerDrinking()) {
+    if (this.sleepSystem.isPlayerSleeping()) {
+      this.playerNirv.hideDrinkingBubble()
       player.setVelocity(0, 0)
       this.playerNirv.updateAnimation(0, 0)
+      this.sleepSystem.syncPlayerSleepLabel()
+    } else if (this.hydrationSystem.isPlayerDrinking()) {
+      player.setVelocity(0, 0)
+      this.playerNirv.updateAnimation(0, 0)
+      this.playerNirv.showDrinkingBubble()
+      this.playerNirv.syncDrinkingBubblePosition()
     } else {
+      this.playerNirv.hideDrinkingBubble()
       const result = this.playerInput.update(player)
       hasInput = result.hasInput
       arrivedAtTarget = result.arrivedAtTarget
@@ -216,7 +220,10 @@ export class GameScene extends Phaser.Scene {
       this.playerNirv.updateAnimation(player.body!.velocity.x, player.body!.velocity.y)
     }
 
-    if (hasInput) this.foodHandler.clearPending()
+    if (hasInput) {
+      this.foodHandler.clearPending()
+      this.sleepSystem.cancelPlayerWalkToBed()
+    }
 
     if (arrivedAtTarget) {
       this.foodHandler.handlePendingInteractions()
@@ -287,6 +294,17 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.menuUI.isPointerOverUI(pointer)) return
+    if (
+      tryStationsAtPointer(
+        pointer,
+        this.cameras.main,
+        this.spawnerState.placedSprites,
+        this.hydrationSystem,
+        this.sleepSystem,
+        this.playerNirv,
+        (tx, ty) => this.playerInput.setWalkTarget(tx, ty),
+      )
+    ) return
     this.foodHandler.handleWorldClick(pointer)
   }
 

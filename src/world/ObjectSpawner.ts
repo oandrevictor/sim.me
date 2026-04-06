@@ -55,7 +55,6 @@ export class ObjectSpawner {
     private readonly onPlateClicked: (entry: PlateEntry) => void,
     private readonly hydrationSystem: HydrationSystem,
     private readonly sleepSystem: SleepSystem,
-    private readonly onWaterStationPointerDown: (sprite: Phaser.Physics.Arcade.Sprite, x: number, y: number) => void,
   ) {}
 
   spawn(type: ObjectType, x: number, y: number, persist: boolean, recipeId?: string, rotation?: number): void {
@@ -106,7 +105,7 @@ export class ObjectSpawner {
         blocker.refreshBody()
         const g = screenToGrid(x, y)
         this.pathfinder.blockCell(Math.round(g.gx), Math.round(g.gy))
-        this.sleepSystem.registerBed(sprite, x, y)
+        this.sleepSystem.registerBed(sprite, x, y, rot)
         this.state.placedSprites.push({ sprite, type, x, y, rotation: rot, bedBlocker: blocker })
         if (persist) {
           savePlacedObject({ id: crypto.randomUUID(), type, x, y, recipeId, rotation: rot })
@@ -144,8 +143,6 @@ export class ObjectSpawner {
         const g = screenToGrid(x, y)
         this.pathfinder.blockCell(Math.round(g.gx), Math.round(g.gy))
         this.hydrationSystem.registerStation(sprite as unknown as Phaser.Physics.Arcade.Sprite, x, y)
-        sprite.setInteractive({ useHandCursor: true })
-        sprite.on('pointerdown', () => this.onWaterStationPointerDown(sprite as unknown as Phaser.Physics.Arcade.Sprite, x, y))
       } else if (type === 'interactable') {
         this.state.interactableSprites.push(sprite)
         sprite.setInteractive({ useHandCursor: true })

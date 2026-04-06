@@ -38,6 +38,8 @@ export class HydrationSystem {
     bots: BotNirv[],
     getPlayer: () => Nirv,
     restaurant: RestaurantSystem,
+    private readonly isPlayerSleeping: () => boolean,
+    private readonly wakePlayerFromSleep: () => void,
   ) {
     this.bots = bots
     this.getPlayer = getPlayer
@@ -71,8 +73,10 @@ export class HydrationSystem {
 
   tryInteractWaterStation(stationX: number, stationY: number, playerSprite: Phaser.Physics.Arcade.Sprite, setWalkTarget: (x: number, y: number) => void): void {
     if (this.playerDrinkRemaining > 0) return
+    if (this.isPlayerSleeping()) this.wakePlayerFromSleep()
     const player = this.getPlayer()
-    if (player.getHydrationLevel() > THIRST_THRESHOLD) return
+    // Allow topping up whenever not full (THIRST_THRESHOLD only applies to bot auto-assign).
+    if (player.getHydrationLevel() >= 100) return
 
     const dist = Phaser.Math.Distance.Between(playerSprite.x, playerSprite.y, stationX, stationY)
     if (dist > PLAYER_STATION_INTERACT_PX) {
@@ -96,7 +100,7 @@ export class HydrationSystem {
     while (this.minuteAccum >= MINUTE_MS) {
       this.minuteAccum -= MINUTE_MS
       this.getPlayer().applyMinuteDehydration()
-      this.getPlayer().applyMinuteRestDecay()
+      if (!this.isPlayerSleeping()) this.getPlayer().applyMinuteRestDecay()
       for (const b of this.bots) {
         b.nirv.applyMinuteDehydration()
         if (b.state !== 'sleeping') b.nirv.applyMinuteRestDecay()
