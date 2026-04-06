@@ -6,6 +6,7 @@ import {
   CRITICAL_HYDRATION_THRESHOLD,
   THIRST_THRESHOLD,
 } from '../entities/nirvHydration'
+import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import type { RestaurantSystem } from './RestaurantSystem'
 import { queueSlotBehindStation } from './waterQueueLayout'
 
@@ -38,6 +39,7 @@ export class HydrationSystem {
     bots: BotNirv[],
     getPlayer: () => Nirv,
     restaurant: RestaurantSystem,
+    private readonly pathfinder: GridPathfinder,
     private readonly isPlayerSleeping: () => boolean,
     private readonly wakePlayerFromSleep: () => void,
   ) {
@@ -143,7 +145,7 @@ export class HydrationSystem {
     for (const st of this.stations) {
       st.queue.forEach((bot, lineIndex) => {
         if (bot.state !== 'walking_to_water_queue') return
-        const slot = queueSlotBehindStation(st.x, st.y, lineIndex)
+        const slot = queueSlotBehindStation(this.pathfinder, st.x, st.y, lineIndex)
         const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, slot.x, slot.y)
         if (d < STATION_REACH_PX) bot.arriveAtWaterQueueSlot()
       })
@@ -180,7 +182,7 @@ export class HydrationSystem {
   /** Re-path everyone still waiting so their slot matches queue order after promotion. */
   private syncQueueSlots(st: WaterStation): void {
     st.queue.forEach((bot, i) => {
-      const p = queueSlotBehindStation(st.x, st.y, i)
+      const p = queueSlotBehindStation(this.pathfinder, st.x, st.y, i)
       if (bot.state === 'waiting_at_water_queue' || bot.state === 'walking_to_water_queue') {
         bot.redirectToWaterQueueSlot(p.x, p.y)
       }
@@ -235,7 +237,7 @@ export class HydrationSystem {
       } else {
         best.queue.push(bot)
         const lineIndex = best.queue.length - 1
-        const p = queueSlotBehindStation(best.x, best.y, lineIndex)
+        const p = queueSlotBehindStation(this.pathfinder, best.x, best.y, lineIndex)
         bot.redirectToWaterQueueSlot(p.x, p.y)
       }
     }

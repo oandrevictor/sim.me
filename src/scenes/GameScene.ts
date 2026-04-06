@@ -132,12 +132,13 @@ export class GameScene extends Phaser.Scene {
 
     this.sleepSystem = new SleepSystem(this.botNirvs, this.restaurantSystem, () => this.playerNirv)
 
-    this.hungerSystem = new HungerSystem(this.botNirvs, this.restaurantSystem)
+    this.hungerSystem = new HungerSystem(this.botNirvs, this.restaurantSystem, this.pathfinder)
 
     this.hydrationSystem = new HydrationSystem(
       this.botNirvs,
       () => this.playerNirv,
       this.restaurantSystem,
+      this.pathfinder,
       () => this.sleepSystem.isPlayerSleeping(),
       () => this.sleepSystem.wakePlayerFromBed(),
     )

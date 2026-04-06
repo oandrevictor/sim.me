@@ -1,4 +1,5 @@
 import Phaser from 'phaser'
+import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import { TILE_W } from '../utils/isoGrid'
 import type { BotNirv } from '../entities/BotNirv'
 import { fruitSlotWorldPosition, FRUIT_CRATE_SLOT_COUNT } from './fruitCrateLayout'
@@ -39,11 +40,11 @@ export function checkFruitSlotArrivals(stations: FruitCrateStation[]): void {
   }
 }
 
-export function checkFruitQueueArrivals(stations: FruitCrateStation[]): void {
+export function checkFruitQueueArrivals(pathfinder: GridPathfinder, stations: FruitCrateStation[]): void {
   for (const st of stations) {
     st.queue.forEach((bot, lineIndex) => {
       if (bot.state !== 'walking_to_fruit_queue') return
-      const slot = queueSlotBehindStation(st.x, st.y, lineIndex)
+      const slot = queueSlotBehindStation(pathfinder, st.x, st.y, lineIndex)
       const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, slot.x, slot.y)
       if (d < STATION_REACH_PX) bot.arriveAtFruitQueueSlot()
     })
@@ -64,7 +65,7 @@ export function releaseFruitSlotsAfterInteract(stations: FruitCrateStation[], pr
   }
 }
 
-export function promoteFruitQueue(st: FruitCrateStation): void {
+export function promoteFruitQueue(pathfinder: GridPathfinder, st: FruitCrateStation): void {
   const next = st.queue.shift()
   if (!next) return
   const freeI = firstFreeFruitSlot(st)
@@ -74,12 +75,12 @@ export function promoteFruitQueue(st: FruitCrateStation): void {
   }
   st.slots[freeI] = next
   next.redirectToFruit(st.x, st.y, freeI)
-  syncFruitQueueSlots(st)
+  syncFruitQueueSlots(pathfinder, st)
 }
 
-export function syncFruitQueueSlots(st: FruitCrateStation): void {
+export function syncFruitQueueSlots(pathfinder: GridPathfinder, st: FruitCrateStation): void {
   st.queue.forEach((bot, i) => {
-    const p = queueSlotBehindStation(st.x, st.y, i)
+    const p = queueSlotBehindStation(pathfinder, st.x, st.y, i)
     if (bot.state === 'waiting_at_fruit_queue' || bot.state === 'walking_to_fruit_queue') {
       bot.redirectToFruitQueueSlot(p.x, p.y)
     }
@@ -95,7 +96,7 @@ export function repairFruitOrphanQueues(stations: FruitCrateStation[], promote: 
 }
 
 /** Assign hungry bot to nearest fruit crate (already distance-filtered). */
-export function assignBotToFruitCrate(st: FruitCrateStation, bot: BotNirv): void {
+export function assignBotToFruitCrate(pathfinder: GridPathfinder, st: FruitCrateStation, bot: BotNirv): void {
   const freeI = firstFreeFruitSlot(st)
   if (freeI !== null) {
     st.slots[freeI] = bot
@@ -103,7 +104,7 @@ export function assignBotToFruitCrate(st: FruitCrateStation, bot: BotNirv): void
   } else {
     st.queue.push(bot)
     const lineIndex = st.queue.length - 1
-    const p = queueSlotBehindStation(st.x, st.y, lineIndex)
+    const p = queueSlotBehindStation(pathfinder, st.x, st.y, lineIndex)
     bot.redirectToFruitQueueSlot(p.x, p.y)
   }
 }

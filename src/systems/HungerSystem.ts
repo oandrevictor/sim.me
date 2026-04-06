@@ -1,4 +1,5 @@
 import Phaser from 'phaser'
+import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import { TILE_W } from '../utils/isoGrid'
 import type { BotNirv } from '../entities/BotNirv'
 import { CRITICAL_SATIATION } from '../entities/nirvHunger'
@@ -40,7 +41,11 @@ export class HungerSystem {
   private restaurant: RestaurantSystem
   private assignAccum = 0
 
-  constructor(bots: BotNirv[], restaurant: RestaurantSystem) {
+  constructor(
+    bots: BotNirv[],
+    restaurant: RestaurantSystem,
+    private readonly pathfinder: GridPathfinder,
+  ) {
     this.bots = bots
     this.restaurant = restaurant
   }
@@ -82,11 +87,11 @@ export class HungerSystem {
     this.checkTapArrivals()
     checkFruitSlotArrivals(this.fruitStations)
     this.checkQueueSlotArrivals()
-    checkFruitQueueArrivals(this.fruitStations)
+    checkFruitQueueArrivals(this.pathfinder, this.fruitStations)
     this.releaseFinishedServing()
-    releaseFruitSlotsAfterInteract(this.fruitStations, st => promoteFruitQueue(st))
+    releaseFruitSlotsAfterInteract(this.fruitStations, st => promoteFruitQueue(this.pathfinder, st))
     this.repairOrphanQueues()
-    repairFruitOrphanQueues(this.fruitStations, st => promoteFruitQueue(st))
+    repairFruitOrphanQueues(this.fruitStations, st => promoteFruitQueue(this.pathfinder, st))
 
     this.assignAccum += _delta
     if (this.assignAccum < CHECK_INTERVAL_MS) return
@@ -129,7 +134,7 @@ export class HungerSystem {
     for (const st of this.stations) {
       st.queue.forEach((bot, lineIndex) => {
         if (bot.state !== 'walking_to_snack_queue') return
-        const slot = queueSlotBehindStation(st.x, st.y, lineIndex)
+        const slot = queueSlotBehindStation(this.pathfinder, st.x, st.y, lineIndex)
         const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, slot.x, slot.y)
         if (d < STATION_REACH_PX) bot.arriveAtSnackQueueSlot()
       })
@@ -168,7 +173,7 @@ export class HungerSystem {
 
   private syncQueueSlots(st: SnackStation): void {
     st.queue.forEach((bot, i) => {
-      const p = queueSlotBehindStation(st.x, st.y, i)
+      const p = queueSlotBehindStation(this.pathfinder, st.x, st.y, i)
       if (bot.state === 'waiting_at_snack_queue' || bot.state === 'walking_to_snack_queue') {
         bot.redirectToSnackQueueSlot(p.x, p.y)
       }
@@ -239,11 +244,11 @@ export class HungerSystem {
         } else {
           st.queue.push(bot)
           const lineIndex = st.queue.length - 1
-          const p = queueSlotBehindStation(st.x, st.y, lineIndex)
+          const p = queueSlotBehindStation(this.pathfinder, st.x, st.y, lineIndex)
           bot.redirectToSnackQueueSlot(p.x, p.y)
         }
       } else {
-        assignBotToFruitCrate(best.st, bot)
+        assignBotToFruitCrate(this.pathfinder, best.st, bot)
       }
     }
   }
