@@ -1,4 +1,5 @@
 import Phaser from 'phaser'
+import { HYDRATION_START, sampleDehydrationRate } from './nirvHydration'
 
 export type NirvVariant = 'm' | 'f' | 'f2' | 'f3'
 
@@ -18,6 +19,8 @@ export class Nirv {
   readonly name: string
   readonly color: number
   readonly isPlayer: boolean
+  readonly dehydrationRate: number
+  private hydrationLevel: number
   private variant: NirvVariant
   private lastDir = 'down'
   private isMoving = false
@@ -35,6 +38,8 @@ export class Nirv {
     this.color = NIRV_COLORS[colorIndex] ?? NIRV_COLORS[0]
     this.isPlayer = isPlayer
     this.variant = variant
+    this.dehydrationRate = sampleDehydrationRate()
+    this.hydrationLevel = HYDRATION_START
 
     const textureKey = `${variant}_idle`
     this.sprite = scene.physics.add.sprite(x, y, textureKey, 16)
@@ -82,5 +87,18 @@ export class Nirv {
 
   getPosition(): { x: number; y: number } {
     return { x: this.sprite.x, y: this.sprite.y }
+  }
+
+  getHydrationLevel(): number {
+    return this.hydrationLevel
+  }
+
+  /** One game-minute tick: lose dehydrationRate * 100 points. */
+  applyMinuteDehydration(): void {
+    this.hydrationLevel = Math.max(0, this.hydrationLevel - this.dehydrationRate * 100)
+  }
+
+  addHydration(amount: number): void {
+    this.hydrationLevel = Math.min(100, this.hydrationLevel + amount)
   }
 }

@@ -178,6 +178,8 @@ export class RestaurantSystem {
 
     for (const bot of this.bots) {
       if (bot.state !== 'waiting') continue
+      // Prefer water when thirsty so bots don't take a restaurant seat instead
+      if (bot.nirv.getHydrationLevel() <= 60) continue
       if (Math.random() > ENTER_PROBABILITY) continue
 
       let bestChair: ChairRecord | null = null
@@ -210,6 +212,13 @@ export class RestaurantSystem {
       if (bot.state === 'walking' || bot.state === 'waiting') {
         chair.occupiedBy = null
       }
+    }
+  }
+
+  /** Clear chair reservation when bot leaves for another activity (e.g. critical thirst). */
+  releaseChairForBot(bot: BotNirv): void {
+    for (const chair of this.chairs) {
+      if (chair.occupiedBy === bot) chair.occupiedBy = null
     }
   }
 

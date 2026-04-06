@@ -23,6 +23,10 @@ export type BotState =
   | 'watching_stage'
   | 'walking_to_perform'
   | 'performing_on_stage'
+  | 'walking_to_water'
+  | 'walking_to_water_queue'
+  | 'waiting_at_water_queue'
+  | 'drinking_water'
 
 export class BotNirv {
   readonly id: string
@@ -136,6 +140,95 @@ export class BotNirv {
     this.computePathToWaypoint()
   }
 
+  /** Walk to drinking water station pixel. */
+  redirectToWater(x: number, y: number): void {
+    this.performInterior = null
+    this.pathEndCell = null
+    this.redirectTarget = { x, y }
+    this._state = 'walking_to_water'
+    this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToPixel(x, y)
+  }
+
+  /** Walk to a spot in the line behind the station (FIFO). */
+  redirectToWaterQueueSlot(x: number, y: number): void {
+    this.performInterior = null
+    this.pathEndCell = null
+    this.redirectTarget = { x, y }
+    this._state = 'walking_to_water_queue'
+    this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToPixel(x, y)
+  }
+
+  /** Called when bot reaches their queue slot. */
+  arriveAtWaterQueueSlot(): void {
+    this.nirv.sprite.setVelocity(0, 0)
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.updateAnimation(0, 0)
+    this._state = 'waiting_at_water_queue'
+  }
+
+  /** Station removed or leaving queue flow. */
+  cancelWaterQueue(): void {
+    if (
+      this._state !== 'walking_to_water' &&
+      this._state !== 'drinking_water' &&
+      this._state !== 'walking_to_water_queue' &&
+      this._state !== 'waiting_at_water_queue'
+    ) return
+    this.hideStatusIcon()
+    this._state = 'walking'
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToWaypoint()
+  }
+
+  /** Called by HydrationSystem when bot reaches the station. */
+  arriveAtWaterStation(): void {
+    this.nirv.sprite.setVelocity(0, 0)
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.updateAnimation(0, 0)
+    this._state = 'drinking_water'
+    this.seatTimer = 3000
+    this.showStatusIcon()
+  }
+
+  /** Abort walking to chair; caller must release restaurant chair first if reserved. */
+  abortWalkingToChair(): void {
+    this.redirectTarget = null
+    this.path = []
+    this.pathEndCell = null
+    this.performInterior = null
+    this.nirv.sprite.setVelocity(0, 0)
+    this._state = 'walking'
+    this.computePathToWaypoint()
+  }
+
+  /** Abort walking toward stage audience spot (critical hydration). */
+  abortStageApproach(): void {
+    this._state = 'walking'
+    this.stageId = null
+    this.redirectTarget = null
+    this.pathEndCell = null
+    this.performInterior = null
+    this.path = []
+    this.stageEarlyLeaveAccum = 0
+    this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToWaypoint()
+  }
+
+  /** Leave seat immediately for water (critical); same waypoint advance as unseat. */
+  interruptSeatForHydration(): void {
+    this.hideStatusIcon()
+    this.nirv.sprite.setVelocity(0, 0)
+    this._state = 'walking'
+    this.currentIndex = (this.currentIndex + 1) % this.waypoints.length
+    this.computePathToWaypoint()
+  }
+
   /** Redirect bot to walk to a chair position */
   redirectToChair(x: number, y: number): void {
     this.performInterior = null
@@ -234,6 +327,42 @@ export class BotNirv {
         }
         return
       }
+
+      case 'walking_to_water': {
+        if (!this.redirectTarget) {
+          this._state = 'walking'
+          this.computePathToWaypoint()
+          return
+        }
+        this.followPath()
+        const wSprite = this.nirv.sprite
+        this.nirv.updateAnimation(wSprite.body!.velocity.x, wSprite.body!.velocity.y)
+        // HydrationSystem calls arriveAtWaterStation() when close (same pattern as chairs)
+        return
+      }
+
+      case 'walking_to_water_queue': {
+        if (!this.redirectTarget) {
+          this._state = 'walking'
+          this.computePathToWaypoint()
+          return
+        }
+        this.followPath()
+        const qSprite = this.nirv.sprite
+        this.nirv.updateAnimation(qSprite.body!.velocity.x, qSprite.body!.velocity.y)
+        return
+      }
+
+      case 'waiting_at_water_queue':
+        this.nirv.updateAnimation(0, 0)
+        return
+
+      case 'drinking_water':
+        this.nirv.updateAnimation(0, 0)
+        this.seatTimer -= delta
+        this.updateStatusIconPosition()
+        if (this.seatTimer <= 0) this.finishDrinkingWater()
+        return
 
       case 'seated':
       case 'awaiting_service':
@@ -366,7 +495,7 @@ export class BotNirv {
       this.stuckFrames = 0
       if (this._state === 'walking') {
         this.computePathToWaypoint()
-      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform') && this.redirectTarget) {
+      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_water' || this._state === 'walking_to_water_queue' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform') && this.redirectTarget) {
         this.computePathToPixel(this.redirectTarget.x, this.redirectTarget.y, this.pathEndCell)
       }
     }
@@ -377,7 +506,7 @@ export class BotNirv {
         const target = this.waypoints[this.currentIndex]
         const dest = gridToScreen(target.gridX, target.gridY)
         this.moveToward(dest.x, dest.y)
-      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform') && this.redirectTarget) {
+      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_water' || this._state === 'walking_to_water_queue' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform') && this.redirectTarget) {
         this.moveToward(this.redirectTarget.x, this.redirectTarget.y)
       }
       return
@@ -430,6 +559,11 @@ export class BotNirv {
       gfx.fillCircle(bx, by - 2, 5)
       gfx.lineStyle(1, 0x666666)
       gfx.strokeCircle(bx, by - 2, 5)
+    } else if (this._state === 'drinking_water') {
+      gfx.fillStyle(0x88ccff)
+      gfx.fillRect(bx - 4, by - 8, 8, 10)
+      gfx.lineStyle(1, 0x5599bb)
+      gfx.strokeRect(bx - 4, by - 8, 8, 10)
     } else {
       // Three dots "..." for awaiting service
       gfx.fillStyle(0x333333)
@@ -453,5 +587,15 @@ export class BotNirv {
       this.statusIcon.destroy()
       this.statusIcon = null
     }
+  }
+
+  private finishDrinkingWater(): void {
+    this.nirv.addHydration(30)
+    this.hideStatusIcon()
+    this._state = 'walking'
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToWaypoint()
   }
 }

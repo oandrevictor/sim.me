@@ -1,4 +1,4 @@
-export type ObjectType = 'obstacle' | 'interactable' | 'background' | 'table2' | 'table4' | 'chair' | 'stove' | 'counter' | 'food_plate' | 'trash'
+export type ObjectType = 'obstacle' | 'interactable' | 'background' | 'table2' | 'table4' | 'chair' | 'stove' | 'counter' | 'food_plate' | 'trash' | 'drinking_water'
 
 export interface PlacedObjectRecord {
   id: string

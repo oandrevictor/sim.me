@@ -126,6 +126,16 @@ export const OBJECT_TYPE_REGISTRY: Record<ObjectType, ObjectTypeConfig> = {
     hasPhysicsBody: true,
     isInteractable: true,
   },
+  drinking_water: {
+    type: 'drinking_water',
+    label: 'Drinking Water station',
+    description: 'Nirvs drink here when thirsty',
+    textureKey: 'obj_drinking_water',
+    previewColor: 0x4488cc,
+    depth: 2,
+    hasPhysicsBody: true,
+    isInteractable: true,
+  },
 }
 
 /** World uses scale 1.6; shop/inventory icons use ~1.1. */
@@ -226,6 +236,21 @@ export function generateObjectTextures(scene: Phaser.Scene): void {
   trashGfx.fillRect(8, 10, 16, 4)
   trashGfx.generateTexture('obj_trash', OBJECT_SIZE, OBJECT_SIZE)
   trashGfx.destroy()
+
+  // Drinking water: cooler body + cup
+  const waterGfx = scene.make.graphics({ x: 0, y: 0 })
+  waterGfx.fillStyle(0x3a5a7a)
+  waterGfx.fillRect(4, 6, 24, 22)
+  waterGfx.lineStyle(1, 0x2a4058)
+  waterGfx.strokeRect(4, 6, 24, 22)
+  waterGfx.fillStyle(0x5599cc)
+  waterGfx.fillRect(8, 10, 16, 10)
+  waterGfx.fillStyle(0x88ccff, 0.85)
+  waterGfx.fillRect(18, 4, 8, 10)
+  waterGfx.lineStyle(1, 0x6699bb)
+  waterGfx.strokeRect(18, 4, 8, 10)
+  waterGfx.generateTexture('obj_drinking_water', OBJECT_SIZE, OBJECT_SIZE)
+  waterGfx.destroy()
 
   // Ghost: white semi-transparent square (tinted at runtime per type)
   const ghostGfx = scene.make.graphics({ x: 0, y: 0 })

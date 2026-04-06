@@ -6,6 +6,7 @@ import { removeObjectAt } from '../storage/persistence'
 import { addToInventory } from '../storage/inventoryPersistence'
 import type { RestaurantSystem } from '../systems/RestaurantSystem'
 import type { CookingSystem } from '../systems/CookingSystem'
+import type { HydrationSystem } from '../systems/HydrationSystem'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import type { PlacementManager } from '../placement/PlacementManager'
 
@@ -33,6 +34,8 @@ export class ObjectSpawner {
     private readonly onTrashClicked: (sprite: Phaser.Physics.Arcade.Sprite) => void,
     private readonly onInteractableClicked: (sprite: Phaser.GameObjects.Sprite) => void,
     private readonly onPlateClicked: (entry: PlateEntry) => void,
+    private readonly hydrationSystem: HydrationSystem,
+    private readonly onWaterStationPointerDown: (sprite: Phaser.Physics.Arcade.Sprite, x: number, y: number) => void,
   ) {}
 
   spawn(type: ObjectType, x: number, y: number, persist: boolean, recipeId?: string, rotation?: number): void {
@@ -66,6 +69,15 @@ export class ObjectSpawner {
       } else if (type === 'trash') {
         sprite.setInteractive({ useHandCursor: true })
         sprite.on('pointerdown', () => this.onTrashClicked(sprite))
+      } else if (type === 'drinking_water') {
+        const { w, h } = getFramedObjectDisplaySize(type, 1.6)
+        sprite.setDisplaySize(w, h)
+        sprite.body!.setSize(OBJECT_SIZE, OBJECT_SIZE)
+        sprite.body!.setOffset((sprite.width - OBJECT_SIZE) / 2, (sprite.height - OBJECT_SIZE) / 2)
+        sprite.refreshBody()
+        this.hydrationSystem.registerStation(sprite, x, y)
+        sprite.setInteractive({ useHandCursor: true })
+        sprite.on('pointerdown', () => this.onWaterStationPointerDown(sprite, x, y))
       }
     } else {
       const sprite = this.scene.add.sprite(x, y, config.textureKey, frame)
@@ -133,6 +145,8 @@ export class ObjectSpawner {
 
     if (type === 'chair') {
       this.restaurantSystem.unregisterChair(sprite as Phaser.GameObjects.Sprite)
+    } else if (type === 'drinking_water') {
+      this.hydrationSystem.unregisterStation(sprite as Phaser.Physics.Arcade.Sprite)
     } else if (type === 'table2' || type === 'table4') {
       this.restaurantSystem.unregisterTable(sprite)
     }

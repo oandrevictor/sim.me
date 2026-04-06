@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 
-export type NirvHoverSubject = { sprite: Phaser.GameObjects.Sprite; name: string }
+export type NirvHoverSubject = { sprite: Phaser.GameObjects.Sprite; name: string; hydrationLevel: number }
 
 /** World-space name tag when the pointer is over a Nirv sprite */
 export class NirvNameHover {
@@ -44,7 +44,7 @@ export class NirvNameHover {
       return
     }
 
-    this.label.setText(best.name)
+    this.label.setText(`${best.name}\nWater: ${Math.round(best.hydrationLevel)}`)
     this.label.setPosition(best.sprite.x, best.sprite.y - 44)
     this.label.setVisible(true)
   }

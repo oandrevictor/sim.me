@@ -24,7 +24,7 @@ const CATEGORIES: { key: Category; label: string }[] = [
 
 const CATEGORY_MAP: Record<string, Category> = {
   obstacle: 'build', table2: 'dine', table4: 'dine', chair: 'dine',
-  stove: 'dine', counter: 'dine', background: 'decoration',
+  stove: 'dine', counter: 'dine', drinking_water: 'dine', background: 'decoration',
   interactable: 'misc', trash: 'misc',
 }
 

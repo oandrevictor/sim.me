@@ -19,6 +19,7 @@ import { Building } from '../entities/Building'
 import { Stage } from '../entities/Stage'
 import { BuildingTypeUI } from '../ui/BuildingTypeUI'
 import { RestaurantSystem } from '../systems/RestaurantSystem'
+import { HydrationSystem } from '../systems/HydrationSystem'
 import { StageSystem } from '../systems/StageSystem'
 import { CookingSystem } from '../systems/CookingSystem'
 import { RecipeSelectUI } from '../ui/RecipeSelectUI'
@@ -47,6 +48,7 @@ export class GameScene extends Phaser.Scene {
   private stages: Stage[] = []
   private buildingTypeUI!: BuildingTypeUI
   private restaurantSystem!: RestaurantSystem
+  private hydrationSystem!: HydrationSystem
   private stageSystem!: StageSystem
   private cookingSystem!: CookingSystem
   private recipeSelectUI!: RecipeSelectUI
@@ -115,6 +117,12 @@ export class GameScene extends Phaser.Scene {
       this.spawnerState.plateSprites = this.spawnerState.plateSprites.filter(p => p.sprite !== sprite)
     }
 
+    this.hydrationSystem = new HydrationSystem(
+      this.botNirvs,
+      () => this.playerNirv,
+      this.restaurantSystem,
+    )
+
     this.objectSpawner = new ObjectSpawner(
       this, this.obstacleGroup, this.pathfinder,
       this.restaurantSystem, this.cookingSystem, this.spawnerState,
@@ -127,6 +135,14 @@ export class GameScene extends Phaser.Scene {
         if (dist >= 96) this.playerInput.setWalkTarget(s.x, s.y)
       },
       (e) => this.foodHandler.onPlateClicked(e, () => this.menuUI?.isShopMode() ?? false),
+      this.hydrationSystem,
+      (_sprite, wx, wy) => {
+        if (this.placementManager?.isActive()) return
+        this.hydrationSystem.tryInteractWaterStation(
+          wx, wy, this.playerNirv.sprite,
+          (tx, ty) => this.playerInput.setWalkTarget(tx, ty),
+        )
+      },
     )
 
     this.buildingPlacer = new BuildingPlacer(
@@ -169,20 +185,38 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number): void {
+    this.hydrationSystem.updatePlayerAndWorldTime(delta)
+
     const player = this.playerNirv.sprite
-    const result = this.playerInput.update(player)
+    let vx = 0
+    let vy = 0
+    let hasInput = false
+    let arrivedAtTarget = false
 
-    if (result.hasInput) this.foodHandler.clearPending()
+    if (this.hydrationSystem.isPlayerDrinking()) {
+      player.setVelocity(0, 0)
+      this.playerNirv.updateAnimation(0, 0)
+    } else {
+      const result = this.playerInput.update(player)
+      hasInput = result.hasInput
+      arrivedAtTarget = result.arrivedAtTarget
+      vx = result.vx
+      vy = result.vy
+      player.setVelocity(vx, vy)
+      this.playerNirv.updateAnimation(player.body!.velocity.x, player.body!.velocity.y)
+    }
 
-    if (result.arrivedAtTarget) {
+    if (hasInput) this.foodHandler.clearPending()
+
+    if (arrivedAtTarget) {
       this.foodHandler.handlePendingInteractions()
     }
 
-    player.setVelocity(result.vx, result.vy)
-    this.playerNirv.updateAnimation(player.body!.velocity.x, player.body!.velocity.y)
     this.interactionManager.update(player)
 
     for (const bot of this.botNirvs) bot.update(delta)
+
+    this.hydrationSystem.updateStations(delta)
 
     this.cookingSystem.update(delta)
     this.restaurantSystem.update(delta)
@@ -195,8 +229,16 @@ export class GameScene extends Phaser.Scene {
       (this.menuUI?.isPointerOverUI(ptr) ?? false) ||
       (this.placementManager?.isActive() ?? false)
     this.nirvNameHover.update(ptr, [
-      { sprite: this.playerNirv.sprite, name: this.playerNirv.name },
-      ...this.botNirvs.map(b => ({ sprite: b.nirv.sprite, name: b.nirv.name })),
+      {
+        sprite: this.playerNirv.sprite,
+        name: this.playerNirv.name,
+        hydrationLevel: this.playerNirv.getHydrationLevel(),
+      },
+      ...this.botNirvs.map(b => ({
+        sprite: b.nirv.sprite,
+        name: b.nirv.name,
+        hydrationLevel: b.nirv.getHydrationLevel(),
+      })),
     ], hideNameHover)
 
     if (this.menuUI?.isShopMode() && !this.placementManager?.isActive()) {
