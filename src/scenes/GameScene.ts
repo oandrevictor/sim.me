@@ -264,6 +264,7 @@ export class GameScene extends Phaser.Scene {
         hydrationLevel: this.playerNirv.getHydrationLevel(),
         restLevel: this.playerNirv.getRestLevel(),
         satiation: this.playerNirv.getSatiation(),
+        funLevel: this.playerNirv.getFunLevel(),
       },
       ...this.botNirvs.map(b => ({
         sprite: b.nirv.sprite,
@@ -271,6 +272,7 @@ export class GameScene extends Phaser.Scene {
         hydrationLevel: b.nirv.getHydrationLevel(),
         restLevel: b.nirv.getRestLevel(),
         satiation: b.nirv.getSatiation(),
+        funLevel: b.nirv.getFunLevel(),
       })),
     ], hideNameHover)
 

@@ -10,6 +10,10 @@ import { DEPTH_UI } from '../config/world'
 import { EARLY_LEAVE_CHECK_INTERVAL_MS } from '../systems/stagePerformanceRuntime'
 import { fruitSlotWorldPosition } from '../systems/fruitCrateLayout'
 
+const FUN_WATCH_TICK_MS = 10_000
+const FUN_GAIN_MATCH = 10
+const FUN_GAIN_NO_MATCH = 5
+
 const BOT_SPEED = 120
 const ARRIVAL_THRESHOLD = 24
 const CHAIR_ARRIVAL_THRESHOLD = 32
@@ -58,6 +62,9 @@ export class BotNirv {
   /** Audience taste vs act tags; used for early-leave rolls while watching */
   private stageWatchAffinity = 0.35
   private stageEarlyLeaveAccum = 0
+  /** Fun gain while watching: interest vs act tags (set when redirected to audience). */
+  private watchInterestMatch = false
+  private funWatchAccumMs = 0
   private redirectTarget: { x: number; y: number } | null = null
   /** When set, A* uses this tile (interior stage cells); avoids Math.round(screenToGrid) snapping off the deck */
   private pathEndCell: { gx: number; gy: number } | null = null
@@ -147,6 +154,12 @@ export class BotNirv {
     this.stageWatchAffinity = affinity
   }
 
+  /** Whether act tags overlap bot interests; drives +5 vs +10 fun per 10s while watching. */
+  setStageWatchInterestMatch(match: boolean): void {
+    this.watchInterestMatch = match
+    this.funWatchAccumMs = 0
+  }
+
   /** Leave stage and resume normal schedule */
   leaveStage(): void {
     this._state = 'walking'
@@ -156,6 +169,8 @@ export class BotNirv {
     this.performInterior = null
     this.path = []
     this.stageEarlyLeaveAccum = 0
+    this.watchInterestMatch = false
+    this.funWatchAccumMs = 0
     this.currentIndex = (this.currentIndex + 1) % this.waypoints.length
     this.computePathToWaypoint()
   }
@@ -280,6 +295,8 @@ export class BotNirv {
     this.performInterior = null
     this.path = []
     this.stageEarlyLeaveAccum = 0
+    this.watchInterestMatch = false
+    this.funWatchAccumMs = 0
     this.nirv.sprite.setVelocity(0, 0)
     this.computePathToWaypoint()
   }
@@ -744,6 +761,11 @@ export class BotNirv {
 
       case 'watching_stage':
         this.nirv.updateAnimation(0, 0)
+        this.funWatchAccumMs += delta
+        while (this.funWatchAccumMs >= FUN_WATCH_TICK_MS) {
+          this.funWatchAccumMs -= FUN_WATCH_TICK_MS
+          this.nirv.addFun(this.watchInterestMatch ? FUN_GAIN_MATCH : FUN_GAIN_NO_MATCH)
+        }
         this.stageEarlyLeaveAccum += delta
         if (this.stageEarlyLeaveAccum >= EARLY_LEAVE_CHECK_INTERVAL_MS) {
           this.stageEarlyLeaveAccum = 0

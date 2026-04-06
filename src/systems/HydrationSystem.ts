@@ -103,10 +103,12 @@ export class HydrationSystem {
       this.minuteAccum -= MINUTE_MS
       this.getPlayer().applyMinuteDehydration()
       this.getPlayer().applyMinuteSatiation()
+      this.getPlayer().applyMinuteFunDecay()
       if (!this.isPlayerSleeping()) this.getPlayer().applyMinuteRestDecay()
       for (const b of this.bots) {
         b.nirv.applyMinuteDehydration()
         b.nirv.applyMinuteSatiation()
+        b.nirv.applyMinuteFunDecay()
         if (b.state !== 'sleeping') b.nirv.applyMinuteRestDecay()
       }
     }

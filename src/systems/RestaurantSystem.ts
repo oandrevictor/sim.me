@@ -182,6 +182,8 @@ export class RestaurantSystem {
       if (bot.nirv.getHydrationLevel() <= 60) continue
       // Prefer snack when hungry
       if (bot.nirv.getSatiation() <= bot.nirv.hungerThreshold) continue
+      // Prefer stage when seeking fun (soft priority)
+      if (bot.nirv.getFunLevel() <= bot.nirv.getFunThreshold()) continue
       if (Math.random() > ENTER_PROBABILITY) continue
 
       let bestChair: ChairRecord | null = null

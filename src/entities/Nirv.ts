@@ -3,6 +3,11 @@ import { DEPTH_UI } from '../config/world'
 import { HYDRATION_START, sampleDehydrationRate } from './nirvHydration'
 import { SATIATION_START, sampleHungerStep, sampleHungerThreshold } from './nirvHunger'
 import {
+  FUN_LEVEL_START,
+  sampleFunDecayStep,
+  sampleFunThreshold,
+} from './nirvFun'
+import {
   REST_START, REST_DECAY_MIN, REST_DECAY_MAX,
   sampleSleepyRate, sampleRestThreshold, sampleSleepRecharges,
 } from './nirvSleep'
@@ -33,9 +38,12 @@ export class Nirv {
   readonly sleepRecharges: number
   readonly hungerStep: number
   readonly hungerThreshold: number
+  readonly funDecayStep: number
+  readonly funThreshold: number
   private hydrationLevel: number
   private restLevel: number
   private satiation: number
+  private funLevel: number
   private variant: NirvVariant
   private lastDir = 'down'
   private isMoving = false
@@ -66,6 +74,9 @@ export class Nirv {
     this.hungerStep = sampleHungerStep()
     this.hungerThreshold = sampleHungerThreshold()
     this.satiation = SATIATION_START
+    this.funDecayStep = sampleFunDecayStep()
+    this.funThreshold = sampleFunThreshold()
+    this.funLevel = FUN_LEVEL_START
 
     const textureKey = `${variant}_idle`
     this.sprite = scene.physics.add.sprite(x, y, textureKey, 16)
@@ -162,6 +173,23 @@ export class Nirv {
 
   addRest(amount: number): void {
     this.restLevel = Math.min(100, this.restLevel + amount)
+  }
+
+  getFunLevel(): number {
+    return this.funLevel
+  }
+
+  getFunThreshold(): number {
+    return this.funThreshold
+  }
+
+  /** One game-minute tick: lose funDecayStep points. */
+  applyMinuteFunDecay(): void {
+    this.funLevel = Math.max(0, this.funLevel - this.funDecayStep)
+  }
+
+  addFun(amount: number): void {
+    this.funLevel = Math.min(100, this.funLevel + amount)
   }
 
   /** Lay sprite on side (sleep pose); stops walk animation. */

@@ -5,6 +5,7 @@ import { gridToScreen } from '../utils/isoGrid'
 import type { BandRecord } from '../storage/bandPersistence'
 import type { MusicTag } from '../data/musicTags'
 import { affinityScore, rollAttractedToStage } from './stageAffinity'
+import { interestOverlapsPerformance } from '../entities/nirvFun'
 import {
   cycleEndsAt,
   endCycleAndPersist,
@@ -108,7 +109,9 @@ export function tryAttractBotsToStages(ctx: StageAudienceTickContext): void {
   if (ctx.stages.length === 0) return
 
   for (const bot of ctx.bots) {
-    if (bot.state !== 'waiting') continue
+    const funSeeking = bot.nirv.getFunLevel() <= bot.nirv.getFunThreshold()
+    if (!funSeeking && bot.state !== 'waiting') continue
+    if (funSeeking && bot.state !== 'waiting' && bot.state !== 'walking') continue
     if (ctx.watchingBots.has(bot)) continue
 
     let bestStage: Stage | null = null
@@ -135,18 +138,18 @@ export function tryAttractBotsToStages(ctx: StageAudienceTickContext): void {
       }
     }
 
-      if (!bestStage) continue
+    if (!bestStage) continue
 
-      const rtBest = ctx.runtimeByStageId.get(bestStage.id)
-      if (rtBest?.attraction && botIsStagePerformer(bot.id, rtBest.attraction, ctx.getBands)) continue
+    const rtBest = ctx.runtimeByStageId.get(bestStage.id)
+    if (rtBest?.attraction && botIsStagePerformer(bot.id, rtBest.attraction, ctx.getBands)) continue
 
-      const affinity = affinityScore(bot.interests, bestTags)
-    if (!rollAttractedToStage(affinity)) continue
+    const affinity = affinityScore(bot.interests, bestTags)
+    if (!funSeeking && !rollAttractedToStage(affinity)) continue
 
     const allPositions = bestStage.getWatchPositions()
     const occupiedPixels = new Set(
       [...ctx.watchingBots.values()]
-        .filter(w => w.stageId === bestStage!.id)
+        .filter(w => w.stageId === bestStage.id)
         .map(w => `${Math.round(w.x)},${Math.round(w.y)}`),
     )
     const available = allPositions.filter(
@@ -156,6 +159,7 @@ export function tryAttractBotsToStages(ctx: StageAudienceTickContext): void {
 
     const spot = available[Math.floor(Math.random() * available.length)]
     bot.setStageWatchAffinity(affinity)
+    bot.setStageWatchInterestMatch(interestOverlapsPerformance(bot.interests, bestTags))
     ctx.watchingBots.set(bot, { stageId: bestStage.id, x: spot.x, y: spot.y })
     bot.redirectToStage(spot.x, spot.y, bestStage.id)
   }
