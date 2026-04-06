@@ -9,6 +9,7 @@ export type NirvHoverSubject = {
   satiation: number
   funLevel: number
   bladderLevel: number
+  socialNeed: number
 }
 
 /** World-space name tag when the pointer is over a Nirv sprite */
@@ -55,7 +56,7 @@ export class NirvNameHover {
     }
 
     this.label.setText(
-      `${best.name}\nWater: ${Math.round(best.hydrationLevel)}\nRest: ${Math.round(best.restLevel)}\nSatiation: ${Math.round(best.satiation)}\nFun: ${Math.round(best.funLevel)}\nBladder: ${Math.round(best.bladderLevel)}`,
+      `${best.name}\nWater: ${Math.round(best.hydrationLevel)}\nRest: ${Math.round(best.restLevel)}\nSatiation: ${Math.round(best.satiation)}\nFun: ${Math.round(best.funLevel)}\nBladder: ${Math.round(best.bladderLevel)}\nSocial: ${Math.round(best.socialNeed)}`,
     )
     this.label.setPosition(best.sprite.x, best.sprite.y - 58)
     this.label.setVisible(true)

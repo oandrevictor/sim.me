@@ -37,6 +37,7 @@ import { PlayerInput } from '../input/PlayerInput'
 import { InteractionManager } from '../interaction/InteractionManager'
 import { FoodHandler } from '../interaction/FoodHandler'
 import { NirvNameHover } from '../interaction/NirvNameHover'
+import { buildNirvHoverSubjects } from '../interaction/buildNirvHoverSubjects'
 import { removeObjectByType } from '../storage/persistence'
 import { applyNirvSeparation } from '../entities/nirvSeparation'
 import { registerStoveAnimations } from '../animations/stoveAnims'
@@ -272,26 +273,11 @@ export class GameScene extends Phaser.Scene {
     const hideNameHover =
       (this.menuUI?.isPointerOverUI(ptr) ?? false) ||
       (this.placementManager?.isActive() ?? false)
-    this.nirvNameHover.update(ptr, [
-      {
-        sprite: this.playerNirv.sprite,
-        name: this.playerNirv.name,
-        hydrationLevel: this.playerNirv.getHydrationLevel(),
-        restLevel: this.playerNirv.getRestLevel(),
-        satiation: this.playerNirv.getSatiation(),
-        funLevel: this.playerNirv.getFunLevel(),
-        bladderLevel: this.playerNirv.getBladderLevel(),
-      },
-      ...this.botNirvs.map(b => ({
-        sprite: b.nirv.sprite,
-        name: b.nirv.name,
-        hydrationLevel: b.nirv.getHydrationLevel(),
-        restLevel: b.nirv.getRestLevel(),
-        satiation: b.nirv.getSatiation(),
-        funLevel: b.nirv.getFunLevel(),
-        bladderLevel: b.nirv.getBladderLevel(),
-      })),
-    ], hideNameHover)
+    this.nirvNameHover.update(
+      ptr,
+      buildNirvHoverSubjects(this.playerNirv, this.botNirvs),
+      hideNameHover,
+    )
 
     if (this.menuUI?.isShopMode() && !this.placementManager?.isActive()) {
       this.interactionManager.updateShopCursor(

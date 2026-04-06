@@ -8,29 +8,29 @@ import {
 } from '../entities/nirvHydration'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import type { RestaurantSystem } from './RestaurantSystem'
+import { SocialSystem } from './SocialSystem'
+import { tickWorldNeeds } from './tickWorldNeeds'
 import { queueSlotBehindStation } from './waterQueueLayout'
+import {
+  checkWaterQueueSlotArrivals,
+  checkWaterTapArrivals,
+  findWaterStationForBot,
+  releaseFinishedWaterStations,
+  repairOrphanWaterQueues,
+  type WaterStation,
+} from './waterStationRuntime'
 
 const CHECK_INTERVAL_MS = 2000
 const MINUTE_MS = 60_000
-const STATION_REACH_PX = 32
 const PLAYER_STATION_INTERACT_PX = 96
 const DRINK_DURATION_MS = 3000
-
-interface WaterStation {
-  sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite
-  x: number
-  y: number
-  /** Bot walking to tap or drinking; null when idle. */
-  active: BotNirv | null
-  /** FIFO behind `active`; each index maps to a line slot via queueSlotBehindStation. */
-  queue: BotNirv[]
-}
 
 export class HydrationSystem {
   private stations: WaterStation[] = []
   private bots: BotNirv[]
   private getPlayer: () => Nirv
   private restaurant: RestaurantSystem
+  private social: SocialSystem
   private assignAccum = 0
   private minuteAccum = 0
   private playerDrinkRemaining = 0
@@ -46,6 +46,7 @@ export class HydrationSystem {
     this.bots = bots
     this.getPlayer = getPlayer
     this.restaurant = restaurant
+    this.social = new SocialSystem(bots)
   }
 
   registerStation(
@@ -101,96 +102,21 @@ export class HydrationSystem {
     this.minuteAccum += delta
     while (this.minuteAccum >= MINUTE_MS) {
       this.minuteAccum -= MINUTE_MS
-      this.getPlayer().applyMinuteDehydration()
-      this.getPlayer().applyMinuteSatiation()
-      this.getPlayer().applyMinuteFunDecay()
-      this.getPlayer().applyMinuteBladder()
-      if (!this.isPlayerSleeping()) this.getPlayer().applyMinuteRestDecay()
-      for (const b of this.bots) {
-        b.nirv.applyMinuteDehydration()
-        b.nirv.applyMinuteSatiation()
-        b.nirv.applyMinuteFunDecay()
-        b.nirv.applyMinuteBladder()
-        if (b.state !== 'sleeping') b.nirv.applyMinuteRestDecay()
-      }
+      tickWorldNeeds(this.getPlayer(), this.bots, this.isPlayerSleeping())
     }
   }
 
   updateStations(delta: number): void {
-    this.checkTapArrivals()
-    this.checkQueueSlotArrivals()
-    this.releaseFinishedServing()
-    this.repairOrphanQueues()
+    checkWaterTapArrivals(this.stations)
+    checkWaterQueueSlotArrivals(this.pathfinder, this.stations)
+    releaseFinishedWaterStations(this.pathfinder, this.stations)
+    repairOrphanWaterQueues(this.pathfinder, this.stations)
+    this.social.update(delta)
 
     this.assignAccum += delta
     if (this.assignAccum < CHECK_INTERVAL_MS) return
     this.assignAccum = 0
     this.tryAssignThirstyBots()
-  }
-
-  private findStationForBot(bot: BotNirv): WaterStation | null {
-    for (const st of this.stations) {
-      if (st.active === bot || st.queue.includes(bot)) return st
-    }
-    return null
-  }
-
-  private checkTapArrivals(): void {
-    for (const st of this.stations) {
-      if (!st.active) continue
-      const bot = st.active
-      if (bot.state !== 'walking_to_water') continue
-      const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, st.x, st.y)
-      if (d < STATION_REACH_PX) bot.arriveAtWaterStation()
-    }
-  }
-
-  private checkQueueSlotArrivals(): void {
-    for (const st of this.stations) {
-      st.queue.forEach((bot, lineIndex) => {
-        if (bot.state !== 'walking_to_water_queue') return
-        const slot = queueSlotBehindStation(this.pathfinder, st.x, st.y, lineIndex)
-        const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, slot.x, slot.y)
-        if (d < STATION_REACH_PX) bot.arriveAtWaterQueueSlot()
-      })
-    }
-  }
-
-  /** Active bot left the tap (finished drinking); serve the next in line. */
-  private releaseFinishedServing(): void {
-    for (const st of this.stations) {
-      if (!st.active) continue
-      const s = st.active.state
-      if (s === 'walking_to_water' || s === 'drinking_water') continue
-      st.active = null
-      this.promoteNextInLine(st)
-    }
-  }
-
-  /** No server at tap but people waiting (e.g. after load edge case). */
-  private repairOrphanQueues(): void {
-    for (const st of this.stations) {
-      if (st.active || st.queue.length === 0) continue
-      this.promoteNextInLine(st)
-    }
-  }
-
-  private promoteNextInLine(st: WaterStation): void {
-    const next = st.queue.shift()
-    if (!next) return
-    st.active = next
-    next.redirectToWater(st.x, st.y)
-    this.syncQueueSlots(st)
-  }
-
-  /** Re-path everyone still waiting so their slot matches queue order after promotion. */
-  private syncQueueSlots(st: WaterStation): void {
-    st.queue.forEach((bot, i) => {
-      const p = queueSlotBehindStation(this.pathfinder, st.x, st.y, i)
-      if (bot.state === 'waiting_at_water_queue' || bot.state === 'walking_to_water_queue') {
-        bot.redirectToWaterQueueSlot(p.x, p.y)
-      }
-    })
   }
 
   private tryAssignThirstyBots(): void {
@@ -212,7 +138,7 @@ export class HydrationSystem {
       ) continue
       if (stBot === 'walking_to_perform' || stBot === 'performing_on_stage') continue
 
-      if (this.findStationForBot(bot)) continue
+      if (findWaterStationForBot(this.stations, bot)) continue
 
       const critical = h <= CRITICAL_HYDRATION_THRESHOLD
       if (!critical) {
