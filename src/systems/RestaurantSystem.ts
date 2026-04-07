@@ -53,7 +53,7 @@ export class RestaurantSystem {
   private buildings: Building[]
   private bots: BotNirv[]
   private timeSinceCheck = 0
-  onPlateConsumed: ((tableX: number, tableY: number) => void) | null = null
+  onPlateConsumed: ((tableX: number, tableY: number, sprite: Phaser.GameObjects.Sprite) => void) | null = null
 
   constructor(buildings: Building[], bots: BotNirv[]) {
     this.buildings = buildings
@@ -88,18 +88,26 @@ export class RestaurantSystem {
     return true
   }
 
-  /** Remove a food plate from a table at (tableX, tableY). Destroys the sprite. Returns the recipeId if found. */
-  removePlateFromTable(tableX: number, tableY: number): string | null {
+  /** Remove a specific plate from a table by sprite reference. Clears the slot; caller is responsible for destroying the sprite. Returns the recipeId if found. */
+  removePlateFromTable(tableX: number, tableY: number, sprite: Phaser.GameObjects.Sprite): string | null {
     const table = this.tables.find(t => t.x === tableX && t.y === tableY)
     if (!table) return null
 
-    const slot = table.slots.find(s => s.plate !== null)
+    const slot = table.slots.find(s => s.plate?.sprite === sprite)
     if (!slot || !slot.plate) return null
 
     const recipeId = slot.plate.recipeId
-    slot.plate.sprite.destroy()
     slot.plate = null
     return recipeId
+  }
+
+  unregisterChair(sprite: Phaser.GameObjects.Sprite): void {
+    this.chairs = this.chairs.filter(c => c.sprite !== sprite)
+  }
+
+  unregisterTable(sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite): void {
+    this.tables = this.tables.filter(t => t.sprite !== sprite)
+    this.recalcChairAdjacency()
   }
 
   update(delta: number): void {
@@ -132,9 +140,10 @@ export class RestaurantSystem {
 
         chair.occupiedBy.startEating(eatTime, recipeColor)
 
+        const consumedSprite = foodSlot.plate.sprite
         foodSlot.plate.sprite.destroy()
         foodSlot.plate = null
-        this.onPlateConsumed?.(table.x, table.y)
+        this.onPlateConsumed?.(table.x, table.y, consumedSprite)
         break
       }
     }
@@ -169,6 +178,12 @@ export class RestaurantSystem {
 
     for (const bot of this.bots) {
       if (bot.state !== 'waiting') continue
+      // Prefer water when thirsty so bots don't take a restaurant seat instead
+      if (bot.nirv.getHydrationLevel() <= 60) continue
+      // Prefer snack when hungry
+      if (bot.nirv.getSatiation() <= bot.nirv.hungerThreshold) continue
+      // Prefer stage when seeking fun (soft priority)
+      if (bot.nirv.getFunLevel() <= bot.nirv.getFunThreshold()) continue
       if (Math.random() > ENTER_PROBABILITY) continue
 
       let bestChair: ChairRecord | null = null
@@ -201,6 +216,13 @@ export class RestaurantSystem {
       if (bot.state === 'walking' || bot.state === 'waiting') {
         chair.occupiedBy = null
       }
+    }
+  }
+
+  /** Clear chair reservation when bot leaves for another activity (e.g. critical thirst). */
+  releaseChairForBot(bot: BotNirv): void {
+    for (const chair of this.chairs) {
+      if (chair.occupiedBy === bot) chair.occupiedBy = null
     }
   }
 

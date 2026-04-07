@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { MenuUI } from '../ui/MenuUI'
+import type { StageWorkBridge } from '../ui/WorkPanelStageSection'
 import type { GameScene } from './GameScene'
 
 export class UIScene extends Phaser.Scene {
@@ -13,12 +14,28 @@ export class UIScene extends Phaser.Scene {
   create(): void {
     const gameScene = this.scene.get('GameScene') as GameScene
 
+    // Render and process input above the world so panel buttons are clickable.
+    this.scene.moveAbove('GameScene')
+
     this.menuUI = new MenuUI(this, gameScene.events)
     this.positionUI()
+
+    const stageBridge: StageWorkBridge = {
+      getPerformanceView: id => gameScene.getStagePerformanceView(id),
+      setStageAttraction: (id, a) => gameScene.setStageAttraction(id, a),
+      getBands: () => gameScene.getBandsForUI(),
+      getPerformerBots: () => gameScene.getPerformerBotsForUI(),
+      formBandFromFirstTwoPerformers: () => gameScene.formBandFromFirstTwoPerformers(),
+      stageAllowsBand: id => gameScene.stageAllowsBandForStage(id),
+    }
 
     this.menuUI.setProviders(
       () => gameScene.getBotNirvs(),
       () => gameScene.isPlayerInsideRestaurant(),
+      () => gameScene.getPlayerStage(),
+      (stageId) => gameScene.getStageWatchers(stageId),
+      (stageId) => gameScene.getStagePerformers(stageId),
+      stageBridge,
     )
 
     this.helpText = this.add.text(10, 10, 'Move: WASD / Arrows  |  Shop: place & move objects  |  R: rotate  |  ESC to cancel', {

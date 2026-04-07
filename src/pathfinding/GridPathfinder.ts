@@ -7,6 +7,14 @@ interface Node {
   parent: Node | null
 }
 
+/** Stage platform tile range — used so blocked perform goals re-home inside the deck, not in front of it */
+export type StageInteriorBounds = {
+  minGX: number
+  maxGX: number
+  minGY: number
+  maxGY: number
+}
+
 export class GridPathfinder {
   private blocked: boolean[][]
   private cols: number
@@ -29,6 +37,37 @@ export class GridPathfinder {
   isBlocked(gx: number, gy: number): boolean {
     if (!this.inBounds(gx, gy)) return true
     return this.blocked[gx][gy]
+  }
+
+  /**
+   * If the ideal tile is blocked, pick the closest unblocked tile inside the stage interior
+   * (Manhattan). Avoids `nearestUnblocked` ring picking the audience row (gy+1) first.
+   */
+  resolveStagePerformGoal(
+    goalGX: number,
+    goalGY: number,
+    interior: StageInteriorBounds,
+  ): { gx: number; gy: number } | null {
+    if (!this.isBlocked(goalGX, goalGY)) return { gx: goalGX, gy: goalGY }
+    const inside = this.nearestUnblockedInRect(goalGX, goalGY, interior)
+    if (inside) return inside
+    return this.nearestUnblocked(goalGX, goalGY)
+  }
+
+  private nearestUnblockedInRect(
+    gx: number,
+    gy: number,
+    b: StageInteriorBounds,
+  ): { gx: number; gy: number } | null {
+    let best: { gx: number; gy: number; d: number } | null = null
+    for (let x = b.minGX; x <= b.maxGX; x++) {
+      for (let y = b.minGY; y <= b.maxGY; y++) {
+        if (this.isBlocked(x, y)) continue
+        const d = Math.abs(x - gx) + Math.abs(y - gy)
+        if (!best || d < best.d) best = { gx: x, gy: y, d }
+      }
+    }
+    return best
   }
 
   /**

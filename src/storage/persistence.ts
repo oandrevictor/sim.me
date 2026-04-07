@@ -1,4 +1,4 @@
-export type ObjectType = 'obstacle' | 'interactable' | 'background' | 'table2' | 'table4' | 'chair' | 'stove' | 'counter' | 'food_plate' | 'trash'
+export type ObjectType = 'obstacle' | 'interactable' | 'background' | 'table2' | 'table4' | 'chair' | 'stove' | 'stove_white_clay' | 'counter' | 'food_plate' | 'trash' | 'drinking_water' | 'snack_machine' | 'fruit_crate' | 'floor_yellow' | 'portable_toilet' | 'bed_ms_blue' | 'bed_ms_red' | 'bed_ms_grey' | 'bed_ms_space' | 'bed_ws_blue' | 'bed_ws_red' | 'bed_ws_grey' | 'bed_ws_space'
 
 export interface PlacedObjectRecord {
   id: string
