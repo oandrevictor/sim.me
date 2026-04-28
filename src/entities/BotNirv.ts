@@ -9,6 +9,10 @@ import { rollLeaveEarly } from '../systems/stageAffinity'
 import { DEPTH_UI } from '../config/world'
 import { EARLY_LEAVE_CHECK_INTERVAL_MS } from '../systems/stagePerformanceRuntime'
 import { fruitSlotWorldPosition } from '../systems/fruitCrateLayout'
+import { isFarmerState, isRestaurantStaffState, type BotState } from './botStates'
+
+export type { BotState } from './botStates'
+export { isFarmerState, isRestaurantStaffState, isWorkJobState } from './botStates'
 
 const FUN_WATCH_TICK_MS = 10_000
 const FUN_GAIN_MATCH = 10
@@ -17,40 +21,6 @@ const FUN_GAIN_NO_MATCH = 5
 const BOT_SPEED = 120
 const ARRIVAL_THRESHOLD = 24
 const CHAIR_ARRIVAL_THRESHOLD = 32
-
-export type BotState =
-  | 'walking'
-  | 'waiting'
-  | 'walking_to_chair'
-  | 'seated'
-  | 'awaiting_service'
-  | 'eating'
-  | 'walking_to_stage'
-  | 'watching_stage'
-  | 'walking_to_perform'
-  | 'performing_on_stage'
-  | 'walking_to_water'
-  | 'walking_to_water_queue'
-  | 'waiting_at_water_queue'
-  | 'drinking_water'
-  | 'walking_to_snack'
-  | 'walking_to_snack_queue'
-  | 'waiting_at_snack_queue'
-  | 'snack_interact'
-  | 'snack_wander'
-  | 'snack_eat'
-  | 'walking_to_fruit'
-  | 'walking_to_fruit_queue'
-  | 'waiting_at_fruit_queue'
-  | 'fruit_interact'
-  | 'fruit_wander'
-  | 'fruit_eat'
-  | 'walking_to_bed'
-  | 'sleeping'
-  | 'walking_to_toilet'
-  | 'walking_to_toilet_queue'
-  | 'waiting_at_toilet_queue'
-  | 'using_toilet'
 
 export class BotNirv {
   readonly id: string
@@ -74,6 +44,8 @@ export class BotNirv {
   private pathEndCell: { gx: number; gy: number } | null = null
   /** Unblocked goal fallback stays inside this rect (platform tiles only) */
   private performInterior: StageInteriorBounds | null = null
+  /** Restaurant footprint: path goal never escapes this rect (unlike stage, no world fallback). */
+  private restaurantInteriorBounds: StageInteriorBounds | null = null
   private statusIcon: Phaser.GameObjects.Graphics | null = null
   private sleepZText: Phaser.GameObjects.Text | null = null
   private scene: Phaser.Scene
@@ -89,11 +61,18 @@ export class BotNirv {
   private prevX = 0
   private prevY = 0
   private stuckFrames = 0
+  /** Waiter carrying a plate from counter to table (chef clears after staging on counter). */
+  private staffCarriedRecipeId: string | null = null
 
   /** ID of the stage this bot is walking to or watching (null otherwise) */
   stageId: string | null = null
 
   get state(): BotState { return this._state }
+
+  /** Active path goal for walking_* / staff job states (read-only for coordinators). */
+  getWalkRedirectTarget(): { x: number; y: number } | null {
+    return this.redirectTarget
+  }
 
   constructor(
     scene: Phaser.Scene,
@@ -513,6 +492,147 @@ export class BotNirv {
     this.computePathToWaypoint()
   }
 
+  getStaffCarriedRecipeId(): string | null {
+    return this.staffCarriedRecipeId
+  }
+
+  setStaffCarriedRecipeId(id: string | null): void {
+    this.staffCarriedRecipeId = id
+  }
+
+  enterChefIdle(): void {
+    this.performInterior = null
+    this.restaurantInteriorBounds = null
+    this.pathEndCell = null
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.sprite.setVelocity(0, 0)
+    this._state = 'chef_idle'
+    this.nirv.updateAnimation(0, 0)
+  }
+
+  enterWaiterIdle(): void {
+    this.performInterior = null
+    this.restaurantInteriorBounds = null
+    this.pathEndCell = null
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.sprite.setVelocity(0, 0)
+    this._state = 'waiter_idle'
+    this.nirv.updateAnimation(0, 0)
+  }
+
+  enterChefWalkToStove(x: number, y: number, interior: StageInteriorBounds | null = null): void {
+    this.performInterior = null
+    this.pathEndCell = null
+    this.redirectTarget = { x, y }
+    this._state = 'chef_to_stove'
+    this.nirv.sprite.setVelocity(0, 0)
+    this.startRestaurantStaffWalk(x, y, interior)
+  }
+
+  enterChefCooking(): void {
+    this.restaurantInteriorBounds = null
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.sprite.setVelocity(0, 0)
+    this._state = 'chef_cooking'
+    this.nirv.updateAnimation(0, 0)
+  }
+
+  enterChefWalkToCounter(x: number, y: number, interior: StageInteriorBounds | null = null): void {
+    this.performInterior = null
+    this.pathEndCell = null
+    this.redirectTarget = { x, y }
+    this._state = 'chef_to_counter'
+    this.nirv.sprite.setVelocity(0, 0)
+    this.startRestaurantStaffWalk(x, y, interior)
+  }
+
+  enterWaiterWalkToCounter(x: number, y: number, interior: StageInteriorBounds | null = null): void {
+    this.performInterior = null
+    this.pathEndCell = null
+    this.redirectTarget = { x, y }
+    this._state = 'waiter_to_counter'
+    this.nirv.sprite.setVelocity(0, 0)
+    this.startRestaurantStaffWalk(x, y, interior)
+  }
+
+  enterWaiterWalkToTable(x: number, y: number, interior: StageInteriorBounds | null = null): void {
+    this.performInterior = null
+    this.pathEndCell = null
+    this.redirectTarget = { x, y }
+    this._state = 'waiter_to_table'
+    this.nirv.sprite.setVelocity(0, 0)
+    this.startRestaurantStaffWalk(x, y, interior)
+  }
+
+  enterFarmerIdle(): void {
+    this.performInterior = null
+    this.restaurantInteriorBounds = null
+    this.pathEndCell = null
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.sprite.setVelocity(0, 0)
+    this._state = 'farmer_idle'
+    this.nirv.updateAnimation(0, 0)
+  }
+
+  enterFarmerWalkToCrop(x: number, y: number): void {
+    this.performInterior = null
+    this.restaurantInteriorBounds = null
+    this.pathEndCell = null
+    this.redirectTarget = { x, y }
+    this._state = 'farmer_to_crop'
+    this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToPixel(x, y)
+  }
+
+  enterFarmerWorking(): void {
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.sprite.setVelocity(0, 0)
+    this._state = 'farmer_working'
+    this.nirv.updateAnimation(0, 0)
+  }
+
+  /** Hunger/thirst critical path: leave kitchen job and release stove reservation via GameScene listener. */
+  abortRestaurantStaffDuty(): void {
+    if (!isRestaurantStaffState(this._state)) return
+    this.staffCarriedRecipeId = null
+    this.hideStatusIcon()
+    this.redirectTarget = null
+    this.path = []
+    this.pathEndCell = null
+    this.performInterior = null
+    this.restaurantInteriorBounds = null
+    this._state = 'walking'
+    this.nirv.sprite.setVelocity(0, 0)
+    this.nirv.updateAnimation(0, 0)
+    this.scene.events.emit('restaurant-staff-abort', this)
+    this.computePathToWaypoint()
+  }
+
+  abortFarmerDuty(): void {
+    if (!isFarmerState(this._state)) return
+    this.hideStatusIcon()
+    this.redirectTarget = null
+    this.path = []
+    this.pathEndCell = null
+    this.performInterior = null
+    this.restaurantInteriorBounds = null
+    this._state = 'walking'
+    this.nirv.sprite.setVelocity(0, 0)
+    this.nirv.updateAnimation(0, 0)
+    this.scene.events.emit('farmer-abort', this)
+    this.computePathToWaypoint()
+  }
+
+  abortWorkDuty(): void {
+    if (isRestaurantStaffState(this._state)) this.abortRestaurantStaffDuty()
+    else if (isFarmerState(this._state)) this.abortFarmerDuty()
+  }
+
   /** Start eating food */
   startEating(eatDurationMs: number, recipeColor: number): void {
     this.nirv.sprite.setVelocity(0, 0)
@@ -863,7 +983,59 @@ export class BotNirv {
           if (rollLeaveEarly(this.stageWatchAffinity)) this.leaveStage()
         }
         return
+
+      case 'chef_idle':
+      case 'waiter_idle':
+      case 'chef_cooking':
+      case 'farmer_idle':
+      case 'farmer_working':
+        this.nirv.updateAnimation(0, 0)
+        return
+
+      case 'chef_to_stove':
+      case 'chef_to_counter':
+      case 'waiter_to_counter':
+      case 'waiter_to_table':
+      case 'farmer_to_crop': {
+        if (!this.redirectTarget) {
+          if (this._state === 'chef_to_stove' || this._state === 'chef_to_counter') this.enterChefIdle()
+          else if (this._state === 'farmer_to_crop') this.enterFarmerIdle()
+          else this.enterWaiterIdle()
+          return
+        }
+        this.followPath()
+        const jobSprite = this.nirv.sprite
+        this.nirv.updateAnimation(jobSprite.body!.velocity.x, jobSprite.body!.velocity.y)
+        const jobDist = Phaser.Math.Distance.Between(
+          jobSprite.x, jobSprite.y,
+          this.redirectTarget.x, this.redirectTarget.y,
+        )
+        if (jobDist < ARRIVAL_THRESHOLD) {
+          jobSprite.setVelocity(0, 0)
+          this.nirv.updateAnimation(0, 0)
+          this.path = []
+        }
+        return
+      }
     }
+  }
+
+  /** A* toward a station tile; when `interior` is set, goal is clamped inside the building footprint first. */
+  private startRestaurantStaffWalk(screenX: number, screenY: number, interior: StageInteriorBounds | null): void {
+    if (!interior) {
+      this.restaurantInteriorBounds = null
+      this.computePathToPixel(screenX, screenY)
+      return
+    }
+    this.restaurantInteriorBounds = interior
+    const g = screenToGrid(screenX, screenY)
+    const endCell = { gx: Math.round(g.gx), gy: Math.round(g.gy) }
+    this.computePathToPixel(screenX, screenY, endCell)
+    if (this.path.length > 0) return
+    this.restaurantInteriorBounds = null
+    this.pathEndCell = null
+    this.redirectTarget = { x: screenX, y: screenY }
+    this.computePathToPixel(screenX, screenY)
   }
 
   private computePathToWaypoint(): void {
@@ -884,7 +1056,20 @@ export class BotNirv {
     let endGX: number
     let endGY: number
 
-    if (endCell && this.performInterior) {
+    if (endCell && this.restaurantInteriorBounds) {
+      const r = this.pathfinder.resolveGoalInsideRect(
+        endCell.gx, endCell.gy, this.restaurantInteriorBounds,
+      )
+      if (!r) {
+        this.path = []
+        this.pathNodeIndex = 0
+        return
+      }
+      this.pathEndCell = r
+      this.redirectTarget = gridToScreen(r.gx, r.gy)
+      endGX = r.gx
+      endGY = r.gy
+    } else if (endCell && this.performInterior) {
       const r = this.pathfinder.resolveStagePerformGoal(
         endCell.gx, endCell.gy, this.performInterior,
       )
@@ -940,7 +1125,7 @@ export class BotNirv {
       this.stuckFrames = 0
       if (this._state === 'walking') {
         this.computePathToWaypoint()
-      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_water' || this._state === 'walking_to_water_queue' || this._state === 'walking_to_toilet' || this._state === 'walking_to_toilet_queue' || this._state === 'walking_to_snack' || this._state === 'walking_to_snack_queue' || this._state === 'snack_wander' || this._state === 'walking_to_fruit' || this._state === 'walking_to_fruit_queue' || this._state === 'fruit_wander' || this._state === 'walking_to_bed' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform') && this.redirectTarget) {
+      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_water' || this._state === 'walking_to_water_queue' || this._state === 'walking_to_toilet' || this._state === 'walking_to_toilet_queue' || this._state === 'walking_to_snack' || this._state === 'walking_to_snack_queue' || this._state === 'snack_wander' || this._state === 'walking_to_fruit' || this._state === 'walking_to_fruit_queue' || this._state === 'fruit_wander' || this._state === 'walking_to_bed' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform' || this._state === 'chef_to_stove' || this._state === 'chef_to_counter' || this._state === 'waiter_to_counter' || this._state === 'waiter_to_table' || this._state === 'farmer_to_crop') && this.redirectTarget) {
         this.computePathToPixel(this.redirectTarget.x, this.redirectTarget.y, this.pathEndCell)
       }
     }
@@ -951,7 +1136,7 @@ export class BotNirv {
         const target = this.waypoints[this.currentIndex]
         const dest = gridToScreen(target.gridX, target.gridY)
         this.moveToward(dest.x, dest.y)
-      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_water' || this._state === 'walking_to_water_queue' || this._state === 'walking_to_toilet' || this._state === 'walking_to_toilet_queue' || this._state === 'walking_to_snack' || this._state === 'walking_to_snack_queue' || this._state === 'snack_wander' || this._state === 'walking_to_fruit' || this._state === 'walking_to_fruit_queue' || this._state === 'fruit_wander' || this._state === 'walking_to_bed' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform') && this.redirectTarget) {
+      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_water' || this._state === 'walking_to_water_queue' || this._state === 'walking_to_toilet' || this._state === 'walking_to_toilet_queue' || this._state === 'walking_to_snack' || this._state === 'walking_to_snack_queue' || this._state === 'snack_wander' || this._state === 'walking_to_fruit' || this._state === 'walking_to_fruit_queue' || this._state === 'fruit_wander' || this._state === 'walking_to_bed' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform' || this._state === 'chef_to_stove' || this._state === 'chef_to_counter' || this._state === 'waiter_to_counter' || this._state === 'waiter_to_table' || this._state === 'farmer_to_crop') && this.redirectTarget) {
         this.moveToward(this.redirectTarget.x, this.redirectTarget.y)
       }
       return

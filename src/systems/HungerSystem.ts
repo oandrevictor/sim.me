@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import { TILE_W } from '../utils/isoGrid'
-import type { BotNirv } from '../entities/BotNirv'
+import { isWorkJobState, type BotNirv } from '../entities/BotNirv'
 import { CRITICAL_SATIATION } from '../entities/nirvHunger'
 import type { RestaurantSystem } from './RestaurantSystem'
 import { queueSlotBehindStation } from './waterQueueLayout'
@@ -215,6 +215,7 @@ export class HungerSystem {
       const critical = sat <= CRITICAL_SATIATION
       if (!critical) {
         if (stBot === 'walking_to_bed' || stBot === 'sleeping') continue
+        if (isWorkJobState(stBot)) continue
         if (stBot !== 'walking' && stBot !== 'waiting') continue
       } else {
         if (stBot === 'sleeping' || stBot === 'walking_to_bed') bot.cancelSleep()
@@ -225,6 +226,7 @@ export class HungerSystem {
         else if (stBot === 'walking_to_stage') bot.abortStageApproach()
         else if (stBot === 'walking_to_chair') bot.abortWalkingToChair()
         else if (stBot === 'seated' || stBot === 'awaiting_service' || stBot === 'eating') bot.interruptSeatForFood()
+        else if (isWorkJobState(stBot)) bot.abortWorkDuty()
       }
 
       const candidates: StationCandidate[] = []

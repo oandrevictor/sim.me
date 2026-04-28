@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 import { TILE_W } from '../utils/isoGrid'
-import type { BotNirv } from '../entities/BotNirv'
+import { isWorkJobState, type BotNirv } from '../entities/BotNirv'
 import type { Nirv } from '../entities/Nirv'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import type { RestaurantSystem } from './RestaurantSystem'
@@ -205,6 +205,7 @@ export class BladderSystem {
         else if (stBot === 'walking_to_stage') bot.abortStageApproach()
         else if (stBot === 'walking_to_chair') bot.abortWalkingToChair()
         else if (stBot === 'seated' || stBot === 'awaiting_service' || stBot === 'eating') bot.interruptSeatForHydration()
+        else if (isWorkJobState(stBot)) bot.abortWorkDuty()
       }
 
       let best: ToiletStation | null = null

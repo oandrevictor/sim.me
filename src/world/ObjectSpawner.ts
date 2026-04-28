@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { OBJECT_TYPE_REGISTRY, OBJECT_SIZE, getFramedObjectDisplaySize, type ObjectType } from '../objects/objectTypes'
 import { screenToGrid } from '../utils/isoGrid'
-import { savePlacedObject } from '../storage/persistence'
+import { savePlacedObject, type CropSeed, type CropStage } from '../storage/persistence'
 import { removeObjectAt } from '../storage/persistence'
 import { addToInventory } from '../storage/inventoryPersistence'
 import type { RestaurantSystem } from '../systems/RestaurantSystem'
@@ -10,6 +10,7 @@ import type { HydrationSystem } from '../systems/HydrationSystem'
 import type { HungerSystem } from '../systems/HungerSystem'
 import type { BladderSystem } from '../systems/BladderSystem'
 import type { SleepSystem } from '../systems/SleepSystem'
+import type { FarmingSystem } from '../systems/FarmingSystem'
 import { getBedTextureKey, isBedType } from '../objects/bedTypes'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import type { PlacementManager } from '../placement/PlacementManager'
@@ -23,8 +24,8 @@ export type PlacedSpriteEntry = {
   x: number
   y: number
   rotation?: number
-  /** Invisible footprint for beds (destroyed with the bed). */
-  bedBlocker?: Phaser.Physics.Arcade.Sprite
+  /** Invisible footprint for non-physics sprites that still block a tile. */
+  footprintBlocker?: Phaser.Physics.Arcade.Sprite
 }
 
 export interface SpawnerState {
@@ -59,9 +60,18 @@ export class ObjectSpawner {
     private readonly sleepSystem: SleepSystem,
     private readonly hungerSystem: HungerSystem,
     private readonly bladderSystem: BladderSystem,
+    private readonly farmingSystem: FarmingSystem,
   ) {}
 
-  spawn(type: ObjectType, x: number, y: number, persist: boolean, recipeId?: string, rotation?: number): void {
+  spawn(
+    type: ObjectType,
+    x: number,
+    y: number,
+    persist: boolean,
+    recipeId?: string,
+    rotation?: number,
+    cropState?: { cropStage?: CropStage; cropSeed?: CropSeed; cropStageStartedAt?: number },
+  ): void {
     const config = OBJECT_TYPE_REGISTRY[type]
     const rot = rotation ?? 0
     const frame =
@@ -89,6 +99,7 @@ export class ObjectSpawner {
         this.restaurantSystem.registerTable(sprite, x, y, type)
       } else if (type === 'counter') {
         this.state.counterSprites.push({ sprite, x, y })
+        this.restaurantSystem.registerCounter(sprite, x, y)
       } else if (type === 'stove' || type === 'stove_white_clay') {
         sprite.setInteractive({ useHandCursor: true })
         sprite.on('pointerdown', () => this.onStoveClicked(sprite))
@@ -114,7 +125,7 @@ export class ObjectSpawner {
         const g = screenToGrid(x, y)
         this.pathfinder.blockCell(Math.round(g.gx), Math.round(g.gy))
         this.sleepSystem.registerBed(sprite, x, y, rot)
-        this.state.placedSprites.push({ sprite, type, x, y, rotation: rot, bedBlocker: blocker })
+        this.state.placedSprites.push({ sprite, type, x, y, rotation: rot, footprintBlocker: blocker })
         if (persist) {
           savePlacedObject({ id: crypto.randomUUID(), type, x, y, recipeId, rotation: rot })
         }
@@ -130,7 +141,7 @@ export class ObjectSpawner {
         const { w, h } = getFramedObjectDisplaySize(type, 1.6)
         sprite.setDisplaySize(w, h)
       }
-      if (type !== 'food_plate') {
+      if (type !== 'food_plate' && type !== 'crop') {
         this.state.placedSprites.push({ sprite, type, x, y, rotation })
       }
 
@@ -138,6 +149,21 @@ export class ObjectSpawner {
         sprite.setVisible(false)
         const g = screenToGrid(x, y)
         this.getFloorLayer().add(Math.round(g.gx), Math.round(g.gy))
+      } else if (type === 'crop') {
+        const { w, h } = getFramedObjectDisplaySize(type, 2.5)
+        sprite.setDisplaySize(w, h)
+        sprite.setOrigin(0.5, 1)
+        sprite.setDepth(y)
+        sprite.setInteractive({ useHandCursor: true, pixelPerfect: false })
+        const blocker = this.obstacleGroup.create(x, y - OBJECT_SIZE / 4, '__DEFAULT') as Phaser.Physics.Arcade.Sprite
+        blocker.setVisible(false)
+        blocker.body!.setSize(OBJECT_SIZE, OBJECT_SIZE / 2)
+        blocker.body!.setOffset(-OBJECT_SIZE / 2, -OBJECT_SIZE / 4)
+        blocker.refreshBody()
+        const g = screenToGrid(x, y)
+        this.pathfinder.blockCell(Math.round(g.gx), Math.round(g.gy))
+        this.state.placedSprites.push({ sprite, type, x, y, rotation, footprintBlocker: blocker })
+        this.farmingSystem.registerCrop(sprite, x, y, cropState)
       } else if (type === 'drinking_water') {
         // Display the tall isometric sprite (357×700)
         const displayH = OBJECT_SIZE * 2.7
@@ -216,7 +242,8 @@ export class ObjectSpawner {
           sprite.setInteractive({ useHandCursor: true, pixelPerfect: false })
           sprite.setDepth(DEPTH_UI + 5)
           sprite.on('pointerdown', () => this.onPlateClicked(plateEntry))
-          this.restaurantSystem.placeFoodOnTable(x, y, recipeId, sprite)
+          const onCounter = this.restaurantSystem.placeFoodOnCounter(x, y, recipeId, sprite)
+          if (!onCounter) this.restaurantSystem.placeFoodOnTable(x, y, recipeId, sprite)
         }
       } else {
         this.state.backgroundSprites.push(sprite)
@@ -224,7 +251,15 @@ export class ObjectSpawner {
     }
 
     if (persist) {
-      savePlacedObject({ id: crypto.randomUUID(), type, x, y, recipeId, rotation })
+      savePlacedObject({
+        id: crypto.randomUUID(),
+        type,
+        x,
+        y,
+        recipeId,
+        rotation,
+        cropStage: type === 'crop' ? 'empty' : undefined,
+      })
     }
   }
 
@@ -240,7 +275,7 @@ export class ObjectSpawner {
     const entry = this.state.placedSprites[idx]
     const { sprite, type, x, y, rotation } = entry
 
-    entry.bedBlocker?.destroy()
+    entry.footprintBlocker?.destroy()
     sprite.destroy()
     this.state.placedSprites.splice(idx, 1)
     this.state.interactableSprites = this.state.interactableSprites.filter(s => s !== sprite)
@@ -278,12 +313,22 @@ export class ObjectSpawner {
       this.bladderSystem.unregisterStation(sprite as Phaser.Physics.Arcade.Sprite)
       const g = screenToGrid(x, y)
       this.pathfinder.unblockCell(Math.round(g.gx), Math.round(g.gy))
+    } else if (type === 'crop') {
+      this.farmingSystem.unregisterCrop(sprite)
+      const g = screenToGrid(x, y)
+      this.pathfinder.unblockCell(Math.round(g.gx), Math.round(g.gy))
     } else if (isBedType(type)) {
       this.sleepSystem.unregisterBed(sprite as Phaser.GameObjects.Sprite)
       const g = screenToGrid(x, y)
       this.pathfinder.unblockCell(Math.round(g.gx), Math.round(g.gy))
     } else if (type === 'table2' || type === 'table4') {
       this.restaurantSystem.unregisterTable(sprite)
+    } else if (type === 'counter') {
+      this.restaurantSystem.unregisterCounter(sprite as Phaser.Physics.Arcade.Sprite)
+      this.state.plateSprites = this.state.plateSprites.filter(p => {
+        if (Math.abs(p.tableX - x) < 2 && Math.abs(p.tableY - y) < 2) return false
+        return true
+      })
     }
 
     removeObjectAt(x, y)

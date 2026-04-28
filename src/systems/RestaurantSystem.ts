@@ -3,7 +3,7 @@ import { TILE_W, screenToGrid } from '../utils/isoGrid'
 import { getRecipe } from '../data/recipes'
 import type { Building } from '../entities/Building'
 import type { BotNirv } from '../entities/BotNirv'
-import type { ObjectType } from '../storage/persistence'
+import { removeObjectByType, type ObjectType } from '../storage/persistence'
 
 interface FurnitureRecord {
   sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite
@@ -30,6 +30,14 @@ interface ChairRecord extends FurnitureRecord {
   nextToTable: boolean
 }
 
+export interface CounterRecord {
+  sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite
+  x: number
+  y: number
+  buildingId: string | null
+  plate: { recipeId: string; sprite: Phaser.GameObjects.Sprite } | null
+}
+
 // Plate slot offsets relative to table center
 const SLOT_OFFSETS: Record<TableType, { offsetX: number; offsetY: number }[]> = {
   table2: [
@@ -44,20 +52,29 @@ const SLOT_OFFSETS: Record<TableType, { offsetX: number; offsetY: number }[]> = 
   ],
 }
 
+const COUNTER_PLATE_OFFSET_Y = -10
+
 const CHECK_INTERVAL = 2000
 const ENTER_PROBABILITY = 0.4
 
 export class RestaurantSystem {
   private chairs: ChairRecord[] = []
   private tables: TableRecord[] = []
+  private counters: CounterRecord[] = []
   private buildings: Building[]
   private bots: BotNirv[]
   private timeSinceCheck = 0
+  private staffBotFilter: (bot: BotNirv) => boolean = () => false
   onPlateConsumed: ((tableX: number, tableY: number, sprite: Phaser.GameObjects.Sprite) => void) | null = null
 
   constructor(buildings: Building[], bots: BotNirv[]) {
     this.buildings = buildings
     this.bots = bots
+  }
+
+  /** Bots matching this filter never get restaurant customer chairs. */
+  setStaffBotFilter(fn: (bot: BotNirv) => boolean): void {
+    this.staffBotFilter = fn
   }
 
   registerChair(sprite: Phaser.GameObjects.Sprite, x: number, y: number): void {
@@ -75,6 +92,21 @@ export class RestaurantSystem {
     this.recalcChairAdjacency()
   }
 
+  registerCounter(sprite: Phaser.Physics.Arcade.Sprite, x: number, y: number): void {
+    const buildingId = this.findContainingBuilding(x, y)
+    this.counters.push({ sprite, x, y, buildingId, plate: null })
+  }
+
+  unregisterCounter(sprite: Phaser.Physics.Arcade.Sprite): void {
+    const c = this.counters.find(r => r.sprite === sprite)
+    if (c?.plate) {
+      removeObjectByType(c.x, c.y, 'food_plate')
+      c.plate.sprite.destroy()
+      c.plate = null
+    }
+    this.counters = this.counters.filter(r => r.sprite !== sprite)
+  }
+
   /** Place food on the next available slot of a table. Repositions the sprite to the slot. */
   placeFoodOnTable(x: number, y: number, recipeId: string, sprite: Phaser.GameObjects.Sprite): boolean {
     const table = this.tables.find(t => t.x === x && t.y === y)
@@ -85,6 +117,15 @@ export class RestaurantSystem {
 
     emptySlot.plate = { recipeId, sprite }
     sprite.setPosition(table.x + emptySlot.offsetX, table.y + emptySlot.offsetY)
+    return true
+  }
+
+  /** One plate per counter; returns false if not a registered counter or slot full. */
+  placeFoodOnCounter(x: number, y: number, recipeId: string, sprite: Phaser.GameObjects.Sprite): boolean {
+    const counter = this.counters.find(c => c.x === x && c.y === y)
+    if (!counter || counter.plate) return false
+    counter.plate = { recipeId, sprite }
+    sprite.setPosition(counter.x, counter.y + COUNTER_PLATE_OFFSET_Y)
     return true
   }
 
@@ -99,6 +140,70 @@ export class RestaurantSystem {
     const recipeId = slot.plate.recipeId
     slot.plate = null
     return recipeId
+  }
+
+  removePlateFromCounterBySprite(sprite: Phaser.GameObjects.Sprite): string | null {
+    for (const c of this.counters) {
+      if (c.plate?.sprite === sprite) {
+        const id = c.plate.recipeId
+        c.plate = null
+        return id
+      }
+    }
+    return null
+  }
+
+  /** Table first (legacy coords), then counter pass-through for the same (x,y) surface. */
+  removePlateFromTableOrCounter(surfaceX: number, surfaceY: number, sprite: Phaser.GameObjects.Sprite): string | null {
+    const fromTable = this.removePlateFromTable(surfaceX, surfaceY, sprite)
+    if (fromTable !== null) return fromTable
+    return this.removePlateFromCounterBySprite(sprite)
+  }
+
+  countFreeCounterSlotsInBuilding(buildingId: string): number {
+    return this.counters.filter(c => c.buildingId === buildingId && !c.plate).length
+  }
+
+  hasFoodOnCounterInBuilding(buildingId: string): boolean {
+    return this.counters.some(c => c.buildingId === buildingId && c.plate !== null)
+  }
+
+  buildingHasAwaitingCustomer(buildingId: string): boolean {
+    for (const chair of this.chairs) {
+      if (chair.buildingId !== buildingId) continue
+      if (chair.occupiedBy?.state === 'awaiting_service') return true
+    }
+    return false
+  }
+
+  /** Table with a free plate slot adjacent to a chair occupied by a bot awaiting food (same building). */
+  findWaiterServiceTable(buildingId: string): { tableX: number; tableY: number } | null {
+    for (const table of this.tables) {
+      if (table.buildingId !== buildingId) continue
+      const hasEmpty = table.slots.some(s => s.plate === null)
+      if (!hasEmpty) continue
+      for (const chair of this.chairs) {
+        if (chair.buildingId !== buildingId) continue
+        if (chair.occupiedBy?.state !== 'awaiting_service') continue
+        if (this.isGridAdjacent(chair.x, chair.y, table.x, table.y)) {
+          return { tableX: table.x, tableY: table.y }
+        }
+      }
+    }
+    return null
+  }
+
+  findFreeCounterInBuilding(buildingId: string): { x: number; y: number } | null {
+    const c = this.counters.find(x => x.buildingId === buildingId && !x.plate)
+    return c ? { x: c.x, y: c.y } : null
+  }
+
+  getFirstCounterWithFoodInBuilding(buildingId: string): CounterRecord | null {
+    return this.counters.find(c => c.buildingId === buildingId && c.plate !== null) ?? null
+  }
+
+  getCounterAt(x: number, y: number): CounterRecord | null {
+    return this.counters.find(c => c.x === x && c.y === y) ?? null
   }
 
   unregisterChair(sprite: Phaser.GameObjects.Sprite): void {
@@ -177,6 +282,7 @@ export class RestaurantSystem {
     if (availableChairs.length === 0) return
 
     for (const bot of this.bots) {
+      if (this.staffBotFilter(bot)) continue
       if (bot.state !== 'waiting') continue
       // Prefer water when thirsty so bots don't take a restaurant seat instead
       if (bot.nirv.getHydrationLevel() <= 60) continue
@@ -245,7 +351,7 @@ export class RestaurantSystem {
   }
 
   /** Check if two pixel positions are within 1 grid cell of each other */
-  private isGridAdjacent(ax: number, ay: number, bx: number, by: number): boolean {
+  isGridAdjacent(ax: number, ay: number, bx: number, by: number): boolean {
     const ga = screenToGrid(ax, ay)
     const gb = screenToGrid(bx, by)
     const gdx = Math.abs(Math.round(ga.gx) - Math.round(gb.gx))

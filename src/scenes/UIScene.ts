@@ -29,6 +29,17 @@ export class UIScene extends Phaser.Scene {
       stageAllowsBand: id => gameScene.stageAllowsBandForStage(id),
     }
 
+    const restaurantStaffBridge = {
+      getStaffView: () => gameScene.getRestaurantStaffUiView(),
+      setStaffRole: (buildingId: string, botId: string, role: 'none' | 'chef' | 'waiter') =>
+        gameScene.setRestaurantStaffRole(buildingId, botId, role),
+    }
+
+    const farmBridge = {
+      getFarmView: () => gameScene.getFarmWorkView(),
+      setFarmerRole: (botId: string, assigned: boolean) => gameScene.setFarmerRole(botId, assigned),
+    }
+
     this.menuUI.setProviders(
       () => gameScene.getBotNirvs(),
       () => gameScene.isPlayerInsideRestaurant(),
@@ -36,6 +47,8 @@ export class UIScene extends Phaser.Scene {
       (stageId) => gameScene.getStageWatchers(stageId),
       (stageId) => gameScene.getStagePerformers(stageId),
       stageBridge,
+      restaurantStaffBridge,
+      farmBridge,
     )
 
     this.helpText = this.add.text(10, 10, 'Move: WASD / Arrows  |  Shop: place & move objects  |  R: rotate  |  ESC to cancel', {

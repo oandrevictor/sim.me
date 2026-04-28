@@ -2,10 +2,11 @@ import Phaser from 'phaser'
 import { getRecipe } from '../data/recipes'
 import { playStoveIdle, isSpritesheetStoveTexture, STOVE_ANIM_COOKING } from '../animations/stoveAnims'
 import { DEPTH_UI } from '../config/world'
+import type { Building } from '../entities/Building'
 
 type StoveStatus = 'idle' | 'cooking' | 'done'
 
-interface StoveState {
+export interface StoveState {
   sprite: Phaser.Physics.Arcade.Sprite
   x: number
   y: number
@@ -16,6 +17,8 @@ interface StoveState {
   cookProgress: number
   cookDuration: number
   progressBar: Phaser.GameObjects.Graphics | null
+  /** Chef bot holding this stove until food hits the counter (or abort). */
+  reservedChefBotId: string | null
 }
 
 export class CookingSystem {
@@ -35,8 +38,30 @@ export class CookingSystem {
       cookProgress: 0,
       cookDuration: 0,
       progressBar: null,
+      reservedChefBotId: null,
     })
     playStoveIdle(sprite, rotation)
+  }
+
+  getStovesInBuilding(building: Building): StoveState[] {
+    return this.stoves.filter(s => building.containsPixel(s.x, s.y))
+  }
+
+  tryReserveStoveForChef(stove: StoveState, botId: string): boolean {
+    if (stove.status !== 'idle') return false
+    if (stove.reservedChefBotId !== null && stove.reservedChefBotId !== botId) return false
+    stove.reservedChefBotId = botId
+    return true
+  }
+
+  releaseStoveReservation(stove: StoveState, botId: string): void {
+    if (stove.reservedChefBotId === botId) stove.reservedChefBotId = null
+  }
+
+  releaseStoveReservationByBot(botId: string): void {
+    for (const s of this.stoves) {
+      if (s.reservedChefBotId === botId) s.reservedChefBotId = null
+    }
   }
 
   getStoveAt(x: number, y: number): StoveState | null {
@@ -71,6 +96,7 @@ export class CookingSystem {
     const recipeId = stove.recipeId
     stove.status = 'idle'
     stove.recipeId = null
+    stove.reservedChefBotId = null
     stove.cookProgress = 0
     stove.cookDuration = 0
     playStoveIdle(stove.sprite, stove.rotation)

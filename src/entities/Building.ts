@@ -1,4 +1,5 @@
 import Phaser from 'phaser'
+import type { StageInteriorBounds } from '../pathfinding/GridPathfinder'
 import type { BuildingType } from '../storage/buildingPersistence'
 import { gridToScreen } from '../utils/isoGrid'
 
@@ -23,6 +24,15 @@ export class Building {
   private wallBodies: Phaser.Physics.Arcade.Sprite[] = []
 
   get type(): BuildingType { return this._type }
+
+  /** Grid cells covered by this building footprint (clamped to world), for pathfinding staff inside the venue. */
+  getInteriorPathBounds(gridCols: number, gridRows: number): StageInteriorBounds {
+    const minGX = Math.max(0, this.gridX)
+    const minGY = Math.max(0, this.gridY)
+    const maxGX = Math.min(gridCols - 1, this.gridX + BUILDING_GRID_W - 1)
+    const maxGY = Math.min(gridRows - 1, this.gridY + BUILDING_GRID_H - 1)
+    return { minGX, maxGX, minGY, maxGY }
+  }
 
   constructor(scene: Phaser.Scene, id: string, gridX: number, gridY: number, type: BuildingType = 'empty') {
     this.id = id

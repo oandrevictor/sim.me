@@ -4,6 +4,7 @@ import { isBedType } from '../objects/bedTypes'
 import type { HydrationSystem } from '../systems/HydrationSystem'
 import type { BladderSystem } from '../systems/BladderSystem'
 import type { SleepSystem } from '../systems/SleepSystem'
+import type { FarmingSystem } from '../systems/FarmingSystem'
 import { TILE_W } from '../utils/isoGrid'
 import type { PlacedSpriteEntry } from './ObjectSpawner'
 
@@ -35,6 +36,7 @@ export function tryStationsAtPointer(
   hydrationSystem: HydrationSystem,
   bladderSystem: BladderSystem,
   sleepSystem: SleepSystem,
+  farmingSystem: FarmingSystem,
   playerNirv: Nirv,
   setWalkTarget: (x: number, y: number) => void,
 ): boolean {
@@ -56,6 +58,9 @@ export function tryStationsAtPointer(
     if (isBedType(type)) {
       sleepSystem.tryInteractBed(sprite, x, y, playerNirv, playerNirv.sprite, setWalkTarget)
       return true
+    }
+    if (type === 'crop') {
+      return farmingSystem.tryInteractCrop(sprite, x, y, setWalkTarget)
     }
   }
   return false

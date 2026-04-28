@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 import { TILE_W } from '../utils/isoGrid'
-import type { BotNirv } from '../entities/BotNirv'
+import { isWorkJobState, type BotNirv } from '../entities/BotNirv'
 import type { Nirv } from '../entities/Nirv'
 import {
   CRITICAL_HYDRATION_THRESHOLD,
@@ -143,6 +143,7 @@ export class HydrationSystem {
       const critical = h <= CRITICAL_HYDRATION_THRESHOLD
       if (!critical) {
         if (stBot === 'walking_to_bed' || stBot === 'sleeping') continue
+        if (isWorkJobState(stBot)) continue
         if (stBot !== 'walking' && stBot !== 'waiting') continue
       } else {
         if (stBot === 'sleeping' || stBot === 'walking_to_bed') bot.cancelSleep()
@@ -153,6 +154,7 @@ export class HydrationSystem {
         else if (stBot === 'walking_to_stage') bot.abortStageApproach()
         else if (stBot === 'walking_to_chair') bot.abortWalkingToChair()
         else if (stBot === 'seated' || stBot === 'awaiting_service' || stBot === 'eating') bot.interruptSeatForHydration()
+        else if (isWorkJobState(stBot)) bot.abortWorkDuty()
       }
 
       let best: WaterStation | null = null

@@ -1,0 +1,9 @@
+export const SHOP_PANEL_WIDTH = 520
+export const SHOP_PANEL_HEIGHT = 220
+export const SHOP_BAR_HEIGHT = 44
+export const SHOP_CARD_SIZE = 56
+export const SHOP_CARD_GAP = 8
+export const SHOP_CARDS_PER_ROW = 6
+export const SHOP_CAT_TAB_H = 28
+export const SHOP_CAT_GAP = 4
+export const SHOP_CAT_TAB_W = 68

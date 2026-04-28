@@ -2,15 +2,25 @@ import Phaser from 'phaser'
 import type { BotNirv } from '../entities/BotNirv'
 import type { Stage } from '../entities/Stage'
 import { addBotRow } from './components/CardRow'
-import { createPanelBackground } from './components/Panel'
+import { addContextTabs, LEFT_X, PANEL_H, PANEL_W } from './components/WorkPanelControls'
 import {
   addStageWorkSection,
   type StagePanelHitTarget,
   type StageWorkBridge,
 } from './WorkPanelStageSection'
+import { addFarmWorkSection, type FarmWorkBridge } from './WorkPanelFarmSection'
+import {
+  addRestaurantWorkSection,
+  type RestaurantPageControls,
+} from './WorkPanelRestaurantSection'
+import { buildWorkPanelChrome } from './WorkPanelChrome'
+import { emptyFarmBridge, emptyStageBridge } from './workPanelDefaults'
+import type { RestaurantStaffBridge, WorkContext } from './workPanelTypes'
 
-export const WORK_PANEL_WIDTH = 520
-export const WORK_PANEL_HEIGHT = 300
+export type { RestaurantStaffBridge, RestaurantStaffUiView } from './workPanelTypes'
+
+export const WORK_PANEL_WIDTH = PANEL_W
+export const WORK_PANEL_HEIGHT = PANEL_H
 const BAR_HEIGHT = 44
 
 export class WorkPanel {
@@ -18,161 +28,164 @@ export class WorkPanel {
   private content!: Phaser.GameObjects.Container
   private disabledText!: Phaser.GameObjects.Text
   private titleText!: Phaser.GameObjects.Text
+  private activeContext: WorkContext | null = null
+  private availabilityKey = ''
+  private restaurantPage = 0
+  private farmPage = 0
 
-  private getBotNirvs: () => BotNirv[] = () => []
   private isPlayerInRestaurant: () => boolean = () => false
   private getPlayerStage: () => Stage | null = () => null
   private getStageWatchers: (stageId: string) => BotNirv[] = () => []
   private getStagePerformers: (stageId: string) => BotNirv[] = () => []
-  private stageBridge: StageWorkBridge = {
-    getPerformanceView: () => null,
-    setStageAttraction: () => false,
-    getBands: () => [],
-    getPerformerBots: () => [],
-    formBandFromFirstTwoPerformers: () => false,
-    stageAllowsBand: () => true,
-  }
+  private stageBridge: StageWorkBridge = emptyStageBridge()
+  private restaurantStaffBridge: RestaurantStaffBridge | null = null
+  private farmBridge: FarmWorkBridge = emptyFarmBridge()
 
+  private hitTargets: StagePanelHitTarget[] = []
   private soloPickIdx = 0
   private bandPickIdx = 0
-  /** Clicks routed from GameScene (see MenuUI / GameScene.onWorldClicked) */
-  private stagePanelHitTargets: StagePanelHitTarget[] = []
 
   constructor(scene: Phaser.Scene) {
-    this.container = scene.add.container(0, -BAR_HEIGHT - 6)
+    this.container = scene.add.container(0, -BAR_HEIGHT - 8)
     this.container.setVisible(false)
-    this.build(scene)
+    const chrome = buildWorkPanelChrome(scene, this.container)
+    this.content = chrome.content
+    this.disabledText = chrome.disabledText
+    this.titleText = chrome.titleText
   }
 
   setProviders(
-    getBotNirvs: () => BotNirv[],
+    _getBotNirvs: () => BotNirv[],
     isPlayerInRestaurant: () => boolean,
     getPlayerStage: () => Stage | null,
     getStageWatchers: (stageId: string) => BotNirv[],
     getStagePerformers: (stageId: string) => BotNirv[],
     stageBridge: StageWorkBridge,
+    restaurantStaffBridge: RestaurantStaffBridge | null = null,
+    farmBridge?: FarmWorkBridge,
   ): void {
-    this.getBotNirvs = getBotNirvs
     this.isPlayerInRestaurant = isPlayerInRestaurant
     this.getPlayerStage = getPlayerStage
     this.getStageWatchers = getStageWatchers
     this.getStagePerformers = getStagePerformers
     this.stageBridge = stageBridge
+    this.restaurantStaffBridge = restaurantStaffBridge
+    if (farmBridge) this.farmBridge = farmBridge
   }
 
   refresh(): void {
     this.content.removeAll(true)
-    this.stagePanelHitTargets = []
-
+    this.hitTargets = []
+    const scene = this.container.scene
     const stage = this.getPlayerStage()
-    const inRestaurant = this.isPlayerInRestaurant()
-    const active = stage !== null || inRestaurant
-
-    this.disabledText.setVisible(!active)
-    if (!active) {
+    const contexts = this.availableContexts(stage)
+    this.syncActiveContext(contexts)
+    this.disabledText.setVisible(contexts.length === 0)
+    if (!this.activeContext) {
       this.titleText.setText('Work')
       return
     }
 
-    const scene = this.container.scene
+    this.titleText.setText(this.contextTitle(this.activeContext))
+    let y = -PANEL_H + 42
+    if (contexts.length > 1) {
+      y = addContextTabs(scene, this.content, contexts, this.activeContext, this.hitTargets, ctx => {
+        this.activeContext = ctx
+      })
+    }
 
-    if (stage !== null) {
-      this.titleText.setText('Stage')
-      const listTop = addStageWorkSection(
-        scene,
-        this.content,
-        WORK_PANEL_HEIGHT,
-        stage.id,
-        this.stageBridge,
-        {
-          getSoloIndex: () => this.soloPickIdx,
-          bumpSolo: () => { this.soloPickIdx++ },
-          getBandIndex: () => this.bandPickIdx,
-          bumpBand: () => { this.bandPickIdx++ },
-        },
-        this.stagePanelHitTargets,
-      )
-      let listY = listTop
-      const leftX = -WORK_PANEL_WIDTH / 2 + 20
-      const rowH = 26
-      const performers = this.getStagePerformers(stage.id)
-      if (performers.length > 0) {
-        this.content.add(scene.add.text(-WORK_PANEL_WIDTH / 2 + 14, listY, 'On stage', {
-          fontSize: '11px', color: '#ff88cc', fontStyle: 'bold',
-        }).setOrigin(0, 0))
-        listY += 14
-        performers.forEach((bot, i) => addBotRow(scene, this.content, bot, leftX, listY + i * rowH))
-        listY += performers.length * rowH + 8
-      }
-      if (performers.length > 0) {
-        this.content.add(scene.add.text(-WORK_PANEL_WIDTH / 2 + 14, listY, 'Audience', {
-          fontSize: '11px', color: '#aabbcc', fontStyle: 'bold',
-        }).setOrigin(0, 0))
-        listY += 14
-      }
-      this.renderBotList(
-        this.getStageWatchers(stage.id),
-        'No audience heading here yet',
-        listY,
-      )
-    } else {
-      this.titleText.setText('Customers')
-      const restaurantBots = this.getBotNirvs().filter(b =>
-        b.state === 'walking_to_chair' || b.state === 'seated' ||
-        b.state === 'awaiting_service' || b.state === 'eating',
-      )
-      this.renderBotList(restaurantBots, 'No customers right now')
+    if (this.activeContext === 'stage' && stage) this.renderStage(scene, stage, y)
+    else if (this.activeContext === 'restaurant') this.renderRestaurant(scene, y)
+    else if (this.activeContext === 'farm') {
+      addFarmWorkSection(scene, this.content, this.farmBridge, this.hitTargets, this.farmPages(), y)
     }
   }
 
-  private renderBotList(bots: BotNirv[], emptyMsg: string, startY?: number): void {
-    const scene = this.container.scene
-    const baseY = startY ?? -WORK_PANEL_HEIGHT + 42
-
-    if (bots.length === 0) {
-      const emptyText = scene.add.text(-WORK_PANEL_WIDTH / 2 + 14, baseY, emptyMsg, {
-        fontSize: '12px', color: '#8888aa',
-      }).setOrigin(0, 0)
-      this.content.add(emptyText)
-      return
-    }
-
-    const rowH = 28
-    const leftX = -WORK_PANEL_WIDTH / 2 + 20
-    bots.forEach((bot, i) => addBotRow(scene, this.content, bot, leftX, baseY + i * rowH))
-  }
-
-  private build(scene: Phaser.Scene): void {
-    const bg = createPanelBackground(
-      scene, WORK_PANEL_WIDTH, WORK_PANEL_HEIGHT, -WORK_PANEL_WIDTH / 2, -WORK_PANEL_HEIGHT,
-    )
-    this.container.add(bg)
-
-    this.titleText = scene.add.text(0, -WORK_PANEL_HEIGHT + 18, 'Work', {
-      fontSize: '14px', color: '#ffd700', fontStyle: 'bold',
-    }).setOrigin(0.5)
-    this.container.add(this.titleText)
-
-    this.disabledText = scene.add.text(0, -WORK_PANEL_HEIGHT / 2, 'Enter a restaurant or stand on a stage', {
-      fontSize: '12px', color: '#666688',
-    }).setOrigin(0.5)
-    this.container.add(this.disabledText)
-
-    this.content = scene.add.container(0, 0)
-    this.container.add(this.content)
-  }
-
-  /** Returns true if a stage control was activated (caller should skip world input). */
-  tryConsumeStagePanelClick(canvasX: number, canvasY: number): boolean {
-    if (!this.container.visible || this.stagePanelHitTargets.length === 0) return false
-    if (this.getPlayerStage() === null) return false
-    for (const t of this.stagePanelHitTargets) {
+  tryConsumeWorkPanelClick(canvasX: number, canvasY: number): boolean {
+    if (!this.container.visible || this.hitTargets.length === 0) return false
+    for (const t of this.hitTargets) {
       const r = t.getBounds()
-      if (Phaser.Geom.Rectangle.Contains(r, canvasX, canvasY)) {
-        t.action()
-        return true
-      }
+      if (!Phaser.Geom.Rectangle.Contains(r, canvasX, canvasY)) continue
+      t.action()
+      return true
     }
     return false
+  }
+
+  tryConsumeStagePanelClick(canvasX: number, canvasY: number): boolean {
+    return this.tryConsumeWorkPanelClick(canvasX, canvasY)
+  }
+
+  tryConsumeRestaurantPanelClick(canvasX: number, canvasY: number): boolean {
+    return this.tryConsumeWorkPanelClick(canvasX, canvasY)
+  }
+
+  tryConsumeFarmPanelClick(canvasX: number, canvasY: number): boolean {
+    return this.tryConsumeWorkPanelClick(canvasX, canvasY)
+  }
+
+  private renderStage(scene: Phaser.Scene, stage: Stage, startY: number): void {
+    const listTop = addStageWorkSection(scene, this.content, PANEL_H - 42, stage.id, this.stageBridge, {
+      getSoloIndex: () => this.soloPickIdx,
+      bumpSolo: () => { this.soloPickIdx++ },
+      getBandIndex: () => this.bandPickIdx,
+      bumpBand: () => { this.bandPickIdx++ },
+    }, this.hitTargets)
+    const y = Math.max(startY, listTop)
+    const performers = this.getStagePerformers(stage.id)
+    if (performers.length > 0) this.addBotGroup(scene, 'On stage', performers, y)
+    else this.addBotGroup(scene, 'Audience', this.getStageWatchers(stage.id), y)
+  }
+
+  private renderRestaurant(scene: Phaser.Scene, startY: number): void {
+    addRestaurantWorkSection(
+      scene,
+      this.content,
+      this.restaurantStaffBridge,
+      this.hitTargets,
+      this.restaurantPages(),
+      startY,
+    )
+  }
+
+  private addBotGroup(scene: Phaser.Scene, label: string, bots: BotNirv[], y: number): void {
+    this.content.add(scene.add.text(LEFT_X, y, label, {
+      fontSize: '11px',
+      color: '#f0c85a',
+      fontStyle: 'bold',
+    }).setOrigin(0, 0))
+    bots.slice(0, 5).forEach((bot, i) => addBotRow(scene, this.content, bot, LEFT_X, y + 18 + i * 25))
+  }
+
+  private availableContexts(stage: Stage | null): WorkContext[] {
+    const contexts: WorkContext[] = []
+    if (stage) contexts.push('stage')
+    if (this.isPlayerInRestaurant()) contexts.push('restaurant')
+    if (this.farmBridge.getFarmView().totalCrops > 0) contexts.push('farm')
+    return contexts
+  }
+
+  private syncActiveContext(contexts: WorkContext[]): void {
+    const key = contexts.join('|')
+    if (key !== this.availabilityKey) {
+      this.activeContext = contexts[0] ?? null
+      this.availabilityKey = key
+    } else if (!this.activeContext || !contexts.includes(this.activeContext)) {
+      this.activeContext = contexts[0] ?? null
+    }
+  }
+
+  private contextTitle(ctx: WorkContext): string {
+    if (ctx === 'stage') return 'Stage Work'
+    if (ctx === 'restaurant') return 'Restaurant Work'
+    return 'Farm Work'
+  }
+
+  private restaurantPages(): RestaurantPageControls {
+    return { getPage: () => this.restaurantPage, setPage: page => { this.restaurantPage = page } }
+  }
+
+  private farmPages(): import('./WorkPanelFarmSection').FarmPageControls {
+    return { getPage: () => this.farmPage, setPage: page => { this.farmPage = page } }
   }
 }

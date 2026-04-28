@@ -1,37 +1,20 @@
 import Phaser from 'phaser'
-import { OBJECT_TYPE_REGISTRY, getFramedObjectDisplaySize, type ObjectType } from '../objects/objectTypes'
+import { OBJECT_TYPE_REGISTRY, type ObjectType } from '../objects/objectTypes'
 import { loadInventory } from '../storage/inventoryPersistence'
 import { createPanelBackground } from './components/Panel'
-
-const PANEL_WIDTH = 520
-const PANEL_HEIGHT = 220
-const BAR_HEIGHT = 44
-const CARD_SIZE = 56
-const CARD_GAP = 8
-const CARDS_PER_ROW = 6
-const CAT_TAB_H = 28
-const CAT_GAP = 4
-
-type Category = 'build' | 'dine' | 'bedroom' | 'decoration' | 'misc' | 'inventory'
-
-const CATEGORIES: { key: Category; label: string }[] = [
-  { key: 'build', label: 'Build' },
-  { key: 'dine', label: 'Dine' },
-  { key: 'bedroom', label: 'Bedroom' },
-  { key: 'decoration', label: 'Decoration' },
-  { key: 'misc', label: 'Misc' },
-  { key: 'inventory', label: 'Inventory' },
-]
-
-const CATEGORY_MAP: Record<string, Category> = {
-  obstacle: 'build', floor_yellow: 'build', portable_toilet: 'build', table2: 'dine', table4: 'dine', chair: 'dine',
-  stove: 'dine', stove_white_clay: 'dine', counter: 'dine', drinking_water: 'dine', snack_machine: 'dine', fruit_crate: 'dine', background: 'decoration',
-  interactable: 'misc', trash: 'misc',
-  bed_ms_blue: 'bedroom', bed_ms_red: 'bedroom', bed_ms_grey: 'bedroom', bed_ms_space: 'bedroom',
-  bed_ws_blue: 'bedroom', bed_ws_red: 'bedroom', bed_ws_grey: 'bedroom', bed_ws_space: 'bedroom',
-}
-
-const HIDDEN_TYPES = new Set<string>(['food_plate'])
+import { createShopCardChrome, createShopItemIcon } from './components/ShopCard'
+import { CATEGORIES, CATEGORY_MAP, HIDDEN_TYPES, type Category } from './shopConfig'
+import {
+  SHOP_BAR_HEIGHT,
+  SHOP_CARD_GAP,
+  SHOP_CARD_SIZE,
+  SHOP_CARDS_PER_ROW,
+  SHOP_CAT_GAP,
+  SHOP_CAT_TAB_H,
+  SHOP_CAT_TAB_W,
+  SHOP_PANEL_HEIGHT,
+  SHOP_PANEL_WIDTH,
+} from './ShopPanelLayout'
 
 export class ShopPanel {
   readonly container: Phaser.GameObjects.Container
@@ -43,7 +26,7 @@ export class ShopPanel {
 
   constructor(scene: Phaser.Scene, gameEvents: Phaser.Events.EventEmitter) {
     this.gameEvents = gameEvents
-    this.container = scene.add.container(0, -BAR_HEIGHT - 6)
+    this.container = scene.add.container(0, -SHOP_BAR_HEIGHT - 6)
     this.container.setVisible(false)
     this.build(scene)
   }
@@ -55,12 +38,12 @@ export class ShopPanel {
   refreshInventoryGrid(): void {
     this.inventoryContainer.removeAll(true)
     const scene = this.container.scene
-    const gridTop = -PANEL_HEIGHT + 40
-    const gridLeft = -PANEL_WIDTH / 2 + 16
+    const gridTop = -SHOP_PANEL_HEIGHT + 40
+    const gridLeft = -SHOP_PANEL_WIDTH / 2 + 16
     const items = loadInventory()
 
     if (items.length === 0) {
-      const emptyText = scene.add.text(0, -PANEL_HEIGHT / 2, 'Inventory is empty — drag objects from the map here', {
+      const emptyText = scene.add.text(0, -SHOP_PANEL_HEIGHT / 2, 'Inventory is empty — drag objects from the map here', {
         fontSize: '11px', color: '#666688',
       }).setOrigin(0.5)
       this.inventoryContainer.add(emptyText)
@@ -71,43 +54,37 @@ export class ShopPanel {
       const config = OBJECT_TYPE_REGISTRY[item.type]
       if (!config) return
 
-      const col = idx % CARDS_PER_ROW
-      const row = Math.floor(idx / CARDS_PER_ROW)
-      const cx = gridLeft + col * (CARD_SIZE + CARD_GAP) + CARD_SIZE / 2
-      const cy = gridTop + row * (CARD_SIZE + CARD_GAP + 14) + CARD_SIZE / 2
+      const col = idx % SHOP_CARDS_PER_ROW
+      const row = Math.floor(idx / SHOP_CARDS_PER_ROW)
+      const cx = gridLeft + col * (SHOP_CARD_SIZE + SHOP_CARD_GAP) + SHOP_CARD_SIZE / 2
+      const cy = gridTop + row * (SHOP_CARD_SIZE + SHOP_CARD_GAP + 14) + SHOP_CARD_SIZE / 2
 
-      const cardBg = this.makeCardBg(scene, cx, cy)
+      const card = createShopCardChrome(scene, cx, cy)
 
-      let icon: Phaser.GameObjects.Sprite | Phaser.GameObjects.Graphics
-      if (config.textureKey && scene.textures.exists(config.textureKey)) {
-        icon = scene.add.sprite(cx, cy - 6, config.textureKey, config.frame ?? 0)
-        const { w, h } = getFramedObjectDisplaySize(item.type, 1.1)
-        icon.setDisplaySize(w, h)
-      } else {
-        const g = scene.add.graphics()
-        g.fillStyle(config.previewColor)
-        g.fillRect(cx - 10, cy - 10, 20, 20)
-        icon = g
-      }
+      const icon = createShopItemIcon(scene, {
+        type: item.type, textureKey: config.textureKey, frame: config.frame,
+        previewColor: config.previewColor,
+      }, cx, cy)
 
-      const countText = scene.add.text(cx + CARD_SIZE / 2 - 6, cy - CARD_SIZE / 2 + 2, `${item.count}`, {
+      const countText = scene.add.text(cx + SHOP_CARD_SIZE / 2 - 6, cy - SHOP_CARD_SIZE / 2 + 2, `${item.count}`, {
         fontSize: '10px', color: '#ffffff', fontStyle: 'bold',
         backgroundColor: '#555577', padding: { x: 3, y: 1 },
       }).setOrigin(1, 0)
 
-      const label = scene.add.text(cx, cy + CARD_SIZE / 2 - 8, config.label, {
+      const label = scene.add.text(cx, cy + SHOP_CARD_SIZE / 2 - 8, config.label, {
         fontSize: '9px', color: '#ccccdd',
       }).setOrigin(0.5)
 
-      const zone = this.makeCardZone(scene, cx, cy, cardBg)
-      zone.on('pointerdown', () => this.gameEvents.emit('inventory:select', item.type))
+      card.zone.on('pointerdown', () => this.gameEvents.emit('inventory:select', item.type))
 
-      this.inventoryContainer.add([cardBg, icon, countText, label, zone])
+      this.inventoryContainer.add([card.bg, card.hover, icon, countText, label, card.zone])
     })
   }
 
   private build(scene: Phaser.Scene): void {
-    const bg = createPanelBackground(scene, PANEL_WIDTH, PANEL_HEIGHT, -PANEL_WIDTH / 2, -PANEL_HEIGHT)
+    const bg = createPanelBackground(
+      scene, SHOP_PANEL_WIDTH, SHOP_PANEL_HEIGHT, -SHOP_PANEL_WIDTH / 2, -SHOP_PANEL_HEIGHT,
+    )
     this.container.add(bg)
     this.buildCategoryTabs(scene)
     this.buildItemGrids(scene)
@@ -115,12 +92,12 @@ export class ShopPanel {
   }
 
   private buildCategoryTabs(scene: Phaser.Scene): void {
-    const totalW = CATEGORIES.length * 80 + (CATEGORIES.length - 1) * CAT_GAP
+    const totalW = CATEGORIES.length * SHOP_CAT_TAB_W + (CATEGORIES.length - 1) * SHOP_CAT_GAP
     const startX = -totalW / 2
 
     CATEGORIES.forEach((cat, i) => {
-      const cx = startX + i * (80 + CAT_GAP) + 40
-      const cy = -PANEL_HEIGHT + 18
+      const cx = startX + i * (SHOP_CAT_TAB_W + SHOP_CAT_GAP) + SHOP_CAT_TAB_W / 2
+      const cy = -SHOP_PANEL_HEIGHT + 18
 
       const bg = scene.add.graphics()
       bg.setPosition(cx, cy)
@@ -128,7 +105,7 @@ export class ShopPanel {
         fontSize: '12px', color: '#ffffff', fontStyle: 'bold',
       }).setOrigin(0.5)
 
-      const zone = scene.add.zone(cx, cy, 80, CAT_TAB_H)
+      const zone = scene.add.zone(cx, cy, SHOP_CAT_TAB_W, SHOP_CAT_TAB_H)
       zone.setInteractive({ useHandCursor: true })
       zone.on('pointerdown', () => {
         this.activeCategory = cat.key
@@ -148,9 +125,9 @@ export class ShopPanel {
       gfx.bg.clear()
       if (key === this.activeCategory) {
         gfx.bg.fillStyle(0x3a3a5e)
-        gfx.bg.fillRoundedRect(-40, -CAT_TAB_H / 2, 80, CAT_TAB_H, 4)
+        gfx.bg.fillRoundedRect(-SHOP_CAT_TAB_W / 2, -SHOP_CAT_TAB_H / 2, SHOP_CAT_TAB_W, SHOP_CAT_TAB_H, 4)
         gfx.bg.lineStyle(2, 0xffd700, 0.8)
-        gfx.bg.lineBetween(-30, CAT_TAB_H / 2, 30, CAT_TAB_H / 2)
+        gfx.bg.lineBetween(-30, SHOP_CAT_TAB_H / 2, 30, SHOP_CAT_TAB_H / 2)
         gfx.label.setColor('#ffd700')
       } else {
         gfx.label.setColor('#8888aa')
@@ -159,14 +136,14 @@ export class ShopPanel {
   }
 
   private buildItemGrids(scene: Phaser.Scene): void {
-    const gridTop = -PANEL_HEIGHT + 40
-    const gridLeft = -PANEL_WIDTH / 2 + 16
+    const gridTop = -SHOP_PANEL_HEIGHT + 40
+    const gridLeft = -SHOP_PANEL_WIDTH / 2 + 16
 
     const itemsByCategory = new Map<Category, { type: ObjectType; label: string; textureKey: string; frame?: number; previewColor: number }[]>()
     for (const cat of CATEGORIES) itemsByCategory.set(cat.key, [])
 
     for (const [type, config] of Object.entries(OBJECT_TYPE_REGISTRY)) {
-      if (HIDDEN_TYPES.has(type)) continue
+      if (HIDDEN_TYPES.has(type as ObjectType)) continue
       const cat = CATEGORY_MAP[type] ?? 'misc'
       itemsByCategory.get(cat)?.push({ type: type as ObjectType, label: config.label, textureKey: config.textureKey, frame: config.frame, previewColor: config.previewColor })
     }
@@ -188,22 +165,21 @@ export class ShopPanel {
       this.categoryContainers.set(cat, catContainer)
 
       items.forEach((item, idx) => {
-        const col = idx % CARDS_PER_ROW
-        const row = Math.floor(idx / CARDS_PER_ROW)
-        const cx = gridLeft + col * (CARD_SIZE + CARD_GAP) + CARD_SIZE / 2
-        const cy = gridTop + row * (CARD_SIZE + CARD_GAP + 14) + CARD_SIZE / 2
+        const col = idx % SHOP_CARDS_PER_ROW
+        const row = Math.floor(idx / SHOP_CARDS_PER_ROW)
+        const cx = gridLeft + col * (SHOP_CARD_SIZE + SHOP_CARD_GAP) + SHOP_CARD_SIZE / 2
+        const cy = gridTop + row * (SHOP_CARD_SIZE + SHOP_CARD_GAP + 14) + SHOP_CARD_SIZE / 2
 
-        const cardBg = this.makeCardBg(scene, cx, cy)
-        const icon = this.makeItemIcon(scene, item, cx, cy)
-        const label = scene.add.text(cx, cy + CARD_SIZE / 2 - 8, item.label, { fontSize: '9px', color: '#ccccdd' }).setOrigin(0.5)
-        const zone = this.makeCardZone(scene, cx, cy, cardBg)
-        zone.on('pointerdown', () => {
+        const card = createShopCardChrome(scene, cx, cy)
+        const icon = createShopItemIcon(scene, item, cx, cy)
+        const label = scene.add.text(cx, cy + SHOP_CARD_SIZE / 2 - 8, item.label, { fontSize: '9px', color: '#ccccdd' }).setOrigin(0.5)
+        card.zone.on('pointerdown', () => {
           if ((item.type as string) === '__building') this.gameEvents.emit('store:select-building')
           else if ((item.type as string) === '__stage') this.gameEvents.emit('store:select-stage')
           else if ((item.type as string) === '__stage_solo') this.gameEvents.emit('store:select-stage-solo')
           else this.gameEvents.emit('store:select', item.type)
         })
-        catContainer.add([cardBg, icon, label, zone])
+        catContainer.add([card.bg, card.hover, icon, label, card.zone])
       })
     }
   }
@@ -211,66 +187,5 @@ export class ShopPanel {
   private showCategory(cat: Category): void {
     this.categoryContainers.forEach((c, key) => c.setVisible(key === cat))
     if (cat === 'inventory') this.refreshInventoryGrid()
-  }
-
-  private makeCardBg(scene: Phaser.Scene, cx: number, cy: number): Phaser.GameObjects.Graphics {
-    const g = scene.add.graphics()
-    g.fillStyle(0x2a2a44, 0.8)
-    g.fillRoundedRect(cx - CARD_SIZE / 2, cy - CARD_SIZE / 2, CARD_SIZE, CARD_SIZE, 6)
-    g.lineStyle(1, 0x444466, 0.6)
-    g.strokeRoundedRect(cx - CARD_SIZE / 2, cy - CARD_SIZE / 2, CARD_SIZE, CARD_SIZE, 6)
-    return g
-  }
-
-  private makeCardZone(scene: Phaser.Scene, cx: number, cy: number, cardBg: Phaser.GameObjects.Graphics): Phaser.GameObjects.Zone {
-    const zone = scene.add.zone(cx, cy, CARD_SIZE, CARD_SIZE)
-    zone.setInteractive({ useHandCursor: true })
-    zone.on('pointerover', () => {
-      cardBg.clear()
-      cardBg.fillStyle(0x3a3a5e, 0.9)
-      cardBg.fillRoundedRect(cx - CARD_SIZE / 2, cy - CARD_SIZE / 2, CARD_SIZE, CARD_SIZE, 6)
-      cardBg.lineStyle(1, 0xffd700, 0.8)
-      cardBg.strokeRoundedRect(cx - CARD_SIZE / 2, cy - CARD_SIZE / 2, CARD_SIZE, CARD_SIZE, 6)
-    })
-    zone.on('pointerout', () => {
-      cardBg.clear()
-      cardBg.fillStyle(0x2a2a44, 0.8)
-      cardBg.fillRoundedRect(cx - CARD_SIZE / 2, cy - CARD_SIZE / 2, CARD_SIZE, CARD_SIZE, 6)
-      cardBg.lineStyle(1, 0x444466, 0.6)
-      cardBg.strokeRoundedRect(cx - CARD_SIZE / 2, cy - CARD_SIZE / 2, CARD_SIZE, CARD_SIZE, 6)
-    })
-    return zone
-  }
-
-  private makeItemIcon(
-    scene: Phaser.Scene,
-    item: { type: ObjectType; textureKey: string; frame?: number; previewColor: number },
-    cx: number, cy: number,
-  ): Phaser.GameObjects.Sprite | Phaser.GameObjects.Graphics {
-    if ((item.type as string) === '__stage_solo' && item.textureKey && scene.textures.exists(item.textureKey)) {
-      const sprite = scene.add.sprite(cx, cy - 4, item.textureKey)
-      sprite.setDisplaySize(40, 40)
-      return sprite
-    }
-    if (item.textureKey && scene.textures.exists(item.textureKey)) {
-      const sprite = scene.add.sprite(cx, cy - 6, item.textureKey, item.frame ?? 0)
-      const { w, h } = getFramedObjectDisplaySize(item.type, 1.1)
-      sprite.setDisplaySize(w, h)
-      return sprite
-    }
-    if ((item.type as string) === '__stage') {
-      const g = scene.add.graphics()
-      g.fillStyle(0x1a1a2e); g.fillRect(cx - 14, cy - 8, 28, 16)
-      g.lineStyle(1, 0xffd700); g.strokeRect(cx - 14, cy - 8, 28, 16)
-      g.fillStyle(0x2d2d4a); g.fillRect(cx - 11, cy - 5, 22, 10)
-      const lc = [0xff6644, 0x44aaff, 0xff6644, 0x44aaff]
-      for (let li = 0; li < 4; li++) { g.fillStyle(lc[li]); g.fillCircle(cx - 9 + li * 6, cy - 5, 2) }
-      return g
-    }
-    const g = scene.add.graphics()
-    g.fillStyle(item.previewColor); g.fillRect(cx - 12, cy - 14, 24, 20)
-    g.lineStyle(1, 0x4a3d28); g.strokeRect(cx - 12, cy - 14, 24, 20)
-    g.fillStyle(0x8b7355); g.fillRect(cx - 4, cy + 2, 8, 4)
-    return g
   }
 }

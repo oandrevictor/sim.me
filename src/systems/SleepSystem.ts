@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 import { TILE_W } from '../utils/isoGrid'
-import type { BotNirv } from '../entities/BotNirv'
+import { isWorkJobState, type BotNirv } from '../entities/BotNirv'
 import type { Nirv } from '../entities/Nirv'
 import { CRITICAL_REST_THRESHOLD } from '../entities/nirvSleep'
 import type { RestaurantSystem } from './RestaurantSystem'
@@ -250,6 +250,7 @@ export class SleepSystem {
           stBot === 'waiting_at_toilet_queue' ||
           stBot === 'using_toilet'
         ) bot.cancelToiletQueue()
+        else if (isWorkJobState(stBot)) bot.abortWorkDuty()
       }
 
       let best: BedStation | null = null

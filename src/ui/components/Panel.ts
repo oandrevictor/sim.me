@@ -11,9 +11,9 @@ export function createPanelBackground(
   y = 0,
 ): Phaser.GameObjects.Graphics {
   const gfx = scene.add.graphics()
-  gfx.fillStyle(0x1a1a2e, 0.94)
-  gfx.fillRoundedRect(x, y, width, height, 10)
-  gfx.lineStyle(1, 0x444466)
-  gfx.strokeRoundedRect(x, y, width, height, 10)
+  gfx.fillStyle(0x151b2b, 0.94)
+  gfx.fillRoundedRect(x, y, width, height, 8)
+  gfx.lineStyle(1, 0x3a455f, 0.8)
+  gfx.strokeRoundedRect(x, y, width, height, 8)
   return gfx
 }

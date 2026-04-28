@@ -54,6 +54,18 @@ export class GridPathfinder {
     return this.nearestUnblocked(goalGX, goalGY)
   }
 
+  /** Walk goal clamped inside the rectangle only — avoids routing staff outside a building (cf. resolveStagePerformGoal). */
+  resolveGoalInsideRect(
+    goalGX: number,
+    goalGY: number,
+    interior: StageInteriorBounds,
+  ): { gx: number; gy: number } | null {
+    const gx = Math.round(goalGX)
+    const gy = Math.round(goalGY)
+    if (this.inBounds(gx, gy) && !this.isBlocked(gx, gy)) return { gx, gy }
+    return this.nearestUnblockedInRect(gx, gy, interior)
+  }
+
   private nearestUnblockedInRect(
     gx: number,
     gy: number,

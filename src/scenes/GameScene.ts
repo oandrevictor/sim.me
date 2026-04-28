@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
-import { generateObjectTextures, type ObjectType } from '../objects/objectTypes'
-import { preloadBedAssets } from '../objects/bedTypes'
+import type { ObjectType } from '../objects/objectTypes'
+import { preloadGameAssets } from './preloadGameAssets'
+import { generateCropTextures } from '../objects/cropTextures'
 import { WORLD_WIDTH, WORLD_HEIGHT, GRID_COLS, GRID_ROWS } from '../config/world'
 import { gridToScreen, getTileCorners, snapToIsoGrid } from '../utils/isoGrid'
 import { MenuUI } from '../ui/MenuUI'
@@ -14,21 +15,29 @@ import { isPerformerProfession } from '../data/professions'
 import type { MusicTag } from '../data/musicTags'
 import type { StagePerformanceView } from '../systems/stagePerformanceTypes'
 import { Nirv, NirvVariant } from '../entities/Nirv'
-import { BotNirv } from '../entities/BotNirv'
+import { BotNirv, isRestaurantStaffState } from '../entities/BotNirv'
 import { generateDefaultSchedules } from '../entities/NirvSchedule'
 import { Building } from '../entities/Building'
 import { Stage } from '../entities/Stage'
 import { BuildingTypeUI } from '../ui/BuildingTypeUI'
 import { RestaurantSystem } from '../systems/RestaurantSystem'
+import { RestaurantStaffAssignments } from '../systems/RestaurantStaffAssignments'
+import { RestaurantStaffCoordinator } from '../systems/RestaurantStaffCoordinator'
+import { maxChefs, maxWaiters } from '../systems/restaurantStaffCaps'
 import { HydrationSystem } from '../systems/HydrationSystem'
 import { HungerSystem } from '../systems/HungerSystem'
 import { BladderSystem } from '../systems/BladderSystem'
 import { SleepSystem } from '../systems/SleepSystem'
 import { StageSystem } from '../systems/StageSystem'
 import { CookingSystem } from '../systems/CookingSystem'
+import { FarmingSystem } from '../systems/FarmingSystem'
 import { RecipeSelectUI } from '../ui/RecipeSelectUI'
+import { SeedSelectUI } from '../ui/SeedSelectUI'
 import { GridPathfinder } from '../pathfinding/GridPathfinder'
-import { ObjectSpawner, type SpawnerState } from '../world/ObjectSpawner'
+import { ObjectSpawner, type SpawnerState, type PlateEntry } from '../world/ObjectSpawner'
+import { countRestaurantEquipment } from '../world/restaurantBuildingCounts'
+import type { RestaurantStaffUiView } from '../ui/WorkPanel'
+import type { FarmWorkView } from '../systems/farmingTypes'
 import { tryStationsAtPointer } from '../world/stationWorldClick'
 import { BuildingPlacer } from '../world/BuildingPlacer'
 import { StagePlacer } from '../world/StagePlacer'
@@ -55,13 +64,17 @@ export class GameScene extends Phaser.Scene {
   private stages: Stage[] = []
   private buildingTypeUI!: BuildingTypeUI
   private restaurantSystem!: RestaurantSystem
+  private staffAssignments!: RestaurantStaffAssignments
+  private staffCoordinator!: RestaurantStaffCoordinator
   private hydrationSystem!: HydrationSystem
   private hungerSystem!: HungerSystem
   private bladderSystem!: BladderSystem
   private sleepSystem!: SleepSystem
   private stageSystem!: StageSystem
   private cookingSystem!: CookingSystem
+  private farmingSystem!: FarmingSystem
   private recipeSelectUI!: RecipeSelectUI
+  private seedSelectUI!: SeedSelectUI
   private pathfinder!: GridPathfinder
 
   // Extracted modules
@@ -77,27 +90,7 @@ export class GameScene extends Phaser.Scene {
   constructor() { super({ key: 'GameScene' }) }
 
   preload(): void {
-    generateObjectTextures(this)
-    preloadBedAssets(this)
-    const frameConfig = { frameWidth: 48, frameHeight: 48 }
-    this.load.spritesheet('m_idle', 'assets/Player/MPlayer 1 idle.png', frameConfig)
-    this.load.spritesheet('m_walk', 'assets/Player/MPlayer 1 walking.png', frameConfig)
-    this.load.spritesheet('f_idle', 'assets/Player/FPlayer 1 idle.png', frameConfig)
-    this.load.spritesheet('f_walk', 'assets/Player/FPlayer 1 walking.png', frameConfig)
-    this.load.spritesheet('f2_idle', 'assets/Player/FPlayer 1 idle.png', frameConfig)
-    this.load.spritesheet('f2_walk', 'assets/Player/FPlayer 2 walking.png', frameConfig)
-    this.load.spritesheet('f3_idle', 'assets/Player/FPlayer 3 idle.png', frameConfig)
-    this.load.spritesheet('f3_walk', 'assets/Player/FPlayer 3 walking.png', frameConfig)
-    this.load.spritesheet('furniture_table', 'assets/Furniture/ModernTable1.png', { frameWidth: 250, frameHeight: 250 })
-    this.load.spritesheet('furniture_chair', 'assets/Furniture/chair sprite.png', { frameWidth: 250, frameHeight: 250 })
-    this.load.spritesheet('furniture_stove', 'assets/Furniture/new-oven.png', { frameWidth: 528, frameHeight: 288 })
-    this.load.image('white_clay_oven', 'assets/Furniture/white_clay_oven.png')
-    this.load.spritesheet('furniture_stage_solo', 'assets/Furniture/stage-variant.png', { frameWidth: 382, frameHeight: 382 })
-    this.load.image('water_station', 'assets/Furniture/water_station.png')
-    this.load.image('snack_machine', 'assets/Furniture/snack_machine.png')
-    this.load.image('fruit_crate', 'assets/Furniture/fruit_crate.png')
-    this.load.image('floor_yellow', 'assets/Build/floorFull_yellow.png')
-    this.load.image('portable_toilet', 'assets/Build/portable_toilet.png')
+    preloadGameAssets(this)
   }
 
   create(): void {
@@ -105,6 +98,7 @@ export class GameScene extends Phaser.Scene {
     this.drawBackground()
     this.createNirvAnimations()
     registerStoveAnimations(this)
+    generateCropTextures(this)
 
     const startPos = gridToScreen(Math.floor(GRID_COLS / 2), Math.floor(GRID_ROWS / 2))
     this.playerNirv = new Nirv(this, 'Player', 0, startPos.x, startPos.y, true)
@@ -119,7 +113,12 @@ export class GameScene extends Phaser.Scene {
 
     this.buildingTypeUI = new BuildingTypeUI(this)
     this.recipeSelectUI = new RecipeSelectUI(this)
+    this.seedSelectUI = new SeedSelectUI(this)
     this.restaurantSystem = new RestaurantSystem(this.buildings, this.botNirvs)
+    this.staffAssignments = new RestaurantStaffAssignments()
+    this.restaurantSystem.setStaffBotFilter(b =>
+      this.staffAssignments.isStaffBot(b) || this.farmingSystem?.isFarmerBot(b) === true,
+    )
     this.cookingSystem = new CookingSystem(this)
     this.pathfinder = new GridPathfinder(GRID_COLS, GRID_ROWS)
     this.stageSystem = new StageSystem(this.stages, this.botNirvs, () => loadBands())
@@ -154,6 +153,12 @@ export class GameScene extends Phaser.Scene {
       this.pathfinder,
     )
 
+    this.farmingSystem = new FarmingSystem(
+      this.botNirvs,
+      () => this.playerNirv,
+      onSelect => this.seedSelectUI.open(onSelect),
+    )
+
     this.objectSpawner = new ObjectSpawner(
       this, this.obstacleGroup, this.pathfinder,
       this.restaurantSystem, this.cookingSystem, this.spawnerState,
@@ -170,6 +175,7 @@ export class GameScene extends Phaser.Scene {
       this.sleepSystem,
       this.hungerSystem,
       this.bladderSystem,
+      this.farmingSystem,
     )
 
     this.buildingPlacer = new BuildingPlacer(
@@ -208,6 +214,24 @@ export class GameScene extends Phaser.Scene {
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.onWorldClicked(pointer))
     this.spawnBots()
     this.stageSystem.syncPerformersAfterBotsSpawned()
+    this.staffCoordinator = new RestaurantStaffCoordinator(
+      this.buildings,
+      this.botNirvs,
+      this.staffAssignments,
+      this.restaurantSystem,
+      this.cookingSystem,
+      (type, x, y, persist, recipeId) => this.objectSpawner.spawn(type, x, y, persist, recipeId),
+      (entry: PlateEntry) => {
+        this.spawnerState.plateSprites = this.spawnerState.plateSprites.filter(p => p !== entry)
+      },
+      () => this.spawnerState.plateSprites,
+    )
+    this.events.on('restaurant-staff-abort', (bot: BotNirv) => {
+      this.staffCoordinator.releaseAllForBot(bot)
+    })
+    this.events.on('farmer-abort', (bot: BotNirv) => {
+      this.farmingSystem.releaseAllForBot(bot)
+    })
     this.nirvNameHover = new NirvNameHover(this)
   }
 
@@ -246,6 +270,7 @@ export class GameScene extends Phaser.Scene {
 
     if (hasInput) {
       this.foodHandler.clearPending()
+      this.farmingSystem.clearPlayerPending()
       this.sleepSystem.cancelPlayerWalkToBed()
     }
 
@@ -262,8 +287,10 @@ export class GameScene extends Phaser.Scene {
     this.hungerSystem.updateStations(delta)
     this.bladderSystem.updateStations(delta)
     this.sleepSystem.updateBeds(delta)
+    this.farmingSystem.update(delta)
 
     this.cookingSystem.update(delta)
+    this.staffCoordinator.update()
     this.restaurantSystem.update(delta)
     this.restaurantSystem.cleanupUnseated()
     this.stageSystem.update(delta)
@@ -319,6 +346,7 @@ export class GameScene extends Phaser.Scene {
         this.hydrationSystem,
         this.bladderSystem,
         this.sleepSystem,
+        this.farmingSystem,
         this.playerNirv,
         (tx, ty) => this.playerInput.setWalkTarget(tx, ty),
       )
@@ -342,7 +370,11 @@ export class GameScene extends Phaser.Scene {
     })
     this.stageSystem.initFromRecords(stageRecords)
     loadPlacedObjects().forEach(r =>
-      this.objectSpawner.spawn(r.type, r.x, r.y, false, r.recipeId, r.rotation),
+      this.objectSpawner.spawn(r.type, r.x, r.y, false, r.recipeId, r.rotation, {
+        cropStage: r.cropStage,
+        cropSeed: r.cropSeed,
+        cropStageStartedAt: r.cropStageStartedAt,
+      }),
     )
   }
 
@@ -440,6 +472,67 @@ export class GameScene extends Phaser.Scene {
   isPlayerInsideRestaurant(): boolean {
     const { x, y } = this.playerNirv.sprite
     return this.buildings.some(b => b.type === 'restaurant' && b.containsPixel(x, y))
+  }
+
+  getPlayerRestaurantBuilding(): Building | null {
+    const { x, y } = this.playerNirv.sprite
+    return this.buildings.find(b => b.type === 'restaurant' && b.containsPixel(x, y)) ?? null
+  }
+
+  getRestaurantStaffUiView(): RestaurantStaffUiView | null {
+    const b = this.getPlayerRestaurantBuilding()
+    if (!b) return null
+    const counts = countRestaurantEquipment(b, this.spawnerState)
+    const maxC = maxChefs(counts.stoves, counts.counters)
+    const maxW = maxWaiters(counts.counters, counts.tables)
+    const botIds = new Set(this.botNirvs.map(x => x.id))
+    this.staffAssignments.clampToCaps(b.id, maxC, maxW, botIds)
+    const staff = this.staffAssignments.get(b.id)
+    return {
+      buildingId: b.id,
+      maxChefs: maxC,
+      maxWaiters: maxW,
+      stoves: counts.stoves,
+      counters: counts.counters,
+      tables: counts.tables,
+      chefIds: [...staff.chefBotIds],
+      waiterIds: [...staff.waiterBotIds],
+      bots: this.botNirvs,
+    }
+  }
+
+  setRestaurantStaffRole(buildingId: string, botId: string, role: 'none' | 'chef' | 'waiter'): void {
+    const building = this.buildings.find(x => x.id === buildingId)
+    if (!building || building.type !== 'restaurant') return
+    const counts = countRestaurantEquipment(building, this.spawnerState)
+    const maxC = maxChefs(counts.stoves, counts.counters)
+    const maxW = maxWaiters(counts.counters, counts.tables)
+    const botIds = new Set(this.botNirvs.map(b => b.id))
+    this.staffAssignments.clampToCaps(buildingId, maxC, maxW, botIds)
+    const bot = this.botNirvs.find(b => b.id === botId)
+    this.staffAssignments.setRole(buildingId, botId, role, maxC, maxW)
+    if (!bot) return
+    if (role === 'chef' || role === 'waiter') {
+      this.farmingSystem.setFarmerAssigned(botId, false)
+      this.restaurantSystem.releaseChairForBot(bot)
+      if (role === 'chef') bot.enterChefIdle()
+      else bot.enterWaiterIdle()
+    } else if (role === 'none' && isRestaurantStaffState(bot.state)) {
+      bot.abortRestaurantStaffDuty()
+    }
+  }
+
+  getFarmWorkView(): FarmWorkView {
+    return this.farmingSystem.getFarmWorkView()
+  }
+
+  setFarmerRole(botId: string, assigned: boolean): void {
+    const bot = this.botNirvs.find(b => b.id === botId)
+    if (assigned) {
+      this.staffAssignments.clearBotEverywhere(botId)
+      if (bot && isRestaurantStaffState(bot.state)) bot.abortRestaurantStaffDuty()
+    }
+    this.farmingSystem.setFarmerAssigned(botId, assigned)
   }
 
   getPlayerStage(): Stage | null {
