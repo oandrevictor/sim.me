@@ -9,15 +9,12 @@ import type { HungerSystem } from '../systems/HungerSystem'
 import type { BladderSystem } from '../systems/BladderSystem'
 import type { SleepSystem } from '../systems/SleepSystem'
 import type { FarmingSystem } from '../systems/FarmingSystem'
-import { getBedTextureKey, isBedType } from '../objects/bedTypes'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import type { PlacementManager } from '../placement/PlacementManager'
-import { DEPTH_UI } from '../config/world'
-import { isStockablePropType } from '../objects/stockablePropDisplay'
 import { isFoodStockType, maxStockForFoodType } from '../systems/foodStockTypes'
 import { FloorTileLayer } from './FloorTileLayer'
 import { removePlacedObjectAt } from './ObjectRemoval'
-import { placeStockableProp } from './stockablePropPlacement'
+import { spawnNonPhysicsObject } from './ObjectSpawnNonPhysics'
 
 export type PlateEntry = { sprite: Phaser.GameObjects.Sprite; tableX: number; tableY: number; recipeId: string }
 export type PlacedSpriteEntry = {
@@ -45,15 +42,6 @@ export class ObjectSpawner {
   private getFloorLayer(): FloorTileLayer {
     if (!this.floorLayer) this.floorLayer = new FloorTileLayer(this.scene)
     return this.floorLayer
-  }
-
-  private stockableContext() {
-    return {
-      obstacleGroup: this.obstacleGroup,
-      pathfinder: this.pathfinder,
-      hungerSystem: this.hungerSystem,
-      cookingSystem: this.cookingSystem,
-    }
   }
 
   constructor(
@@ -120,122 +108,22 @@ export class ObjectSpawner {
         sprite.on('pointerdown', () => this.onTrashClicked(sprite))
       }
     } else {
-      if (isBedType(type)) {
-        const rot = rotation ?? 0
-        const tex = getBedTextureKey(type, rot)
-        const sprite = this.scene.add.sprite(x, y, tex)
-        sprite.setDepth(y)
-        const displayH = OBJECT_SIZE * 2.2
-        const displayW = displayH * 1.45
-        sprite.setDisplaySize(displayW, displayH)
-        const blocker = this.obstacleGroup.create(x, y, '__DEFAULT') as Phaser.Physics.Arcade.Sprite
-        blocker.setVisible(false)
-        blocker.body!.setSize(OBJECT_SIZE, OBJECT_SIZE / 2)
-        blocker.body!.setOffset(-OBJECT_SIZE / 2, -OBJECT_SIZE / 4)
-        blocker.refreshBody()
-        const g = screenToGrid(x, y)
-        this.pathfinder.blockCell(Math.round(g.gx), Math.round(g.gy))
-        this.sleepSystem.registerBed(sprite, x, y, rot)
-        this.state.placedSprites.push({ sprite, type, x, y, rotation: rot, footprintBlocker: blocker })
-        if (persist) {
-          savePlacedObject({ id: crypto.randomUUID(), type, x, y, recipeId, rotation: rot })
-        }
-        return
-      }
-
-      const sprite = this.scene.add.sprite(x, y, config.textureKey, frame)
-      sprite.setDepth(y)
-      if (config.frame !== undefined) {
-        const { w, h } = getFramedObjectDisplaySize(type, 1.6)
-        sprite.setDisplaySize(w, h)
-      } else if (
-        config.displayAspectWidthOverHeight !== undefined &&
-        !isStockablePropType(type) &&
-        type !== 'portable_toilet'
-      ) {
-        const { w, h } = getFramedObjectDisplaySize(type, 1.6)
-        sprite.setDisplaySize(w, h)
-      }
-      let placedEntry: PlacedSpriteEntry | null = null
-      if (type !== 'food_plate' && type !== 'crop') {
-        placedEntry = { sprite, type, x, y, rotation }
-        this.state.placedSprites.push(placedEntry)
-      }
-
-      if (type === 'floor_yellow') {
-        sprite.setVisible(false)
-        const g = screenToGrid(x, y)
-        this.getFloorLayer().add(Math.round(g.gx), Math.round(g.gy))
-      } else if (type === 'crop') {
-        const { w, h } = getFramedObjectDisplaySize(type, 2.5)
-        sprite.setDisplaySize(w, h)
-        sprite.setOrigin(0.5, 1)
-        sprite.setDepth(y)
-        sprite.setInteractive({ useHandCursor: true, pixelPerfect: false })
-        const blocker = this.obstacleGroup.create(x, y - OBJECT_SIZE / 4, '__DEFAULT') as Phaser.Physics.Arcade.Sprite
-        blocker.setVisible(false)
-        blocker.body!.setSize(OBJECT_SIZE, OBJECT_SIZE / 2)
-        blocker.body!.setOffset(-OBJECT_SIZE / 2, -OBJECT_SIZE / 4)
-        blocker.refreshBody()
-        const g = screenToGrid(x, y)
-        this.pathfinder.blockCell(Math.round(g.gx), Math.round(g.gy))
-        this.state.placedSprites.push({ sprite, type, x, y, rotation, footprintBlocker: blocker })
-        this.farmingSystem.registerCrop(sprite, x, y, objectState)
-      } else if (type === 'drinking_water') {
-        // Display the tall isometric sprite (357×700)
-        const displayH = OBJECT_SIZE * 2.7
-        const displayW = displayH * (357 / 700)
-        sprite.setDisplaySize(displayW, displayH)
-        // Depth at grid cell center (ground contact point)
-        sprite.setDepth(y)
-        // Invisible static body for ground footprint only
-        const blocker = this.obstacleGroup.create(x, y, '__DEFAULT') as Phaser.Physics.Arcade.Sprite
-        blocker.setVisible(false)
-        blocker.body!.setSize(OBJECT_SIZE, OBJECT_SIZE / 2)
-        blocker.body!.setOffset(-OBJECT_SIZE / 2, -OBJECT_SIZE / 4)
-        blocker.refreshBody()
-        const g = screenToGrid(x, y)
-        this.pathfinder.blockCell(Math.round(g.gx), Math.round(g.gy))
-        if (placedEntry) placedEntry.footprintBlocker = blocker
-        this.hydrationSystem.registerStation(sprite as unknown as Phaser.Physics.Arcade.Sprite, x, y)
-      } else if (isStockablePropType(type)) {
-        const blocker = placeStockableProp(this.stockableContext(), type, sprite, x, y, objectState?.stock)
-        if (placedEntry) placedEntry.footprintBlocker = blocker
-      } else if (type === 'portable_toilet') {
-        const { w, h } = getFramedObjectDisplaySize(type, 2.2)
-        sprite.setDisplaySize(w, h)
-        sprite.setOrigin(0.5, 1)
-        sprite.setDepth(y)
-        const footH = OBJECT_SIZE / 2
-        const footW = Math.max(OBJECT_SIZE, Math.round(w * 0.55))
-        const blocker = this.obstacleGroup.create(x, y - footH / 2, '__DEFAULT') as Phaser.Physics.Arcade.Sprite
-        blocker.setVisible(false)
-        blocker.body!.setSize(footW, footH)
-        blocker.body!.setOffset(16 - footW / 2, 8)
-        blocker.refreshBody()
-        const g = screenToGrid(x, y)
-        this.pathfinder.blockCell(Math.round(g.gx), Math.round(g.gy))
-        if (placedEntry) placedEntry.footprintBlocker = blocker
-        this.bladderSystem.registerStation(sprite as unknown as Phaser.Physics.Arcade.Sprite, x, y)
-      } else if (type === 'interactable') {
-        this.state.interactableSprites.push(sprite)
-        sprite.setInteractive({ useHandCursor: true })
-        sprite.on('pointerdown', () => this.onInteractableClicked(sprite))
-      } else if (type === 'chair') {
-        this.restaurantSystem.registerChair(sprite, x, y)
-      } else if (type === 'food_plate') {
-        if (recipeId) {
-          const plateEntry: PlateEntry = { sprite, tableX: x, tableY: y, recipeId }
-          this.state.plateSprites.push(plateEntry)
-          sprite.setInteractive({ useHandCursor: true, pixelPerfect: false })
-          sprite.setDepth(DEPTH_UI + 5)
-          sprite.on('pointerdown', () => this.onPlateClicked(plateEntry))
-          const onCounter = this.restaurantSystem.placeFoodOnCounter(x, y, recipeId, sprite)
-          if (!onCounter) this.restaurantSystem.placeFoodOnTable(x, y, recipeId, sprite)
-        }
-      } else {
-        this.state.backgroundSprites.push(sprite)
-      }
+      spawnNonPhysicsObject({
+        scene: this.scene,
+        obstacleGroup: this.obstacleGroup,
+        pathfinder: this.pathfinder,
+        restaurantSystem: this.restaurantSystem,
+        cookingSystem: this.cookingSystem,
+        state: this.state,
+        onInteractableClicked: this.onInteractableClicked,
+        onPlateClicked: this.onPlateClicked,
+        hydrationSystem: this.hydrationSystem,
+        sleepSystem: this.sleepSystem,
+        hungerSystem: this.hungerSystem,
+        bladderSystem: this.bladderSystem,
+        farmingSystem: this.farmingSystem,
+        getFloorLayer: () => this.getFloorLayer(),
+      }, { type, x, y, frame, recipeId, rotation, objectState })
     }
 
     if (persist) {

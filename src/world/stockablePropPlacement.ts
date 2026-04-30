@@ -17,6 +17,12 @@ export interface StockablePlacementContext {
   cookingSystem: CookingSystem
 }
 
+interface StockableRemovalContext {
+  pathfinder: GridPathfinder
+  hungerSystem: HungerSystem
+  cookingSystem: CookingSystem
+}
+
 export function placeStockableProp(
   context: StockablePlacementContext,
   type: StockablePropType,
@@ -48,7 +54,7 @@ export function placeStockableProp(
 }
 
 export function removeStockableProp(
-  context: StockablePlacementContext,
+  context: StockableRemovalContext,
   type: StockablePropType,
   sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite,
   x: number,

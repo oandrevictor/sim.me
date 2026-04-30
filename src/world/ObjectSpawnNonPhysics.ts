@@ -46,7 +46,7 @@ interface NonPhysicsArgs {
 
 export function spawnNonPhysicsObject(context: NonPhysicsContext, args: NonPhysicsArgs): void {
   if (isBedType(args.type)) return spawnBed(context, args)
-  const sprite = context.scene.add.sprite(args.x, args.y, textureKey(args.type), args.frame)
+  const sprite = context.scene.add.sprite(args.x, args.y, typeConfig(args.type).textureKey, args.frame)
   sprite.setDepth(args.y)
   applyDefaultDisplay(sprite, args.type)
   const placedEntry = trackPlacedSprite(context, sprite, args)
@@ -65,10 +65,6 @@ export function spawnNonPhysicsObject(context: NonPhysicsContext, args: NonPhysi
   } else if (args.type === 'chair') context.restaurantSystem.registerChair(sprite, args.x, args.y)
   else if (args.type === 'food_plate') spawnFoodPlate(context, sprite, args)
   else context.state.backgroundSprites.push(sprite)
-}
-
-function textureKey(type: ObjectType): string {
-  return typeConfig(type).textureKey
 }
 
 function typeConfig(type: ObjectType) {
@@ -90,9 +86,13 @@ function applyDefaultDisplay(sprite: Phaser.GameObjects.Sprite, type: ObjectType
   }
 }
 
-function trackPlacedSprite(context: NonPhysicsContext, sprite: Phaser.GameObjects.Sprite, args: NonPhysicsArgs) {
+function trackPlacedSprite(
+  context: NonPhysicsContext,
+  sprite: Phaser.GameObjects.Sprite,
+  args: NonPhysicsArgs,
+): PlacedSpriteEntry | null {
   if (args.type === 'food_plate' || args.type === 'crop') return null
-  const entry = { sprite, type: args.type, x: args.x, y: args.y, rotation: args.rotation }
+  const entry: PlacedSpriteEntry = { sprite, type: args.type, x: args.x, y: args.y, rotation: args.rotation }
   context.state.placedSprites.push(entry)
   return entry
 }
@@ -156,7 +156,7 @@ function spawnPortableToilet(
   const { w, h } = getFramedObjectDisplaySize(args.type, 2.2)
   sprite.setDisplaySize(w, h)
   sprite.setOrigin(0.5, 1)
-  const blocker = baseBlocker(context, args.x, args.y, Math.max(OBJECT_SIZE, Math.round(w * 0.55)))
+  const blocker = baseBlocker(context, args.x, args.y, Math.max(OBJECT_SIZE, Math.round(w * 0.55)), true)
   if (placedEntry) placedEntry.footprintBlocker = blocker
   context.bladderSystem.registerStation(sprite as unknown as Phaser.Physics.Arcade.Sprite, args.x, args.y)
 }
@@ -172,11 +172,19 @@ function spawnFoodPlate(context: NonPhysicsContext, sprite: Phaser.GameObjects.S
   if (!onCounter) context.restaurantSystem.placeFoodOnTable(args.x, args.y, args.recipeId, sprite)
 }
 
-function baseBlocker(context: NonPhysicsContext, x: number, y: number, footW = OBJECT_SIZE): Phaser.Physics.Arcade.Sprite {
-  const blocker = context.obstacleGroup.create(x, y, '__DEFAULT') as Phaser.Physics.Arcade.Sprite
+function baseBlocker(
+  context: NonPhysicsContext,
+  x: number,
+  y: number,
+  footW = OBJECT_SIZE,
+  bottomAnchored = false,
+): Phaser.Physics.Arcade.Sprite {
+  const footH = OBJECT_SIZE / 2
+  const blockerY = bottomAnchored ? y - footH / 2 : y
+  const blocker = context.obstacleGroup.create(x, blockerY, '__DEFAULT') as Phaser.Physics.Arcade.Sprite
   blocker.setVisible(false)
-  blocker.body!.setSize(footW, OBJECT_SIZE / 2)
-  blocker.body!.setOffset(-OBJECT_SIZE / 2, -OBJECT_SIZE / 4)
+  blocker.body!.setSize(footW, footH)
+  blocker.body!.setOffset(bottomAnchored ? 16 - footW / 2 : -OBJECT_SIZE / 2, bottomAnchored ? 8 : -OBJECT_SIZE / 4)
   blocker.refreshBody()
   blockCell(context.pathfinder, x, y)
   return blocker
