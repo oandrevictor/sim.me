@@ -31,6 +31,7 @@ import { SleepSystem } from '../systems/SleepSystem'
 import { StageSystem } from '../systems/StageSystem'
 import { CookingSystem } from '../systems/CookingSystem'
 import { FarmingSystem } from '../systems/FarmingSystem'
+import { StockSystem } from '../systems/StockSystem'
 import { RecipeSelectUI } from '../ui/RecipeSelectUI'
 import { SeedSelectUI } from '../ui/SeedSelectUI'
 import { GridPathfinder } from '../pathfinding/GridPathfinder'
@@ -38,6 +39,7 @@ import { ObjectSpawner, type SpawnerState, type PlateEntry } from '../world/Obje
 import { countRestaurantEquipment } from '../world/restaurantBuildingCounts'
 import type { RestaurantStaffUiView } from '../ui/WorkPanel'
 import type { FarmWorkView } from '../systems/farmingTypes'
+import type { StockWorkView } from '../systems/foodStockTypes'
 import { tryStationsAtPointer } from '../world/stationWorldClick'
 import { BuildingPlacer } from '../world/BuildingPlacer'
 import { StagePlacer } from '../world/StagePlacer'
@@ -46,6 +48,7 @@ import { PlayerInput } from '../input/PlayerInput'
 import { InteractionManager } from '../interaction/InteractionManager'
 import { FoodHandler } from '../interaction/FoodHandler'
 import { NirvNameHover } from '../interaction/NirvNameHover'
+import { ObjectStockHover } from '../interaction/ObjectStockHover'
 import { buildNirvHoverSubjects } from '../interaction/buildNirvHoverSubjects'
 import { removeObjectByType } from '../storage/persistence'
 import { applyNirvSeparation } from '../entities/nirvSeparation'
@@ -73,6 +76,7 @@ export class GameScene extends Phaser.Scene {
   private stageSystem!: StageSystem
   private cookingSystem!: CookingSystem
   private farmingSystem!: FarmingSystem
+  private stockSystem!: StockSystem
   private recipeSelectUI!: RecipeSelectUI
   private seedSelectUI!: SeedSelectUI
   private pathfinder!: GridPathfinder
@@ -86,6 +90,7 @@ export class GameScene extends Phaser.Scene {
   private interactionManager!: InteractionManager
   private foodHandler!: FoodHandler
   private nirvNameHover!: NirvNameHover
+  private objectStockHover!: ObjectStockHover
 
   constructor() { super({ key: 'GameScene' }) }
 
@@ -117,7 +122,9 @@ export class GameScene extends Phaser.Scene {
     this.restaurantSystem = new RestaurantSystem(this.buildings, this.botNirvs)
     this.staffAssignments = new RestaurantStaffAssignments()
     this.restaurantSystem.setStaffBotFilter(b =>
-      this.staffAssignments.isStaffBot(b) || this.farmingSystem?.isFarmerBot(b) === true,
+      this.staffAssignments.isStaffBot(b) ||
+      this.farmingSystem?.isFarmerBot(b) === true ||
+      this.stockSystem?.isStockerBot(b) === true,
     )
     this.cookingSystem = new CookingSystem(this)
     this.pathfinder = new GridPathfinder(GRID_COLS, GRID_ROWS)
@@ -157,6 +164,11 @@ export class GameScene extends Phaser.Scene {
       this.botNirvs,
       () => this.playerNirv,
       onSelect => this.seedSelectUI.open(onSelect),
+    )
+    this.stockSystem = new StockSystem(
+      this.botNirvs,
+      () => this.hungerSystem.getFoodStockStations(),
+      (station, stock) => this.hungerSystem.setFoodStationStock(station, stock),
     )
 
     this.objectSpawner = new ObjectSpawner(
@@ -220,6 +232,7 @@ export class GameScene extends Phaser.Scene {
       this.staffAssignments,
       this.restaurantSystem,
       this.cookingSystem,
+      this.pathfinder,
       (type, x, y, persist, recipeId) => this.objectSpawner.spawn(type, x, y, persist, recipeId),
       (entry: PlateEntry) => {
         this.spawnerState.plateSprites = this.spawnerState.plateSprites.filter(p => p !== entry)
@@ -232,7 +245,11 @@ export class GameScene extends Phaser.Scene {
     this.events.on('farmer-abort', (bot: BotNirv) => {
       this.farmingSystem.releaseAllForBot(bot)
     })
+    this.events.on('stocker-abort', (bot: BotNirv) => {
+      this.stockSystem.releaseAllForBot(bot)
+    })
     this.nirvNameHover = new NirvNameHover(this)
+    this.objectStockHover = new ObjectStockHover(this)
   }
 
   update(_time: number, delta: number): void {
@@ -288,6 +305,7 @@ export class GameScene extends Phaser.Scene {
     this.bladderSystem.updateStations(delta)
     this.sleepSystem.updateBeds(delta)
     this.farmingSystem.update(delta)
+    this.stockSystem.update(delta)
 
     this.cookingSystem.update(delta)
     this.staffCoordinator.update()
@@ -300,10 +318,15 @@ export class GameScene extends Phaser.Scene {
     const hideNameHover =
       (this.menuUI?.isPointerOverUI(ptr) ?? false) ||
       (this.placementManager?.isActive() ?? false)
+    const stockHoverActive = this.objectStockHover.update(
+      ptr,
+      this.hungerSystem.getFoodStockStations(),
+      hideNameHover,
+    )
     this.nirvNameHover.update(
       ptr,
       buildNirvHoverSubjects(this.playerNirv, this.botNirvs),
-      hideNameHover,
+      hideNameHover || stockHoverActive,
     )
 
     if (this.menuUI?.isShopMode() && !this.placementManager?.isActive()) {
@@ -374,6 +397,7 @@ export class GameScene extends Phaser.Scene {
         cropStage: r.cropStage,
         cropSeed: r.cropSeed,
         cropStageStartedAt: r.cropStageStartedAt,
+        stock: r.stock,
       }),
     )
   }
@@ -514,6 +538,7 @@ export class GameScene extends Phaser.Scene {
     if (!bot) return
     if (role === 'chef' || role === 'waiter') {
       this.farmingSystem.setFarmerAssigned(botId, false)
+      this.stockSystem.setStockerAssigned(botId, false)
       this.restaurantSystem.releaseChairForBot(bot)
       if (role === 'chef') bot.enterChefIdle()
       else bot.enterWaiterIdle()
@@ -530,9 +555,24 @@ export class GameScene extends Phaser.Scene {
     const bot = this.botNirvs.find(b => b.id === botId)
     if (assigned) {
       this.staffAssignments.clearBotEverywhere(botId)
+      this.stockSystem.setStockerAssigned(botId, false)
       if (bot && isRestaurantStaffState(bot.state)) bot.abortRestaurantStaffDuty()
     }
     this.farmingSystem.setFarmerAssigned(botId, assigned)
+  }
+
+  getStockWorkView(): StockWorkView {
+    return this.stockSystem.getStockWorkView()
+  }
+
+  setStockerRole(botId: string, assigned: boolean): void {
+    const bot = this.botNirvs.find(b => b.id === botId)
+    if (assigned) {
+      this.staffAssignments.clearBotEverywhere(botId)
+      this.farmingSystem.setFarmerAssigned(botId, false)
+      if (bot && isRestaurantStaffState(bot.state)) bot.abortRestaurantStaffDuty()
+    }
+    this.stockSystem.setStockerAssigned(botId, assigned)
   }
 
   getPlayerStage(): Stage | null {

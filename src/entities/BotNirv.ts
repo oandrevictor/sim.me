@@ -9,10 +9,10 @@ import { rollLeaveEarly } from '../systems/stageAffinity'
 import { DEPTH_UI } from '../config/world'
 import { EARLY_LEAVE_CHECK_INTERVAL_MS } from '../systems/stagePerformanceRuntime'
 import { fruitSlotWorldPosition } from '../systems/fruitCrateLayout'
-import { isFarmerState, isRestaurantStaffState, type BotState } from './botStates'
+import { isFarmerState, isRestaurantStaffState, isStockerState, type BotState } from './botStates'
 
 export type { BotState } from './botStates'
-export { isFarmerState, isRestaurantStaffState, isWorkJobState } from './botStates'
+export { isFarmerState, isRestaurantStaffState, isStockerState, isWorkJobState } from './botStates'
 
 const FUN_WATCH_TICK_MS = 10_000
 const FUN_GAIN_MATCH = 10
@@ -567,6 +567,20 @@ export class BotNirv {
     this.startRestaurantStaffWalk(x, y, interior)
   }
 
+  enterWaiterReturnPlate(x?: number, y?: number, interior: StageInteriorBounds | null = null): void {
+    this.performInterior = null
+    this.pathEndCell = null
+    this.restaurantInteriorBounds = null
+    this.redirectTarget = x === undefined || y === undefined ? null : { x, y }
+    this._state = 'waiter_returning_plate'
+    this.nirv.sprite.setVelocity(0, 0)
+    if (x !== undefined && y !== undefined) this.startRestaurantStaffWalk(x, y, interior)
+    else {
+      this.path = []
+      this.nirv.updateAnimation(0, 0)
+    }
+  }
+
   enterFarmerIdle(): void {
     this.performInterior = null
     this.restaurantInteriorBounds = null
@@ -593,6 +607,39 @@ export class BotNirv {
     this.path = []
     this.nirv.sprite.setVelocity(0, 0)
     this._state = 'farmer_working'
+    this.nirv.updateAnimation(0, 0)
+  }
+
+  enterStockerIdle(): void {
+    this.hideStatusIcon()
+    this.performInterior = null
+    this.restaurantInteriorBounds = null
+    this.pathEndCell = null
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.sprite.setVelocity(0, 0)
+    this._state = 'stocker_idle'
+    this.nirv.updateAnimation(0, 0)
+  }
+
+  enterStockerWalkToStation(x: number, y: number): void {
+    this.hideStatusIcon()
+    this.performInterior = null
+    this.restaurantInteriorBounds = null
+    this.pathEndCell = null
+    this.redirectTarget = { x, y }
+    this._state = 'stocker_to_station'
+    this.nirv.sprite.setVelocity(0, 0)
+    this.computePathToPixel(x, y)
+  }
+
+  enterStockerRestocking(): void {
+    this.redirectTarget = null
+    this.path = []
+    this.nirv.sprite.setVelocity(0, 0)
+    this._state = 'stocker_restocking'
+    this.snackBubblePhase = 0
+    this.showStatusIcon()
     this.nirv.updateAnimation(0, 0)
   }
 
@@ -628,9 +675,25 @@ export class BotNirv {
     this.computePathToWaypoint()
   }
 
+  abortStockerDuty(): void {
+    if (!isStockerState(this._state)) return
+    this.hideStatusIcon()
+    this.redirectTarget = null
+    this.path = []
+    this.pathEndCell = null
+    this.performInterior = null
+    this.restaurantInteriorBounds = null
+    this._state = 'walking'
+    this.nirv.sprite.setVelocity(0, 0)
+    this.nirv.updateAnimation(0, 0)
+    this.scene.events.emit('stocker-abort', this)
+    this.computePathToWaypoint()
+  }
+
   abortWorkDuty(): void {
     if (isRestaurantStaffState(this._state)) this.abortRestaurantStaffDuty()
     else if (isFarmerState(this._state)) this.abortFarmerDuty()
+    else if (isStockerState(this._state)) this.abortStockerDuty()
   }
 
   /** Start eating food */
@@ -989,17 +1052,33 @@ export class BotNirv {
       case 'chef_cooking':
       case 'farmer_idle':
       case 'farmer_working':
+      case 'stocker_idle':
         this.nirv.updateAnimation(0, 0)
         return
+
+      case 'stocker_restocking':
+        this.snackBubblePhase += delta
+        this.nirv.updateAnimation(0, 0)
+        this.updateStatusIconPosition()
+        return
+
+      case 'waiter_returning_plate':
+        if (!this.redirectTarget) {
+          this.nirv.updateAnimation(0, 0)
+          return
+        }
+        // Fall through to staff movement when a return counter has been reserved.
 
       case 'chef_to_stove':
       case 'chef_to_counter':
       case 'waiter_to_counter':
       case 'waiter_to_table':
-      case 'farmer_to_crop': {
+      case 'farmer_to_crop':
+      case 'stocker_to_station': {
         if (!this.redirectTarget) {
           if (this._state === 'chef_to_stove' || this._state === 'chef_to_counter') this.enterChefIdle()
           else if (this._state === 'farmer_to_crop') this.enterFarmerIdle()
+          else if (this._state === 'stocker_to_station') this.enterStockerIdle()
           else this.enterWaiterIdle()
           return
         }
@@ -1125,7 +1204,7 @@ export class BotNirv {
       this.stuckFrames = 0
       if (this._state === 'walking') {
         this.computePathToWaypoint()
-      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_water' || this._state === 'walking_to_water_queue' || this._state === 'walking_to_toilet' || this._state === 'walking_to_toilet_queue' || this._state === 'walking_to_snack' || this._state === 'walking_to_snack_queue' || this._state === 'snack_wander' || this._state === 'walking_to_fruit' || this._state === 'walking_to_fruit_queue' || this._state === 'fruit_wander' || this._state === 'walking_to_bed' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform' || this._state === 'chef_to_stove' || this._state === 'chef_to_counter' || this._state === 'waiter_to_counter' || this._state === 'waiter_to_table' || this._state === 'farmer_to_crop') && this.redirectTarget) {
+      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_water' || this._state === 'walking_to_water_queue' || this._state === 'walking_to_toilet' || this._state === 'walking_to_toilet_queue' || this._state === 'walking_to_snack' || this._state === 'walking_to_snack_queue' || this._state === 'snack_wander' || this._state === 'walking_to_fruit' || this._state === 'walking_to_fruit_queue' || this._state === 'fruit_wander' || this._state === 'walking_to_bed' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform' || this._state === 'chef_to_stove' || this._state === 'chef_to_counter' || this._state === 'waiter_to_counter' || this._state === 'waiter_to_table' || this._state === 'waiter_returning_plate' || this._state === 'farmer_to_crop' || this._state === 'stocker_to_station') && this.redirectTarget) {
         this.computePathToPixel(this.redirectTarget.x, this.redirectTarget.y, this.pathEndCell)
       }
     }
@@ -1136,7 +1215,7 @@ export class BotNirv {
         const target = this.waypoints[this.currentIndex]
         const dest = gridToScreen(target.gridX, target.gridY)
         this.moveToward(dest.x, dest.y)
-      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_water' || this._state === 'walking_to_water_queue' || this._state === 'walking_to_toilet' || this._state === 'walking_to_toilet_queue' || this._state === 'walking_to_snack' || this._state === 'walking_to_snack_queue' || this._state === 'snack_wander' || this._state === 'walking_to_fruit' || this._state === 'walking_to_fruit_queue' || this._state === 'fruit_wander' || this._state === 'walking_to_bed' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform' || this._state === 'chef_to_stove' || this._state === 'chef_to_counter' || this._state === 'waiter_to_counter' || this._state === 'waiter_to_table' || this._state === 'farmer_to_crop') && this.redirectTarget) {
+      } else if ((this._state === 'walking_to_chair' || this._state === 'walking_to_water' || this._state === 'walking_to_water_queue' || this._state === 'walking_to_toilet' || this._state === 'walking_to_toilet_queue' || this._state === 'walking_to_snack' || this._state === 'walking_to_snack_queue' || this._state === 'snack_wander' || this._state === 'walking_to_fruit' || this._state === 'walking_to_fruit_queue' || this._state === 'fruit_wander' || this._state === 'walking_to_bed' || this._state === 'walking_to_stage' || this._state === 'walking_to_perform' || this._state === 'chef_to_stove' || this._state === 'chef_to_counter' || this._state === 'waiter_to_counter' || this._state === 'waiter_to_table' || this._state === 'waiter_returning_plate' || this._state === 'farmer_to_crop' || this._state === 'stocker_to_station') && this.redirectTarget) {
         this.moveToward(this.redirectTarget.x, this.redirectTarget.y)
       }
       return
@@ -1218,6 +1297,16 @@ export class BotNirv {
       gfx.fillRoundedRect(bx - 9, by - 8, 18, 12, 2)
       gfx.lineStyle(1, 0x3a5c2a, pulse)
       gfx.strokeRoundedRect(bx - 9, by - 8, 18, 12, 2)
+    } else if (this._state === 'stocker_restocking') {
+      const pulse = 0.78 + 0.22 * Math.sin(this.snackBubblePhase / 180)
+      gfx.fillStyle(0x4f9f73, pulse)
+      gfx.fillRoundedRect(bx - 9, by - 7, 18, 11, 2)
+      gfx.lineStyle(1, 0x2f6b4f, pulse)
+      gfx.strokeRoundedRect(bx - 9, by - 7, 18, 11, 2)
+      gfx.fillStyle(0xf5d469, pulse)
+      gfx.fillCircle(bx - 4, by - 2, 3)
+      gfx.fillCircle(bx + 1, by - 5, 3)
+      gfx.fillCircle(bx + 5, by - 1, 3)
     } else if (this._state === 'sleeping') {
       if (!this.sleepZText) {
         this.sleepZText = this.scene.add.text(bx, by - 4, 'Z z Z', {

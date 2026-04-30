@@ -9,12 +9,13 @@ import {
   type StageWorkBridge,
 } from './WorkPanelStageSection'
 import { addFarmWorkSection, type FarmWorkBridge } from './WorkPanelFarmSection'
+import { addStockWorkSection, type StockWorkBridge } from './WorkPanelStockSection'
 import {
   addRestaurantWorkSection,
   type RestaurantPageControls,
 } from './WorkPanelRestaurantSection'
 import { buildWorkPanelChrome } from './WorkPanelChrome'
-import { emptyFarmBridge, emptyStageBridge } from './workPanelDefaults'
+import { emptyFarmBridge, emptyStageBridge, emptyStockBridge } from './workPanelDefaults'
 import type { RestaurantStaffBridge, WorkContext } from './workPanelTypes'
 
 export type { RestaurantStaffBridge, RestaurantStaffUiView } from './workPanelTypes'
@@ -32,6 +33,7 @@ export class WorkPanel {
   private availabilityKey = ''
   private restaurantPage = 0
   private farmPage = 0
+  private stockPage = 0
 
   private isPlayerInRestaurant: () => boolean = () => false
   private getPlayerStage: () => Stage | null = () => null
@@ -40,6 +42,7 @@ export class WorkPanel {
   private stageBridge: StageWorkBridge = emptyStageBridge()
   private restaurantStaffBridge: RestaurantStaffBridge | null = null
   private farmBridge: FarmWorkBridge = emptyFarmBridge()
+  private stockBridge: StockWorkBridge = emptyStockBridge()
 
   private hitTargets: StagePanelHitTarget[] = []
   private soloPickIdx = 0
@@ -63,6 +66,7 @@ export class WorkPanel {
     stageBridge: StageWorkBridge,
     restaurantStaffBridge: RestaurantStaffBridge | null = null,
     farmBridge?: FarmWorkBridge,
+    stockBridge?: StockWorkBridge,
   ): void {
     this.isPlayerInRestaurant = isPlayerInRestaurant
     this.getPlayerStage = getPlayerStage
@@ -71,6 +75,7 @@ export class WorkPanel {
     this.stageBridge = stageBridge
     this.restaurantStaffBridge = restaurantStaffBridge
     if (farmBridge) this.farmBridge = farmBridge
+    if (stockBridge) this.stockBridge = stockBridge
   }
 
   refresh(): void {
@@ -98,6 +103,8 @@ export class WorkPanel {
     else if (this.activeContext === 'restaurant') this.renderRestaurant(scene, y)
     else if (this.activeContext === 'farm') {
       addFarmWorkSection(scene, this.content, this.farmBridge, this.hitTargets, this.farmPages(), y)
+    } else if (this.activeContext === 'stock') {
+      addStockWorkSection(scene, this.content, this.stockBridge, this.hitTargets, this.stockPages(), y)
     }
   }
 
@@ -110,18 +117,6 @@ export class WorkPanel {
       return true
     }
     return false
-  }
-
-  tryConsumeStagePanelClick(canvasX: number, canvasY: number): boolean {
-    return this.tryConsumeWorkPanelClick(canvasX, canvasY)
-  }
-
-  tryConsumeRestaurantPanelClick(canvasX: number, canvasY: number): boolean {
-    return this.tryConsumeWorkPanelClick(canvasX, canvasY)
-  }
-
-  tryConsumeFarmPanelClick(canvasX: number, canvasY: number): boolean {
-    return this.tryConsumeWorkPanelClick(canvasX, canvasY)
   }
 
   private renderStage(scene: Phaser.Scene, stage: Stage, startY: number): void {
@@ -162,6 +157,7 @@ export class WorkPanel {
     if (stage) contexts.push('stage')
     if (this.isPlayerInRestaurant()) contexts.push('restaurant')
     if (this.farmBridge.getFarmView().totalCrops > 0) contexts.push('farm')
+    if (this.stockBridge.getStockView().totalStations > 0) contexts.push('stock')
     return contexts
   }
 
@@ -178,7 +174,8 @@ export class WorkPanel {
   private contextTitle(ctx: WorkContext): string {
     if (ctx === 'stage') return 'Stage Work'
     if (ctx === 'restaurant') return 'Restaurant Work'
-    return 'Farm Work'
+    if (ctx === 'farm') return 'Farm Work'
+    return 'Stock Work'
   }
 
   private restaurantPages(): RestaurantPageControls {
@@ -187,5 +184,9 @@ export class WorkPanel {
 
   private farmPages(): import('./WorkPanelFarmSection').FarmPageControls {
     return { getPage: () => this.farmPage, setPage: page => { this.farmPage = page } }
+  }
+
+  private stockPages(): import('./WorkPanelStockSection').StockPageControls {
+    return { getPage: () => this.stockPage, setPage: page => { this.stockPage = page } }
   }
 }

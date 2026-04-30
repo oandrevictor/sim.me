@@ -123,5 +123,6 @@ export function addRolePill(
 function tabLabel(ctx: WorkContext): string {
   if (ctx === 'stage') return 'Stage'
   if (ctx === 'restaurant') return 'Restaurant'
-  return 'Farm'
+  if (ctx === 'farm') return 'Farm'
+  return 'Stock'
 }

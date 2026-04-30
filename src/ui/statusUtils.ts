@@ -26,10 +26,14 @@ export function getBotStatusLabel(state: BotState | string): string {
     case 'chef_to_counter': return 'Chef'
     case 'waiter_idle':
     case 'waiter_to_counter':
-    case 'waiter_to_table': return 'Waiter'
+    case 'waiter_to_table':
+    case 'waiter_returning_plate': return 'Waiter'
     case 'farmer_idle':
     case 'farmer_to_crop':
     case 'farmer_working': return 'Farmer'
+    case 'stocker_idle':
+    case 'stocker_to_station':
+    case 'stocker_restocking': return 'Stocker'
     default: return state
   }
 }
@@ -60,10 +64,14 @@ export function getBotStatusColor(state: BotState | string): string {
     case 'chef_to_counter': return '#dd8844'
     case 'waiter_idle':
     case 'waiter_to_counter':
-    case 'waiter_to_table': return '#88aadd'
+    case 'waiter_to_table':
+    case 'waiter_returning_plate': return '#88aadd'
     case 'farmer_idle':
     case 'farmer_to_crop':
     case 'farmer_working': return '#d6b85c'
+    case 'stocker_idle':
+    case 'stocker_to_station':
+    case 'stocker_restocking': return '#7fd0a7'
     default: return '#aaaacc'
   }
 }

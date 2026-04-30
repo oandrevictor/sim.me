@@ -80,6 +80,12 @@ export const OBJECT_TYPE_REGISTRY = {
     displayAspectWidthOverHeight: 359 / 331,
     previewColor: 0x6b9c4a, depth: 2, hasPhysicsBody: false, isInteractable: true,
   },
+  fridge: {
+    type: 'fridge', label: 'Fridge',
+    description: 'Stores ingredients for restaurant chefs', textureKey: 'fridge',
+    displayAspectWidthOverHeight: 1,
+    previewColor: 0xb8d9e6, depth: 2, hasPhysicsBody: false, isInteractable: true,
+  },
   portable_toilet: {
     type: 'portable_toilet', label: 'Portable toilet',
     description: 'Nirvs use when they need to go', textureKey: 'portable_toilet',

@@ -3,6 +3,8 @@ import { getRecipe } from '../data/recipes'
 import { playStoveIdle, isSpritesheetStoveTexture, STOVE_ANIM_COOKING } from '../animations/stoveAnims'
 import { DEPTH_UI } from '../config/world'
 import type { Building } from '../entities/Building'
+import { updatePlacedObjectAt } from '../storage/persistence'
+import { clampFoodStock, type FoodStockStation } from './foodStockTypes'
 
 type StoveStatus = 'idle' | 'cooking' | 'done'
 
@@ -23,6 +25,7 @@ export interface StoveState {
 
 export class CookingSystem {
   private stoves: StoveState[] = []
+  private fridges: FoodStockStation[] = []
   private scene: Phaser.Scene
 
   constructor(scene: Phaser.Scene) {
@@ -45,6 +48,26 @@ export class CookingSystem {
 
   getStovesInBuilding(building: Building): StoveState[] {
     return this.stoves.filter(s => building.containsPixel(s.x, s.y))
+  }
+
+  registerFridge(station: FoodStockStation): void {
+    this.fridges.push(station)
+  }
+
+  unregisterFridge(sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite): void {
+    const idx = this.fridges.findIndex(f => f.sprite === sprite)
+    if (idx !== -1) this.fridges.splice(idx, 1)
+  }
+
+  getFridgesInBuilding(building: Building): FoodStockStation[] {
+    return this.fridges.filter(f => building.containsPixel(f.x, f.y))
+  }
+
+  tryConsumeFridgeStock(station: FoodStockStation): boolean {
+    if (!this.fridges.includes(station) || station.stock <= 0) return false
+    station.stock = clampFoodStock(station.type, station.stock - 1)
+    updatePlacedObjectAt(station.x, station.y, station.type, { stock: station.stock })
+    return true
   }
 
   tryReserveStoveForChef(stove: StoveState, botId: string): boolean {

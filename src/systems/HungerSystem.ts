@@ -3,8 +3,14 @@ import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import { TILE_W } from '../utils/isoGrid'
 import { isWorkJobState, type BotNirv } from '../entities/BotNirv'
 import { CRITICAL_SATIATION } from '../entities/nirvHunger'
+import { updatePlacedObjectAt } from '../storage/persistence'
 import type { RestaurantSystem } from './RestaurantSystem'
 import { queueSlotBehindStation } from './waterQueueLayout'
+import {
+  clampFoodStock,
+  maxStockForFoodType,
+  type FoodStockStation,
+} from './foodStockTypes'
 import {
   assignBotToFruitCrate,
   checkFruitQueueArrivals,
@@ -22,10 +28,7 @@ import {
 const CHECK_INTERVAL_MS = 2000
 const STATION_REACH_PX = 32
 
-interface SnackStation {
-  sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite
-  x: number
-  y: number
+interface SnackStation extends FoodStockStation {
   active: BotNirv | null
   queue: BotNirv[]
 }
@@ -37,6 +40,7 @@ type StationCandidate =
 export class HungerSystem {
   private stations: SnackStation[] = []
   private fruitStations: FruitCrateStation[] = []
+  private stockOnlyStations: FoodStockStation[] = []
   private bots: BotNirv[]
   private restaurant: RestaurantSystem
   private assignAccum = 0
@@ -54,16 +58,38 @@ export class HungerSystem {
     sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite,
     x: number,
     y: number,
+    stock?: number,
   ): void {
-    this.stations.push({ sprite, x, y, active: null, queue: [] })
+    this.stations.push({
+      sprite,
+      type: 'snack_machine',
+      x,
+      y,
+      stock: clampFoodStock('snack_machine', stock),
+      maxStock: maxStockForFoodType('snack_machine'),
+      reservedByStockerBotId: null,
+      active: null,
+      queue: [],
+    })
   }
 
   registerFruitCrate(
     sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite,
     x: number,
     y: number,
+    stock?: number,
   ): void {
-    this.fruitStations.push({ sprite, x, y, slots: [null, null, null], queue: [] })
+    this.fruitStations.push({
+      sprite,
+      type: 'fruit_crate',
+      x,
+      y,
+      stock: clampFoodStock('fruit_crate', stock),
+      maxStock: maxStockForFoodType('fruit_crate'),
+      reservedByStockerBotId: null,
+      slots: [null, null, null],
+      queue: [],
+    })
   }
 
   unregisterStation(sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite): void {
@@ -83,9 +109,18 @@ export class HungerSystem {
     unregisterFruitCrateStation(this.fruitStations, sprite)
   }
 
+  registerStockOnlyStation(station: FoodStockStation): void {
+    this.stockOnlyStations.push(station)
+  }
+
+  unregisterStockOnlyStation(sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite): void {
+    const idx = this.stockOnlyStations.findIndex(s => s.sprite === sprite)
+    if (idx !== -1) this.stockOnlyStations.splice(idx, 1)
+  }
+
   updateStations(_delta: number): void {
     this.checkTapArrivals()
-    checkFruitSlotArrivals(this.fruitStations)
+    checkFruitSlotArrivals(this.fruitStations, st => this.consumeStationStock(st))
     this.checkQueueSlotArrivals()
     checkFruitQueueArrivals(this.pathfinder, this.fruitStations)
     this.releaseFinishedServing()
@@ -110,6 +145,15 @@ export class HungerSystem {
     return this.findSnackStationForBot(bot) !== null || findFruitStationForBot(this.fruitStations, bot) !== null
   }
 
+  getFoodStockStations(): FoodStockStation[] {
+    return [...this.stations, ...this.fruitStations, ...this.stockOnlyStations]
+  }
+
+  setFoodStationStock(station: FoodStockStation, stock: number): void {
+    station.stock = clampFoodStock(station.type, stock)
+    updatePlacedObjectAt(station.x, station.y, station.type, { stock: station.stock })
+  }
+
   /** One at a time at any vending machine: approach + panel (not wander/eat). */
   private anySnackApproachOrInteract(): boolean {
     for (const st of this.stations) {
@@ -126,7 +170,10 @@ export class HungerSystem {
       const bot = st.active
       if (bot.state !== 'walking_to_snack') continue
       const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, st.x, st.y)
-      if (d < STATION_REACH_PX) bot.arriveAtSnackStation()
+      if (d < STATION_REACH_PX) {
+        if (this.consumeStationStock(st)) bot.arriveAtSnackStation()
+        else bot.cancelSatiationQueue()
+      }
     }
   }
 
@@ -231,10 +278,12 @@ export class HungerSystem {
 
       const candidates: StationCandidate[] = []
       for (const st of this.stations) {
+        if (this.availableSnackStock(st) <= 0) continue
         const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, st.x, st.y)
         if (d < TILE_W * 15) candidates.push({ kind: 'snack', st, dist: d })
       }
       for (const st of this.fruitStations) {
+        if (this.availableFruitStock(st) <= 0) continue
         if (!isWithinStationRange(bot, st)) continue
         candidates.push({ kind: 'fruit', st, dist: distanceToStation(bot, st) })
       }
@@ -258,5 +307,21 @@ export class HungerSystem {
         assignBotToFruitCrate(this.pathfinder, best.st, bot)
       }
     }
+  }
+
+  private consumeStationStock(station: FoodStockStation): boolean {
+    if (station.stock <= 0) return false
+    this.setFoodStationStock(station, station.stock - 1)
+    return true
+  }
+
+  private availableSnackStock(station: SnackStation): number {
+    const activeReserved = station.active?.state === 'walking_to_snack' ? 1 : 0
+    return station.stock - activeReserved - station.queue.length
+  }
+
+  private availableFruitStock(station: FruitCrateStation): number {
+    const slotReservations = station.slots.filter(bot => bot?.state === 'walking_to_fruit').length
+    return station.stock - slotReservations - station.queue.length
   }
 }

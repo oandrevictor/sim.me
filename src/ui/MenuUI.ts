@@ -5,6 +5,7 @@ import type { StageWorkBridge } from './WorkPanelStageSection'
 import { ShopPanel } from './ShopPanel'
 import { WorkPanel, WORK_PANEL_HEIGHT, WORK_PANEL_WIDTH, type RestaurantStaffBridge } from './WorkPanel'
 import type { FarmWorkBridge } from './WorkPanelFarmSection'
+import type { StockWorkBridge } from './WorkPanelStockSection'
 import { BAR_HEIGHT, BAR_WIDTH, buildMenuDock, refreshMenuDock, type MenuTab, type TabButton } from './MenuDock'
 import { SHOP_PANEL_HEIGHT, SHOP_PANEL_WIDTH } from './ShopPanelLayout'
 
@@ -79,6 +80,7 @@ export class MenuUI {
     stageBridge: StageWorkBridge,
     restaurantStaffBridge: RestaurantStaffBridge | null = null,
     farmBridge?: FarmWorkBridge,
+    stockBridge?: StockWorkBridge,
   ): void {
     this.workPanel.setProviders(
       getBotNirvs,
@@ -89,6 +91,7 @@ export class MenuUI {
       stageBridge,
       restaurantStaffBridge,
       farmBridge,
+      stockBridge,
     )
   }
 

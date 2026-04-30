@@ -4,13 +4,11 @@ import { TILE_W } from '../utils/isoGrid'
 import type { BotNirv } from '../entities/BotNirv'
 import { fruitSlotWorldPosition, FRUIT_CRATE_SLOT_COUNT } from './fruitCrateLayout'
 import { queueSlotBehindStation } from './waterQueueLayout'
+import type { FoodStockStation } from './foodStockTypes'
 
 const STATION_REACH_PX = 32
 
-export interface FruitCrateStation {
-  sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite
-  x: number
-  y: number
+export interface FruitCrateStation extends FoodStockStation {
   slots: [BotNirv | null, BotNirv | null, BotNirv | null]
   queue: BotNirv[]
 }
@@ -28,14 +26,20 @@ export function findFruitStationForBot(stations: FruitCrateStation[], bot: BotNi
   return null
 }
 
-export function checkFruitSlotArrivals(stations: FruitCrateStation[]): void {
+export function checkFruitSlotArrivals(
+  stations: FruitCrateStation[],
+  consumeStock: (st: FruitCrateStation) => boolean,
+): void {
   for (const st of stations) {
     for (let i = 0; i < FRUIT_CRATE_SLOT_COUNT; i++) {
       const bot = st.slots[i]
       if (!bot || bot.state !== 'walking_to_fruit') continue
       const pos = fruitSlotWorldPosition(st.x, st.y, i)
       const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, pos.x, pos.y)
-      if (d < STATION_REACH_PX) bot.arriveAtFruitStation()
+      if (d < STATION_REACH_PX) {
+        if (consumeStock(st)) bot.arriveAtFruitStation()
+        else bot.cancelSatiationQueue()
+      }
     }
   }
 }

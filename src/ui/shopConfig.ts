@@ -26,6 +26,7 @@ export const CATEGORY_MAP: Record<string, Category> = {
   drinking_water: 'dine',
   snack_machine: 'dine',
   fruit_crate: 'dine',
+  fridge: 'dine',
   background: 'decoration',
   interactable: 'misc',
   trash: 'misc',

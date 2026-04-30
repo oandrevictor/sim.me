@@ -1,6 +1,6 @@
 import type { BotNirv } from '../entities/BotNirv'
 
-export type WorkContext = 'stage' | 'restaurant' | 'farm'
+export type WorkContext = 'stage' | 'restaurant' | 'farm' | 'stock'
 
 export interface RestaurantStaffUiView {
   buildingId: string

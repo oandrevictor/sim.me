@@ -25,6 +25,7 @@ export function preloadGameAssets(scene: Phaser.Scene): void {
   scene.load.image('water_station', 'assets/Furniture/water_station.png')
   scene.load.image('snack_machine', 'assets/Furniture/snack_machine.png')
   scene.load.image('fruit_crate', 'assets/Furniture/fruit_crate.png')
+  scene.load.image('fridge', 'assets/Furniture/fridge.png')
   scene.load.image('floor_yellow', 'assets/Build/floorFull_yellow.png')
   scene.load.image('portable_toilet', 'assets/Build/portable_toilet.png')
 }

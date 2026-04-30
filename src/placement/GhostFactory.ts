@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { SOLO_STAGE_TEXTURE_KEY, stageFootprint, type StageVariant } from '../config/stageVariants'
 import { OBJECT_TYPE_REGISTRY, OBJECT_SIZE, getFramedObjectDisplaySize, type ObjectType } from '../objects/objectTypes'
 import { getBedTextureKey, isBedType } from '../objects/bedTypes'
+import { applyStockablePropDisplay, isStockablePropType } from '../objects/stockablePropDisplay'
 import { BUILDING_GRID_W, BUILDING_GRID_H } from '../entities/Building'
 import { TILE_W, TILE_H } from '../utils/isoGrid'
 import { DEPTH_UI } from '../config/world'
@@ -44,22 +45,9 @@ export function createObjectGhost(
     return sprite
   }
 
-  if (type === 'snack_machine' && scene.textures.exists(config.textureKey)) {
+  if (isStockablePropType(type) && scene.textures.exists(config.textureKey)) {
     const sprite = scene.add.sprite(0, 0, config.textureKey)
-    const displayH = OBJECT_SIZE * 2.5
-    const displayW = displayH * (450 / 555)
-    sprite.setDisplaySize(displayW, displayH)
-    sprite.setOrigin(0.5, 1)
-    sprite.setAlpha(0.65)
-    sprite.setDepth(DEPTH_UI + 10)
-    return sprite
-  }
-
-  if (type === 'fruit_crate' && scene.textures.exists(config.textureKey)) {
-    const sprite = scene.add.sprite(0, 0, config.textureKey)
-    const { w, h } = getFramedObjectDisplaySize(type, 2.5)
-    sprite.setDisplaySize(w, h)
-    sprite.setOrigin(0.5, 1)
+    applyStockablePropDisplay(sprite, type)
     sprite.setAlpha(0.65)
     sprite.setDepth(DEPTH_UI + 10)
     return sprite

@@ -27,6 +27,7 @@ export class FarmerJobRuntime {
   ) {}
 
   update(delta: number): void {
+    this.cleanupStaleReservations()
     for (const botId of this.getFarmerIds()) {
       const bot = this.bots.find(b => b.id === botId)
       if (!bot) continue
@@ -99,6 +100,21 @@ export class FarmerJobRuntime {
     if (!this.getPlots().includes(task.plot)) return false
     if (task.action === 'plant') return task.plot.stage === 'empty'
     return task.plot.stage === 'ready'
+  }
+
+  private cleanupStaleReservations(): void {
+    const farmerIds = this.getFarmerIds()
+    for (const plot of this.getPlots()) {
+      const botId = plot.reservedBy
+      if (!botId) continue
+      const task = this.tasks.get(botId)
+      // Reservations must be backed by an active task for that same plot.
+      if (!farmerIds.has(botId) || !task || task.plot !== plot) plot.reservedBy = null
+    }
+    for (const [botId, task] of this.tasks) {
+      // Task owner lost farmer role or task now points at a stale plot reference.
+      if (!farmerIds.has(botId) || task.plot.reservedBy !== botId) this.releaseTask(botId)
+    }
   }
 
   releaseTask(botId: string): void {

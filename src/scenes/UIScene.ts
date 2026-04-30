@@ -40,6 +40,11 @@ export class UIScene extends Phaser.Scene {
       setFarmerRole: (botId: string, assigned: boolean) => gameScene.setFarmerRole(botId, assigned),
     }
 
+    const stockBridge = {
+      getStockView: () => gameScene.getStockWorkView(),
+      setStockerRole: (botId: string, assigned: boolean) => gameScene.setStockerRole(botId, assigned),
+    }
+
     this.menuUI.setProviders(
       () => gameScene.getBotNirvs(),
       () => gameScene.isPlayerInsideRestaurant(),
@@ -49,6 +54,7 @@ export class UIScene extends Phaser.Scene {
       stageBridge,
       restaurantStaffBridge,
       farmBridge,
+      stockBridge,
     )
 
     this.helpText = this.add.text(10, 10, 'Move: WASD / Arrows  |  Shop: place & move objects  |  R: rotate  |  ESC to cancel', {

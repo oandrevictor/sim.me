@@ -38,9 +38,13 @@ export type BotState =
   | 'waiter_idle'
   | 'waiter_to_counter'
   | 'waiter_to_table'
+  | 'waiter_returning_plate'
   | 'farmer_idle'
   | 'farmer_to_crop'
   | 'farmer_working'
+  | 'stocker_idle'
+  | 'stocker_to_station'
+  | 'stocker_restocking'
 
 export function isRestaurantStaffState(s: BotState): boolean {
   return (
@@ -50,7 +54,8 @@ export function isRestaurantStaffState(s: BotState): boolean {
     s === 'chef_to_counter' ||
     s === 'waiter_idle' ||
     s === 'waiter_to_counter' ||
-    s === 'waiter_to_table'
+    s === 'waiter_to_table' ||
+    s === 'waiter_returning_plate'
   )
 }
 
@@ -58,6 +63,10 @@ export function isFarmerState(s: BotState): boolean {
   return s === 'farmer_idle' || s === 'farmer_to_crop' || s === 'farmer_working'
 }
 
+export function isStockerState(s: BotState): boolean {
+  return s === 'stocker_idle' || s === 'stocker_to_station' || s === 'stocker_restocking'
+}
+
 export function isWorkJobState(s: BotState): boolean {
-  return isRestaurantStaffState(s) || isFarmerState(s)
+  return isRestaurantStaffState(s) || isFarmerState(s) || isStockerState(s)
 }

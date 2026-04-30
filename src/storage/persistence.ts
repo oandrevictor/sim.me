@@ -1,7 +1,7 @@
 export type CropStage = 'empty' | 'seeded' | 'early' | 'ready'
 export type CropSeed = 'corn'
 
-export type ObjectType = 'obstacle' | 'interactable' | 'background' | 'table2' | 'table4' | 'chair' | 'stove' | 'stove_white_clay' | 'counter' | 'food_plate' | 'trash' | 'drinking_water' | 'snack_machine' | 'fruit_crate' | 'floor_yellow' | 'portable_toilet' | 'crop' | 'bed_ms_blue' | 'bed_ms_red' | 'bed_ms_grey' | 'bed_ms_space' | 'bed_ws_blue' | 'bed_ws_red' | 'bed_ws_grey' | 'bed_ws_space'
+export type ObjectType = 'obstacle' | 'interactable' | 'background' | 'table2' | 'table4' | 'chair' | 'stove' | 'stove_white_clay' | 'counter' | 'food_plate' | 'trash' | 'drinking_water' | 'snack_machine' | 'fruit_crate' | 'fridge' | 'floor_yellow' | 'portable_toilet' | 'crop' | 'bed_ms_blue' | 'bed_ms_red' | 'bed_ms_grey' | 'bed_ms_space' | 'bed_ws_blue' | 'bed_ws_red' | 'bed_ws_grey' | 'bed_ws_space'
 
 export interface PlacedObjectRecord {
   id: string
@@ -10,6 +10,7 @@ export interface PlacedObjectRecord {
   y: number
   recipeId?: string
   rotation?: number
+  stock?: number
   cropStage?: CropStage
   cropSeed?: CropSeed
   cropStageStartedAt?: number
