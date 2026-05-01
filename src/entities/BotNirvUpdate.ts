@@ -54,6 +54,7 @@ class BotNirvUpdateMethods {
           return
         }
         this.followPath()
+        if (!this.redirectTarget) return
         const sprite = this.nirv.sprite
         this.nirv.updateAnimation(sprite.body!.velocity.x, sprite.body!.velocity.y)
         const dist = Phaser.Math.Distance.Between(
@@ -233,6 +234,7 @@ class BotNirvUpdateMethods {
           return
         }
         this.followPath()
+        if (!this.redirectTarget) return
         const swSprite = this.nirv.sprite
         this.nirv.updateAnimation(swSprite.body!.velocity.x, swSprite.body!.velocity.y)
         const swd = Phaser.Math.Distance.Between(
@@ -257,6 +259,7 @@ class BotNirvUpdateMethods {
           return
         }
         this.followPath()
+        if (!this.redirectTarget) return
         const fwSprite = this.nirv.sprite
         this.nirv.updateAnimation(fwSprite.body!.velocity.x, fwSprite.body!.velocity.y)
         const fwd = Phaser.Math.Distance.Between(
@@ -307,6 +310,7 @@ class BotNirvUpdateMethods {
           return
         }
         this.followPath()
+        if (!this.redirectTarget) return
         const sprite = this.nirv.sprite
         this.nirv.updateAnimation(sprite.body!.velocity.x, sprite.body!.velocity.y)
         const dist = Phaser.Math.Distance.Between(
@@ -375,6 +379,7 @@ class BotNirvUpdateMethods {
           return
         }
         this.followPath()
+        if (!this.redirectTarget) return
         const jobSprite = this.nirv.sprite
         this.nirv.updateAnimation(jobSprite.body!.velocity.x, jobSprite.body!.velocity.y)
         const jobDist = Phaser.Math.Distance.Between(

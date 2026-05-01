@@ -5,7 +5,7 @@ import * as Phaser from 'phaser';
 import type { ObjectType } from '../objects/objectTypes'
 import { preloadGameAssets } from './preloadGameAssets'
 import { generateCropTextures } from '../objects/cropTextures'
-import { WORLD_WIDTH, WORLD_HEIGHT, GRID_COLS, GRID_ROWS } from '../config/world'
+import { WORLD_WIDTH, WORLD_HEIGHT, GRID_COLS, GRID_ROWS, DEPTH_UI } from '../config/world'
 import { gridToScreen, getTileCorners, snapToIsoGrid } from '../utils/isoGrid'
 import { MenuUI } from '../ui/MenuUI'
 import { PlacementManager } from '../placement/PlacementManager'
@@ -64,6 +64,12 @@ import { actorInsideObjectBuilding } from '../world/buildingInteractionAccess'
 import { installGameSceneSetup } from './GameSceneSetup'
 import { installGameSceneBridge } from './GameSceneBridge'
 import { installGameSceneLoop } from './GameSceneLoop'
+import { installGameSceneInput } from './GameSceneInput'
+import { installGameSceneModes } from './GameSceneModes'
+import { DayNightSystem } from '../systems/DayNightSystem'
+import { ConcertSpotlightSystem } from '../systems/ConcertSpotlightSystem'
+import { LightSystem } from '../systems/LightSystem'
+import { GroupActivitySystem } from '../systems/GroupActivitySystem'
 /* END-USER-IMPORTS */
 export interface GameScene { [key: string]: any }
 export default class GameScene extends Phaser.Scene {
@@ -112,6 +118,15 @@ export default class GameScene extends Phaser.Scene {
 	private foodHandler!: FoodHandler
 	private nirvNameHover!: NirvNameHover
 	private objectStockHover!: ObjectStockHover
+	private dayNightSystem!: DayNightSystem
+	private concertSpotlights!: ConcertSpotlightSystem
+	private lightSystem!: LightSystem
+	private groupActivitySystem!: GroupActivitySystem
+	private buildOverlay!: import('../world/BuildOverlayLayer').BuildOverlayLayer
+	private lotPlacementManager!: import('../world/LotPlacementManager').LotPlacementManager
+	private wallPlacementManager!: import('../world/WallPlacementManager').WallPlacementManager
+	private physicsDebugGraphics!: Phaser.GameObjects.Graphics
+	private isBuildModePaused = false
 	preload(): void {
 		preloadGameAssets(this)
 	}
@@ -126,11 +141,16 @@ export default class GameScene extends Phaser.Scene {
 		this.playerNirv = new Nirv(this, 'Player', 0, startPos.x, startPos.y, true)
 		this.playerNirv.sprite.setCollideWorldBounds(true)
 		this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT)
+		// Ortho map is taller in px than the old iso footprint; slight zoom keeps a similar on-screen scale.
+		this.cameras.main.setZoom(0.78)
 		this.cameras.main.startFollow(this.playerNirv.sprite, true, 0.08, 0.08)
+		this.dayNightSystem = new DayNightSystem(this)
+		this.concertSpotlights = new ConcertSpotlightSystem(this)
+		this.lightSystem = new LightSystem(this)
 		this.obstacleGroup = this.physics.add.staticGroup()
-		this.physics.add.collider(this.playerNirv.sprite, this.obstacleGroup)
 		this.nirvGroup = this.physics.add.group()
 		this.nirvGroup.add(this.playerNirv.sprite)
+		this.physics.add.collider(this.nirvGroup, this.obstacleGroup)
 		this.buildingTypeUI = new BuildingTypeUI(this)
 		this.recipeSelectUI = new RecipeSelectUI(this)
 		this.seedSelectUI = new SeedSelectUI(this)
@@ -145,6 +165,14 @@ export default class GameScene extends Phaser.Scene {
 		this.pathfinder = new GridPathfinder(GRID_COLS, GRID_ROWS)
 		this.worldClock = new WorldClock()
 		this.stageSystem = new StageSystem(this.stages, this.botNirvs, () => loadBands())
+		this.stageSystem.setDayNight(this.dayNightSystem)
+		this.groupActivitySystem = new GroupActivitySystem(
+			this.botNirvs,
+			this.stages,
+			this.buildings,
+			() => this.stageSystem,
+			() => this.spawnerState.tableSprites,
+		)
 		this.spawnerState = {
 			placedSprites: [], tableSprites: [], counterSprites: [],
 			interactableSprites: [], backgroundSprites: [], plateSprites: [],
@@ -184,7 +212,7 @@ export default class GameScene extends Phaser.Scene {
 		this.relationshipSystem = new RelationshipSystem(
 			this.worldClock,
 			() => this.botNirvs,
-			() => this.buildings,
+			() => this.houseSystem?.getHomes() ?? [],
 		)
 		this.restaurantSystem.setRelationshipSystem(this.relationshipSystem)
 		this.stageSystem.setRelationshipSystem(this.relationshipSystem)
@@ -192,6 +220,7 @@ export default class GameScene extends Phaser.Scene {
 		this.hungerSystem.setRelationshipSystem(this.relationshipSystem)
 		this.hydrationSystem.getSocialSystem().setRelationshipSystem(this.relationshipSystem)
 		this.hydrationSystem.getSocialSystem().onChatTick(this.relationshipSystem.handleChatTick)
+		this.groupActivitySystem.setRelationshipSystem(this.relationshipSystem)
 		// ScheduleSystem is created later (after farming + stock are built); systems below take it via setSchedule().
 		this.bladderSystem = new BladderSystem(
 			this.botNirvs,
@@ -220,7 +249,11 @@ export default class GameScene extends Phaser.Scene {
 			(bot, x, y) => this.houseSystem?.canBotUseObjectAt(bot, x, y) ?? true,
 			(bot, x, y) => actorInsideObjectBuilding(this.buildings, bot.nirv.sprite.x, bot.nirv.sprite.y, x, y),
 		)
-		this.houseSystem = new HouseSystem(this.buildings, this.botNirvs)
+		this.houseSystem = new HouseSystem(
+			this.buildings,
+			this.botNirvs,
+			() => this.lotPlacementManager?.getHomeSpaces() ?? [],
+		)
 		this.houseSystem.setRelationshipSystem(this.relationshipSystem)
 		this.scheduleSystem = new ScheduleSystem(
 			this.worldClock,
@@ -254,6 +287,7 @@ export default class GameScene extends Phaser.Scene {
 			this.bladderSystem,
 			this.farmingSystem,
 		)
+		this.objectSpawner.setLightSystem(this.lightSystem)
 		this.buildingPlacer = new BuildingPlacer(
 			this, this.buildings, this.obstacleGroup,
 			this.pathfinder, this.buildingTypeUI,
@@ -285,6 +319,18 @@ export default class GameScene extends Phaser.Scene {
 		)
 		this.restoreWorld()
 		this.launchUI()
+
+		this.physicsDebugGraphics = this.add.graphics()
+		this.physicsDebugGraphics.setDepth(DEPTH_UI - 1)
+		this.physicsDebugGraphics.setVisible(false)
+
+		this.events.on('menu:physics-open', () => {
+			this.physicsDebugGraphics.setVisible(true)
+		})
+		this.events.on('menu:physics-close', () => {
+			this.physicsDebugGraphics.setVisible(false)
+		})
+
 		this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.onWorldClicked(pointer))
 		this.spawnBots()
 		this.stageSystem.syncPerformersAfterBotsSpawned()
@@ -315,46 +361,11 @@ export default class GameScene extends Phaser.Scene {
 		this.objectStockHover = new ObjectStockHover(this)
 	}
 
-	private onWorldClicked(pointer: Phaser.Input.Pointer): void {
-		if (!this.menuUI || !this.placementManager) return
-		if (this.placementManager.isActive()) return
-		const cx = pointer.position.x
-		const cy = pointer.position.y
-		if (this.menuUI.tryConsumeWorkPanelStageClick(cx, cy)) return
-		if (this.menuUI.isShopMode() && !this.foodHandler.isCarrying()) {
-			if (this.menuUI.isPointerOverUI(pointer)) return
-			if (this.stagePlacer.tryPickUp(pointer)) return
-			this.objectSpawner.removeAt(
-				pointer,
-				snapToIsoGrid(pointer.worldX, pointer.worldY),
-				this.menuUI.isInventoryMode(),
-				() => this.menuUI.refreshInventoryGrid(),
-				this.placementManager,
-			)
-			return
-		}
-		if (this.menuUI.isPointerOverUI(pointer)) return
-		if (
-			tryStationsAtPointer(
-				pointer,
-				this.cameras.main,
-				this.spawnerState.placedSprites,
-				this.hydrationSystem,
-				this.bladderSystem,
-				this.sleepSystem,
-				this.farmingSystem,
-				this.playerNirv,
-				(tx, ty) => this.playerInput.setWalkTarget(tx, ty),
-				(x, y) =>
-					(this.houseSystem?.canPlayerUseObjectAt(x, y) ?? true) &&
-					actorInsideObjectBuilding(this.buildings, this.playerNirv.sprite.x, this.playerNirv.sprite.y, x, y),
-			)
-		) return
-		this.foodHandler.handleWorldClick(pointer)
-	}
 	/* END-USER-CODE */
 }
 installGameSceneSetup(GameScene)
 installGameSceneBridge(GameScene)
 installGameSceneLoop(GameScene)
+installGameSceneInput(GameScene)
+installGameSceneModes(GameScene)
 /* END OF COMPILED CODE */

@@ -1,31 +1,18 @@
 import Phaser from 'phaser'
 import type { BotNirv } from '../entities/BotNirv'
-import type { Building } from '../entities/Building'
 import type { WorldClock } from './WorldClock'
 import { loadRestaurantStaffRecords } from '../storage/restaurantStaffPersistence'
 import {
-  loadRelationshipBehaviorRecords,
-  loadRelationshipEventRecords,
-  loadNirvInteractionRecords,
-  loadRelationships,
-  saveRelationshipBehaviorRecords,
-  saveRelationshipEventRecords,
-  saveNirvInteractionRecords,
-  saveRelationships,
-  type NirvInteractionKind,
   type NirvInteractionRecord,
-  type RelationshipBondTier,
-  type RelationshipBehaviorRecord,
   type RelationshipEventRecord,
   type RelationshipEventSource,
-  type RelationshipEventType,
   type RelationshipNegativeSource,
-  type RelationshipRecord,
   type RelationshipStage,
 } from '../storage/relationshipPersistence'
-import { addHouseOwner, removeHouseOwner } from '../storage/buildingPersistence'
-import { buildRelationshipEvent, relationshipEventTypeForStage } from './relationshipEventUtils'
 import { computeStageWithConflict, isRomantic } from './relationshipStage'
+import { tryMergeRelationshipHouses } from './relationshipHousing'
+import type { HomeSpace } from './HomeSpace'
+import { flushRelationshipRuntime, hydrateRelationshipRuntime } from './relationshipStorageRuntime'
 import {
   applyPairTensionMutation,
   bondWeightFromStage,
@@ -34,7 +21,28 @@ import {
   decayEventSource,
   jealousySeverity,
   negativeEventTypeForSource,
+  shouldApplyNeedStress,
 } from './relationshipTensionRuntime'
+import {
+  createRelationship,
+  createRelationshipBehavior,
+  pairKey,
+  relationshipBondTier,
+  updateRelationshipBehaviorFromChat,
+  type Relationship,
+  type RelationshipBehavior,
+} from './relationshipTypes'
+import {
+  listRecentInteractions as listTimelineRecentInteractions,
+  listRecentInteractionsForNirv as listTimelineRecentInteractionsForNirv,
+  listRecentInteractionsForPair as listTimelineRecentInteractionsForPair,
+  listRecentRelationshipEvents as listTimelineRecentRelationshipEvents,
+  listRelationshipEvents as listTimelineRelationshipEvents,
+  recordFirstInteractionEvent,
+  recordNirvInteraction,
+  recordRelationshipTensionEvent,
+  recordStageTransitionEvent,
+} from './relationshipTimeline'
 
 const AFFINITY_PER_TICK = 2
 const AFFINITY_SHARED_BONUS = 3
@@ -45,83 +53,31 @@ const FLIRT_PER_SHARED_INTEREST = 0.05
 const FLIRT_CHANCE_CAP = 0.5
 const SAVE_DEBOUNCE_MS = 1000
 export type { RelationshipStage } from '../storage/relationshipPersistence'
-
-interface Relationship {
-  pairKey: string
-  idA: string
-  idB: string
-  stage: RelationshipStage
-  affinity: number
-  flirtCount: number
-  flirtDays: Set<number>
-  isCohabiting: boolean
-}
-
-interface RelationshipBehavior {
-  pairKey: string
-  conflictScore: number
-  recentPositiveTicks: number
-  recentNegativeTicks: number
-  bondTier: RelationshipBondTier
-  lastInteractionDay: number
-  jealousyPressure: number
-  crowdingStrikes: number
-  negativeBySource: Partial<Record<RelationshipNegativeSource, number>>
-}
 export type SocialBiasContext = 'private' | 'public' | 'group'
+export type NeedStressSource = 'hunger' | 'hydration' | 'bladder'
 export type RelationshipEvent = RelationshipEventRecord
 export type NirvInteraction = NirvInteractionRecord
-const MAX_INTERACTIONS_TOTAL = 500
-const MAX_INTERACTIONS_PER_PAIR = 30
-function pairKey(idA: string, idB: string): string {
-  return idA < idB ? `${idA}:${idB}` : `${idB}:${idA}`
-}
 export class RelationshipSystem {
   private rels = new Map<string, Relationship>()
   private behavior = new Map<string, RelationshipBehavior>()
   private events: RelationshipEvent[] = []
   private interactions: NirvInteraction[] = []
   private lastNeedStressAt = new Map<string, number>()
-  private lastCrowdingAt = new Map<string, number>()
   private dirty = false
   private saveTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(
     private readonly clock: WorldClock,
     private readonly getBots: () => readonly BotNirv[],
-    private readonly getBuildings: () => readonly Building[],
+    private readonly getHomes: () => readonly HomeSpace[],
   ) {
     this.hydrateFromStorage()
   }
 
   private hydrateFromStorage(): void {
-    for (const r of loadRelationships()) {
-      this.rels.set(r.pairKey, {
-        pairKey: r.pairKey,
-        idA: r.idA,
-        idB: r.idB,
-        stage: r.stage,
-        affinity: r.affinity,
-        flirtCount: r.flirtCount,
-        flirtDays: new Set(r.flirtDays),
-        isCohabiting: r.isCohabiting,
-      })
-    }
-    for (const b of loadRelationshipBehaviorRecords()) {
-      this.behavior.set(b.pairKey, {
-        pairKey: b.pairKey,
-        conflictScore: b.conflictScore,
-        recentPositiveTicks: b.recentPositiveTicks,
-        recentNegativeTicks: b.recentNegativeTicks,
-        bondTier: b.bondTier ?? 'none',
-        lastInteractionDay: b.lastInteractionDay ?? 0,
-        jealousyPressure: b.jealousyPressure ?? 0,
-        crowdingStrikes: b.crowdingStrikes ?? 0,
-        negativeBySource: b.negativeBySource ?? {},
-      })
-    }
-    this.events = loadRelationshipEventRecords()
-    this.interactions = loadNirvInteractionRecords()
+    const runtime = hydrateRelationshipRuntime(this.rels, this.behavior)
+    this.events = runtime.events
+    this.interactions = runtime.interactions
   }
 
   /** Wire this into SocialSystem.onChatTick. */
@@ -131,6 +87,9 @@ export class RelationshipSystem {
     ctx: { sharedInterestCount: number; firstMeeting: boolean },
   ): void => {
     const rel = this.getOrCreate(a.id, b.id)
+    if (ctx.firstMeeting && recordFirstInteractionEvent(this.events, rel, this.clock.getDayCount())) {
+      this.markDirty()
+    }
     const bonus =
       ctx.sharedInterestCount * AFFINITY_SHARED_BONUS +
       (ctx.firstMeeting ? AFFINITY_NOVELTY_BONUS : 0)
@@ -141,10 +100,15 @@ export class RelationshipSystem {
     const sameWorkplace = this.areColleagues(a.id, b.id)
     rel.stage = this.computeStage(rel, sameWorkplace, behavior.conflictScore)
     behavior.lastInteractionDay = this.clock.getDayCount()
-    this.recordInteraction(a.id, b.id, ctx.sharedInterestCount > 0 ? 'shared_interest_chat' : 'chat_tick', {
-      sharedInterestCount: ctx.sharedInterestCount,
-    })
-    this.updateBehaviorFromChat(behavior, rel, ctx.sharedInterestCount)
+    recordNirvInteraction(
+      this.interactions,
+      a.id,
+      b.id,
+      ctx.sharedInterestCount > 0 ? 'shared_interest_chat' : 'chat_tick',
+      this.clock.getDayCount(),
+      { sharedInterestCount: ctx.sharedInterestCount },
+    )
+    updateRelationshipBehaviorFromChat(behavior, rel, ctx.sharedInterestCount)
 
     if (rel.stage === 'friend' || isRomantic(rel.stage)) {
       const flirtChance = Math.min(
@@ -166,27 +130,39 @@ export class RelationshipSystem {
     }
 
     if (rel.stage !== prevStage) {
-      this.recordStageTransitionEvent(rel, prevStage, rel.stage)
+      recordStageTransitionEvent(this.events, this.interactions, rel, prevStage, rel.stage, this.clock.getDayCount())
       this.markDirty()
     }
     else if (ctx.firstMeeting || ctx.sharedInterestCount > 0) this.markDirty()
+  }
+
+  /** Used by GroupActivitySystem to check Game Night eligibility. */
+  getRelationshipStage(idA: string, idB: string): RelationshipStage | null {
+    return this.rels.get(pairKey(idA, idB))?.stage ?? null
+  }
+
+  /**
+   * Called once per group activity tick for all bots in the session.
+   * Applies a chat tick to every pair — group bonding counts as quality time.
+   * activityBonus elevates the shared-interest count so group activities
+   * build relationships faster than incidental 1-on-1 chats.
+   */
+  handleGroupTick(bots: BotNirv[], activityBonus: number): void {
+    for (let i = 0; i < bots.length; i++) {
+      for (let j = i + 1; j < bots.length; j++) {
+        this.handleChatTick(bots[i]!, bots[j]!, {
+          sharedInterestCount: activityBonus,
+          firstMeeting: false,
+        })
+      }
+    }
   }
 
   private getOrCreate(idA: string, idB: string): Relationship {
     const key = pairKey(idA, idB)
     let rel = this.rels.get(key)
     if (!rel) {
-      const [a, b] = idA < idB ? [idA, idB] : [idB, idA]
-      rel = {
-        pairKey: key,
-        idA: a,
-        idB: b,
-        stage: 'acquaintance',
-        affinity: 0,
-        flirtCount: 0,
-        flirtDays: new Set(),
-        isCohabiting: false,
-      }
+      rel = createRelationship(idA, idB)
       this.rels.set(key, rel)
     }
     return rel
@@ -204,110 +180,21 @@ export class RelationshipSystem {
   private getOrCreateBehavior(key: string): RelationshipBehavior {
     let behavior = this.behavior.get(key)
     if (!behavior) {
-      behavior = {
-        pairKey: key,
-        conflictScore: 0,
-        recentPositiveTicks: 0,
-        recentNegativeTicks: 0,
-        bondTier: 'none',
-        lastInteractionDay: this.clock.getDayCount(),
-        jealousyPressure: 0,
-        crowdingStrikes: 0,
-        negativeBySource: {},
-      }
+      behavior = createRelationshipBehavior(key, this.clock.getDayCount())
       this.behavior.set(key, behavior)
     }
     return behavior
   }
 
-  private updateBehaviorFromChat(
-    behavior: RelationshipBehavior,
-    rel: Relationship,
-    sharedInterestCount: number,
-  ): void {
-    behavior.bondTier = this.toBondTier(rel)
-    const positiveSignal = 1 + Math.min(2, sharedInterestCount)
-    behavior.recentPositiveTicks = Math.min(40, behavior.recentPositiveTicks + positiveSignal)
-    behavior.recentNegativeTicks = Math.max(0, behavior.recentNegativeTicks - 1)
-    if (rel.affinity >= 30) behavior.conflictScore = Math.max(0, behavior.conflictScore - 1)
-    behavior.jealousyPressure = Math.max(0, behavior.jealousyPressure - 0.5)
-  }
-
-  private toBondTier(rel: Relationship): RelationshipBondTier {
-    if (rel.isCohabiting) return 'housemate'
-    if (rel.stage === 'married') return 'spouse'
-    if (rel.stage === 'lover' || rel.stage === 'dating' || rel.stage === 'engaged') return 'lover'
-    if (rel.stage === 'friend') return 'friend'
-    return 'none'
-  }
-
   private tryMergeHouses(rel: Relationship): void {
-    const buildings = this.getBuildings()
-    const houseA = buildings.find(b => b.type === 'house' && b.ownerBotIds.includes(rel.idA))
-    const houseB = buildings.find(b => b.type === 'house' && b.ownerBotIds.includes(rel.idB))
-    if (!houseA || !houseB || houseA.id === houseB.id) {
-      // already share a house, or one of them is unhoused
-      if (houseA && houseB && houseA.id === houseB.id) {
-        rel.isCohabiting = true
-        if (this.recordCohabitingEvent(rel, 'already_cohabiting')) this.markDirty()
-      }
-      return
-    }
-    // Keep the lower-id-owned house; vacate the other
-    const keep = rel.idA < rel.idB ? houseA : houseB
-    const leave = keep === houseA ? houseB : houseA
-    const movingBotId = keep === houseA ? rel.idB : rel.idA
-
-    keep.addOwnerBotId(movingBotId)
-    leave.removeOwnerBotId(movingBotId)
-    addHouseOwner(keep.id, movingBotId)
-    removeHouseOwner(leave.id, movingBotId)
-
-    // If the leaving house is now empty, also persist clear (already done by removeHouseOwner)
-    const movingBot = this.getBots().find(b => b.id === movingBotId)
-    if (movingBot) movingBot.houseId = keep.id
-
-    rel.isCohabiting = true
-    this.recordCohabitingEvent(rel, 'cohabitation_merge')
-    this.markDirty()
-  }
-
-  private recordStageTransitionEvent(rel: Relationship, fromStage: RelationshipStage, toStage: RelationshipStage): void {
-    const type = relationshipEventTypeForStage(toStage)
-    if (!type) return
-    this.events.push(buildRelationshipEvent({
-      pairKey: rel.pairKey,
-      idA: rel.idA,
-      idB: rel.idB,
-      type,
-      fromStage,
-      toStage,
+    const changed = tryMergeRelationshipHouses({
+      rel,
+      homes: this.getHomes(),
+      bots: this.getBots(),
+      events: this.events,
       dayCount: this.clock.getDayCount(),
-      source: 'stage_transition',
-    }))
-    this.recordInteraction(rel.idA, rel.idB, 'relationship_stage_change', {
-      eventType: type,
-      fromStage,
-      toStage,
     })
-  }
-
-  private recordCohabitingEvent(rel: Relationship, source: RelationshipEventSource): boolean {
-    const hasMovedInEvent = this.events.some(
-      e => e.pairKey === rel.pairKey && e.type === 'moved_in_together',
-    )
-    if (hasMovedInEvent) return false
-    this.events.push(buildRelationshipEvent({
-      pairKey: rel.pairKey,
-      idA: rel.idA,
-      idB: rel.idB,
-      type: 'moved_in_together',
-      fromStage: rel.stage,
-      toStage: rel.stage,
-      dayCount: this.clock.getDayCount(),
-      source,
-    }))
-    return true
+    if (changed) this.markDirty()
   }
 
   // --- Read APIs for UI ---
@@ -335,15 +222,38 @@ export class RelationshipSystem {
     const rel = this.getOrCreate(idA, idB)
     const behavior = this.getOrCreateBehavior(rel.pairKey)
     const prevStage = rel.stage
+    const prevAffinity = rel.affinity
     applyPairTensionMutation(rel, behavior, severity, source)
+    const affinityDelta = rel.affinity - prevAffinity
     rel.stage = this.computeStage(rel, this.areColleagues(idA, idB), behavior.conflictScore)
-    if (rel.stage !== prevStage) this.recordNegativeEvent(rel, 'relationship_decayed', eventSource, prevStage, rel.stage)
-    else this.recordNegativeEvent(rel, negativeEventTypeForSource(source), eventSource)
+    if (rel.stage !== prevStage) {
+      recordRelationshipTensionEvent(
+        this.events,
+        this.interactions,
+        rel,
+        'relationship_decayed',
+        eventSource,
+        this.clock.getDayCount(),
+        affinityDelta,
+        prevStage,
+        rel.stage,
+      )
+    } else {
+      recordRelationshipTensionEvent(
+        this.events,
+        this.interactions,
+        rel,
+        negativeEventTypeForSource(source),
+        eventSource,
+        this.clock.getDayCount(),
+        affinityDelta,
+      )
+    }
     this.markDirty()
   }
 
-  applyNeedStress(bot: BotNirv, severity: number): void {
-    if (!this.shouldApplyNeedStress(bot.id, severity)) return
+  applyNeedStress(bot: BotNirv, severity: number, _source: NeedStressSource): void {
+    if (!shouldApplyNeedStress(this.lastNeedStressAt, bot.id, severity)) return
     for (const rel of this.rels.values()) {
       if (rel.idA !== bot.id && rel.idB !== bot.id) continue
       this.applyPairTension(rel.idA, rel.idB, severity * bot.badMoodEffect * 0.45, 'need_stress', 'need_pressure')
@@ -355,12 +265,11 @@ export class RelationshipSystem {
   }
 
   registerCrowdingPair(botA: BotNirv, botB: BotNirv, distance: number): void {
-    const threshold = Math.max(10, Math.min(botA.crowdThreshold, botB.crowdThreshold))
-    const effectiveThreshold = Math.max(8, threshold * 0.58)
-    if (distance > effectiveThreshold) return
-    if (!this.shouldApplyCrowding(botA.id, botB.id)) return
-    const intensity = (effectiveThreshold - distance + 1) / effectiveThreshold
-    this.applyPairTension(botA.id, botB.id, intensity * 0.28, 'crowding', 'crowding')
+    void botA
+    void botB
+    void distance
+    // Crowding irritation disabled by design.
+    return
   }
 
   registerJealousyExposure(subjectId: string, otherId: string, weight: number): void {
@@ -381,7 +290,19 @@ export class RelationshipSystem {
       const decay = decayAmount(idleDays, behavior.conflictScore)
       rel.affinity = Math.max(-100, rel.affinity - decay)
       rel.stage = this.computeStage(rel, this.areColleagues(rel.idA, rel.idB), behavior.conflictScore)
-      if (rel.stage !== prevStage) this.recordNegativeEvent(rel, 'relationship_decayed', decayEventSource(), prevStage, rel.stage)
+      if (rel.stage !== prevStage) {
+        recordRelationshipTensionEvent(
+          this.events,
+          this.interactions,
+          rel,
+          'relationship_decayed',
+          decayEventSource(),
+          dayCount,
+          undefined,
+          prevStage,
+          rel.stage,
+        )
+      }
       this.markDirty()
     }
   }
@@ -389,7 +310,7 @@ export class RelationshipSystem {
   isHighBondPair(idA: string, idB: string): boolean {
     const rel = this.getRelationship(idA, idB)
     if (!rel) return false
-    return this.toBondTier(rel) !== 'none'
+    return relationshipBondTier(rel) !== 'none'
   }
 
   isConflictPair(idA: string, idB: string): boolean {
@@ -426,9 +347,7 @@ export class RelationshipSystem {
   }
 
   listRelationshipEvents(pairKeyValue: string): RelationshipEvent[] {
-    return this.events
-      .filter(e => e.pairKey === pairKeyValue)
-      .sort((a, b) => b.timestamp - a.timestamp)
+    return listTimelineRelationshipEvents(this.events, pairKeyValue)
   }
 
   listEventsForPair(idA: string, idB: string): RelationshipEvent[] {
@@ -436,9 +355,7 @@ export class RelationshipSystem {
   }
 
   listRecentRelationshipEvents(limit: number): RelationshipEvent[] {
-    return [...this.events]
-      .sort((a, b) => b.timestamp - a.timestamp)
-      .slice(0, Math.max(0, limit))
+    return listTimelineRecentRelationshipEvents(this.events, limit)
   }
 
   // --- Persistence ---
@@ -454,31 +371,7 @@ export class RelationshipSystem {
 
   flush(): void {
     this.dirty = false
-    const records: RelationshipRecord[] = [...this.rels.values()].map(r => ({
-      pairKey: r.pairKey,
-      idA: r.idA,
-      idB: r.idB,
-      stage: r.stage,
-      affinity: r.affinity,
-      flirtCount: r.flirtCount,
-      flirtDays: [...r.flirtDays],
-      isCohabiting: r.isCohabiting,
-    }))
-    saveRelationships(records)
-    const behaviorRecords: RelationshipBehaviorRecord[] = [...this.behavior.values()].map(b => ({
-      pairKey: b.pairKey,
-      conflictScore: b.conflictScore,
-      recentPositiveTicks: b.recentPositiveTicks,
-      recentNegativeTicks: b.recentNegativeTicks,
-      bondTier: b.bondTier,
-      lastInteractionDay: b.lastInteractionDay,
-      jealousyPressure: b.jealousyPressure,
-      crowdingStrikes: b.crowdingStrikes,
-      negativeBySource: b.negativeBySource,
-    }))
-    saveRelationshipBehaviorRecords(behaviorRecords)
-    saveRelationshipEventRecords(this.events)
-    saveNirvInteractionRecords(this.interactions)
+    flushRelationshipRuntime(this.rels.values(), this.behavior.values(), this.events, this.interactions)
   }
 
   private computeStage(rel: Relationship, sameWorkplace: boolean, conflictScore: number): RelationshipStage {
@@ -492,103 +385,15 @@ export class RelationshipSystem {
     })
   }
 
-  private recordNegativeEvent(
-    rel: Relationship,
-    type: RelationshipEventType,
-    source: RelationshipEventSource,
-    fromStage?: RelationshipStage,
-    toStage?: RelationshipStage,
-  ): void {
-    this.events.push(buildRelationshipEvent({
-      pairKey: rel.pairKey,
-      idA: rel.idA,
-      idB: rel.idB,
-      type,
-      fromStage,
-      toStage,
-      dayCount: this.clock.getDayCount(),
-      source,
-    }))
-    this.recordInteraction(rel.idA, rel.idB, type === 'relationship_decayed' ? 'decay' : 'relationship_event', {
-      source,
-      eventType: type,
-      fromStage,
-      toStage,
-    })
-  }
-
-  private recordInteraction(
-    idA: string,
-    idB: string,
-    kind: NirvInteractionKind,
-    meta?: NirvInteraction['meta'],
-    strength?: number,
-  ): void {
-    const key = pairKey(idA, idB)
-    this.interactions.push({
-      id: `${key}:${kind}:${Date.now()}`,
-      pairKey: key,
-      idA: key.split(':')[0]!,
-      idB: key.split(':')[1]!,
-      kind,
-      dayCount: this.clock.getDayCount(),
-      timestamp: Date.now(),
-      strength,
-      meta,
-    })
-    this.trimInteractions()
-  }
-
   listRecentInteractionsForPair(idA: string, idB: string, limit = 10): NirvInteraction[] {
-    const key = pairKey(idA, idB)
-    return this.interactions
-      .filter(i => i.pairKey === key)
-      .sort((a, b) => b.timestamp - a.timestamp)
-      .slice(0, Math.max(0, limit))
+    return listTimelineRecentInteractionsForPair(this.interactions, idA, idB, limit)
   }
 
   listRecentInteractionsForNirv(id: string, limit = 30): NirvInteraction[] {
-    return this.interactions
-      .filter(i => i.idA === id || i.idB === id)
-      .sort((a, b) => b.timestamp - a.timestamp)
-      .slice(0, Math.max(0, limit))
+    return listTimelineRecentInteractionsForNirv(this.interactions, id, limit)
   }
 
   listRecentInteractions(limit = 50): NirvInteraction[] {
-    return [...this.interactions]
-      .sort((a, b) => b.timestamp - a.timestamp)
-      .slice(0, Math.max(0, limit))
-  }
-
-  private trimInteractions(): void {
-    const byPair = new Map<string, NirvInteraction[]>()
-    for (const interaction of this.interactions.sort((a, b) => b.timestamp - a.timestamp)) {
-      const arr = byPair.get(interaction.pairKey) ?? []
-      if (arr.length < MAX_INTERACTIONS_PER_PAIR) arr.push(interaction)
-      byPair.set(interaction.pairKey, arr)
-    }
-    const flattened = [...byPair.values()].flat().sort((a, b) => b.timestamp - a.timestamp)
-    this.interactions = flattened.slice(0, MAX_INTERACTIONS_TOTAL)
-  }
-
-  private shouldApplyNeedStress(botId: string, severity: number): boolean {
-    if (severity < 1.35) return false
-    const now = Date.now()
-    const last = this.lastNeedStressAt.get(botId) ?? 0
-    if (now - last < 90_000) return false
-    const chance = Phaser.Math.Clamp(0.12 + (severity - 1.35) * 0.12, 0.12, 0.42)
-    if (Math.random() > chance) return false
-    this.lastNeedStressAt.set(botId, now)
-    return true
-  }
-
-  private shouldApplyCrowding(idA: string, idB: string): boolean {
-    const key = pairKey(idA, idB)
-    const now = Date.now()
-    const last = this.lastCrowdingAt.get(key) ?? 0
-    if (now - last < 45_000) return false
-    if (Math.random() > 0.28) return false
-    this.lastCrowdingAt.set(key, now)
-    return true
+    return listTimelineRecentInteractions(this.interactions, limit)
   }
 }

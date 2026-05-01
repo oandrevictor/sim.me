@@ -2,7 +2,8 @@ import Phaser from 'phaser'
 import type { BotNirv } from '../entities/BotNirv'
 import type { NirvInteraction, RelationshipEvent, RelationshipSystem, RelationshipStage } from '../systems/RelationshipSystem'
 import { createPanelBackground } from './components/Panel'
-import { relationshipEventLabel } from './relationshipEventLabels'
+import { renderRelationshipFeeds } from './RelationshipFeeds'
+import { relationshipEventLine, relationshipInteractionLine } from './relationshipFeedLines'
 
 export const RELATIONSHIPS_PANEL_WIDTH = 480
 export const RELATIONSHIPS_PANEL_HEIGHT = 360
@@ -11,7 +12,8 @@ const ROW_HEIGHT = 30
 const ROW_PADDING_X = 14
 const HEADER_HEIGHT = 38
 const EVENTS_SECTION_HEIGHT = 120
-const EVENTS_VISIBLE_LIMIT = 6
+const EVENTS_VISIBLE_LIMIT = 5
+const INTERACTIONS_VISIBLE_LIMIT = 5
 const DETAILS_VISIBLE_LIMIT = 7
 type SortMode = 'stage' | 'affinity' | 'recent'
 
@@ -154,50 +156,19 @@ export class RelationshipsPanel {
       }).setOrigin(0.5, 0)
       this.content.add(more)
     }
-    this.renderRecentEvents(system, byId)
+    renderRelationshipFeeds({
+      scene,
+      content: this.content,
+      system,
+      byId,
+      width: w,
+      height: h,
+      sectionHeight: EVENTS_SECTION_HEIGHT,
+      rowPaddingX: ROW_PADDING_X,
+      eventLimit: EVENTS_VISIBLE_LIMIT,
+      interactionLimit: INTERACTIONS_VISIBLE_LIMIT,
+    })
     this.renderDetailsModal(system, byId)
-  }
-
-  private renderRecentEvents(system: RelationshipSystem, byId: Map<string, BotNirv>): void {
-    const scene = this.container.scene
-    const w = RELATIONSHIPS_PANEL_WIDTH
-    const h = RELATIONSHIPS_PANEL_HEIGHT
-    const sectionTop = -h - 6 + h - EVENTS_SECTION_HEIGHT + 6
-    const sectionBg = scene.add.graphics()
-    sectionBg.fillStyle(0x141b2b, 0.9)
-    sectionBg.fillRoundedRect(-w / 2 + 6, sectionTop, w - 12, EVENTS_SECTION_HEIGHT - 8, 6)
-    this.content.add(sectionBg)
-
-    const heading = scene.add.text(-w / 2 + ROW_PADDING_X, sectionTop + 8, 'Recent Relationship Events', {
-      fontSize: '11px',
-      color: '#aeb8d4',
-      fontStyle: 'bold',
-    })
-    this.content.add(heading)
-
-    const events = system.listRecentRelationshipEvents(EVENTS_VISIBLE_LIMIT)
-    if (events.length === 0) {
-      const empty = scene.add.text(-w / 2 + ROW_PADDING_X, sectionTop + 30, 'No milestone events yet.', {
-        fontSize: '10px',
-        color: '#7682a0',
-      })
-      this.content.add(empty)
-      return
-    }
-    events.forEach((event, i) => {
-      const y = sectionTop + 28 + i * 14
-      const line = scene.add.text(-w / 2 + ROW_PADDING_X, y, this.eventLine(event, byId), {
-        fontSize: '10px',
-        color: '#d9e2ff',
-      })
-      this.content.add(line)
-    })
-  }
-
-  private eventLine(event: RelationshipEvent, byId: Map<string, BotNirv>): string {
-    const a = byId.get(event.idA)?.nirv.name ?? event.idA
-    const b = byId.get(event.idB)?.nirv.name ?? event.idB
-    return `Day ${event.dayCount}: ${a} & ${b} ${relationshipEventLabel(event)}`
   }
 
   private renderControls(scene: Phaser.Scene, width: number, height: number): void {
@@ -296,9 +267,11 @@ export class RelationshipsPanel {
   }
 
   private interactionLine(interaction: NirvInteraction, byId: Map<string, BotNirv>): string {
-    const a = byId.get(interaction.idA)?.nirv.name ?? interaction.idA
-    const b = byId.get(interaction.idB)?.nirv.name ?? interaction.idB
-    return `Day ${interaction.dayCount}: ${a} & ${b} (${interaction.kind})`
+    return relationshipInteractionLine(interaction, byId)
+  }
+
+  private eventLine(event: RelationshipEvent, byId: Map<string, BotNirv>): string {
+    return relationshipEventLine(event, byId)
   }
 }
 

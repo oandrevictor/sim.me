@@ -27,5 +27,5 @@ export function preloadGameAssets(scene: Phaser.Scene): void {
   scene.load.image('fruit_crate', 'assets/Furniture/fruit_crate.png')
   scene.load.image('fridge', 'assets/Furniture/fridge.png')
   scene.load.image('floor_yellow', 'assets/Build/floorFull_yellow.png')
-  scene.load.image('portable_toilet', 'assets/Build/portable_toilet.png')
+  scene.load.spritesheet('fixtures_BA', 'assets/Interior/Bathroom/fixtures_BA.png', { frameWidth: 48, frameHeight: 64 })
 }

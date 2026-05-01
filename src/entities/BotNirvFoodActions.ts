@@ -20,15 +20,17 @@ function installMethods(target: any, source: any): void {
 }
 export function installBotNirvFoodActions(target: any): void { installMethods(target, BotNirvFoodActionMethods) }
 class BotNirvFoodActionMethods {
-  redirectToFruit(stationX: number, stationY: number, slotIndex: number): void {
+  redirectToFruit(stationX: number, stationY: number, slotIndex: number, approachX?: number, approachY?: number): void {
     this.performInterior = null
     this.pathEndCell = null
     this.satiationAnchor = { x: stationX, y: stationY }
     const p = fruitSlotWorldPosition(stationX, stationY, slotIndex)
-    this.redirectTarget = { x: p.x, y: p.y }
+    const tx = approachX ?? p.x
+    const ty = approachY ?? p.y
+    this.redirectTarget = { x: tx, y: ty }
     this._state = 'walking_to_fruit'
     this.nirv.sprite.setVelocity(0, 0)
-    this.computePathToPixel(p.x, p.y)
+    this.computePathToPixel(tx, ty)
   }
   redirectToFruitQueueSlot(x: number, y: number): void {
     this.performInterior = null

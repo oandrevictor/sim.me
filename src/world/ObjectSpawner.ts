@@ -1,6 +1,5 @@
 import Phaser from 'phaser'
 import { OBJECT_TYPE_REGISTRY, OBJECT_SIZE, getFramedObjectDisplaySize, type ObjectType } from '../objects/objectTypes'
-import { screenToGrid } from '../utils/isoGrid'
 import { savePlacedObject, type CropSeed, type CropStage } from '../storage/persistence'
 import type { RestaurantSystem } from '../systems/RestaurantSystem'
 import type { CookingSystem } from '../systems/CookingSystem'
@@ -9,12 +8,14 @@ import type { HungerSystem } from '../systems/HungerSystem'
 import type { BladderSystem } from '../systems/BladderSystem'
 import type { SleepSystem } from '../systems/SleepSystem'
 import type { FarmingSystem } from '../systems/FarmingSystem'
+import type { LightSystem } from '../systems/LightSystem'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import type { PlacementManager } from '../placement/PlacementManager'
 import { isFoodStockType, maxStockForFoodType } from '../systems/foodStockTypes'
 import { FloorTileLayer } from './FloorTileLayer'
 import { removePlacedObjectAt } from './ObjectRemoval'
 import { spawnNonPhysicsObject } from './ObjectSpawnNonPhysics'
+import { blockNavCellsForArcadeBody } from './footprintBlocker'
 
 export type PlateEntry = { sprite: Phaser.GameObjects.Sprite; tableX: number; tableY: number; recipeId: string }
 export type PlacedSpriteEntry = {
@@ -38,6 +39,9 @@ export interface SpawnerState {
 
 export class ObjectSpawner {
   private floorLayer: FloorTileLayer | null = null
+  private lightSystem: LightSystem | null = null
+
+  setLightSystem(ls: LightSystem): void { this.lightSystem = ls }
 
   private getFloorLayer(): FloorTileLayer {
     if (!this.floorLayer) this.floorLayer = new FloorTileLayer(this.scene)
@@ -75,7 +79,11 @@ export class ObjectSpawner {
     const rot = rotation ?? 0
     const frame =
       config.frame !== undefined
-        ? (type === 'stove_white_clay' ? config.frame : config.frame + rot)
+        ? (type === 'stove_white_clay'
+          ? config.frame
+          : type === 'portable_toilet'
+            ? config.frame
+            : config.frame + rot)
         : 0
 
     let spawned = true
@@ -91,8 +99,7 @@ export class ObjectSpawner {
       sprite.refreshBody()
       this.state.placedSprites.push({ sprite, type, x, y, rotation })
 
-      const g = screenToGrid(x, y)
-      this.pathfinder.blockCell(Math.round(g.gx), Math.round(g.gy))
+      blockNavCellsForArcadeBody(this.pathfinder, sprite.body as Phaser.Physics.Arcade.StaticBody)
 
       if (type === 'table2' || type === 'table4') {
         this.state.tableSprites.push({ sprite, x, y })
@@ -123,6 +130,7 @@ export class ObjectSpawner {
         hungerSystem: this.hungerSystem,
         bladderSystem: this.bladderSystem,
         farmingSystem: this.farmingSystem,
+        lightSystem: this.lightSystem ?? undefined,
         getFloorLayer: () => this.getFloorLayer(),
       }, { type, x, y, frame, recipeId, rotation, objectState })
     }
@@ -157,6 +165,7 @@ export class ObjectSpawner {
       cookingSystem: this.cookingSystem,
       bladderSystem: this.bladderSystem,
       farmingSystem: this.farmingSystem,
+      lightSystem: this.lightSystem ?? undefined,
       getFloorLayer: () => this.getFloorLayer(),
     }, snapped, menuIsInventory, menuRefreshInventory, placementManager)
   }

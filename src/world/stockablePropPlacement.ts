@@ -8,7 +8,7 @@ import { createFoodStockStation } from '../systems/foodStockTypes'
 import type { CookingSystem } from '../systems/CookingSystem'
 import type { HungerSystem } from '../systems/HungerSystem'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
-import { createFootprintBlocker, unblockCellAt } from './footprintBlocker'
+import { createFootprintBlocker } from './footprintBlocker'
 
 export interface StockablePlacementContext {
   obstacleGroup: Phaser.Physics.Arcade.StaticGroup
@@ -57,8 +57,6 @@ export function removeStockableProp(
   context: StockableRemovalContext,
   type: StockablePropType,
   sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite,
-  x: number,
-  y: number,
 ): void {
   if (type === 'snack_machine') context.hungerSystem.unregisterStation(sprite)
   else if (type === 'fruit_crate') context.hungerSystem.unregisterFruitCrate(sprite)
@@ -66,5 +64,4 @@ export function removeStockableProp(
     context.hungerSystem.unregisterStockOnlyStation(sprite)
     context.cookingSystem.unregisterFridge(sprite)
   }
-  unblockCellAt(context.pathfinder, x, y)
 }

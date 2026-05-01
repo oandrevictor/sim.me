@@ -7,6 +7,7 @@ export type BotState =
   | 'eating'
   | 'walking_to_stage'
   | 'watching_stage'
+  | 'dancing'
   | 'walking_to_perform'
   | 'performing_on_stage'
   | 'walking_to_water'
@@ -31,6 +32,7 @@ export type BotState =
   | 'ringing_house'
   | 'walking_into_house'
   | 'inside_house'
+  | 'game_night'
   | 'walking_out_of_house'
   | 'walking_to_toilet'
   | 'walking_to_toilet_queue'
@@ -50,6 +52,7 @@ export type BotState =
   | 'stocker_idle'
   | 'stocker_to_station'
   | 'stocker_restocking'
+  | 'picnicking'
 
 export function isRestaurantStaffState(s: BotState): boolean {
   return (
@@ -82,6 +85,7 @@ export function isHouseState(s: BotState): boolean {
     s === 'ringing_house' ||
     s === 'walking_into_house' ||
     s === 'inside_house' ||
+    s === 'game_night' ||
     s === 'walking_out_of_house'
   )
 }

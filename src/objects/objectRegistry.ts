@@ -87,15 +87,27 @@ export const OBJECT_TYPE_REGISTRY = {
     previewColor: 0xb8d9e6, depth: 2, hasPhysicsBody: false, isInteractable: true,
   },
   portable_toilet: {
-    type: 'portable_toilet', label: 'Portable toilet',
-    description: 'Nirvs use when they need to go', textureKey: 'portable_toilet',
-    displayAspectWidthOverHeight: 152 / 223,
+    type: 'portable_toilet', label: 'Toilet',
+    description: 'Nirvs use when they need to go',
+    textureKey: 'fixtures_BA',
+    frame: 3,
+    displayAspectWidthOverHeight: 48 / 64,
     previewColor: 0x9a9aaa, depth: 2, hasPhysicsBody: false, isInteractable: true,
   },
   crop: {
     type: 'crop', label: 'Crop', description: 'Plant and harvest corn',
     textureKey: 'crop_empty', displayAspectWidthOverHeight: 384 / 390,
     previewColor: 0xd69a35, depth: 2, hasPhysicsBody: false, isInteractable: true,
+  },
+  lamp_post: {
+    type: 'lamp_post', label: 'Lamp', description: 'Illuminates the area at night',
+    textureKey: 'lamp_post',
+    previewColor: 0xffd966, depth: 3, hasPhysicsBody: false, isInteractable: false,
+  },
+  tv: {
+    type: 'tv', label: 'TV', description: 'Bots gather to play games together at night',
+    textureKey: 'tv', displayAspectWidthOverHeight: 1.5,
+    previewColor: 0x2a3f5f, depth: 3, hasPhysicsBody: false, isInteractable: false,
   },
   ...BED_REGISTRY_ENTRIES,
 } as Record<ObjectType, ObjectTypeConfig>

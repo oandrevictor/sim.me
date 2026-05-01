@@ -28,14 +28,13 @@ const PUBLIC_TEMPLATE: ScheduleTemplate = [
 ]
 
 const PERFORMER_TEMPLATE: ScheduleTemplate = [
-  { startMinute: HM(0), endMinute: HM(1), activity: 'home' },
-  { startMinute: HM(1), endMinute: HM(9), activity: 'sleep' },
-  { startMinute: HM(9), endMinute: HM(10), activity: 'morning' },
-  { startMinute: HM(10), endMinute: HM(12), activity: 'leisure' },
+  { startMinute: HM(0), endMinute: HM(7, 30), activity: 'sleep' },
+  { startMinute: HM(7, 30), endMinute: HM(8, 30), activity: 'morning' },
+  { startMinute: HM(8, 30), endMinute: HM(12), activity: 'leisure' },
   { startMinute: HM(12), endMinute: HM(13), activity: 'meal' },
-  { startMinute: HM(13), endMinute: HM(18), activity: 'work' },
-  { startMinute: HM(18), endMinute: HM(19), activity: 'meal' },
-  { startMinute: HM(19), endMinute: HM(24), activity: 'work' },
+  { startMinute: HM(13), endMinute: HM(18), activity: 'leisure' },
+  { startMinute: HM(18), endMinute: HM(23), activity: 'work' },
+  { startMinute: HM(23), endMinute: HM(24), activity: 'sleep' },
 ]
 
 export const SCHEDULE_TEMPLATES: Record<NirvProfession, ScheduleTemplate> = {
@@ -48,10 +47,10 @@ export const SCHEDULE_TEMPLATES: Record<NirvProfession, ScheduleTemplate> = {
 interface RoleWindow { start: number; end: number }
 
 export const ROLE_WORK_WINDOWS: Record<WorkRole, readonly RoleWindow[]> = {
-  chef:    [{ start: HM(11), end: HM(14, 30) }, { start: HM(17, 30), end: HM(22) }],
-  waiter:  [{ start: HM(11), end: HM(14, 30) }, { start: HM(17, 30), end: HM(22) }],
-  farmer:  [{ start: HM(6), end: HM(11) }],
-  stocker: [{ start: HM(9), end: HM(11) }, { start: HM(15), end: HM(17) }],
+  chef:    [{ start: HM(17), end: HM(24) }],
+  waiter:  [{ start: HM(17), end: HM(24) }],
+  farmer:  [{ start: HM(7), end: HM(11) }, { start: HM(14), end: HM(18) }],
+  stocker: [{ start: HM(6), end: HM(10) }, { start: HM(16), end: HM(19) }],
 }
 
 const JITTER_RANGE_MIN = 15
@@ -84,7 +83,7 @@ export function overlayRoleWork(blocks: readonly ScheduleBlock[], roles: readonl
 
   const result: ScheduleBlock[] = []
   for (const b of blocks) {
-    if (b.activity !== 'morning' && b.activity !== 'leisure') {
+    if (b.activity !== 'morning' && b.activity !== 'leisure' && b.activity !== 'home') {
       result.push({ ...b })
       continue
     }

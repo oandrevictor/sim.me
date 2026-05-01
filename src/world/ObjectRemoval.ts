@@ -10,6 +10,7 @@ import type { CookingSystem } from '../systems/CookingSystem'
 import type { FarmingSystem } from '../systems/FarmingSystem'
 import type { HydrationSystem } from '../systems/HydrationSystem'
 import type { HungerSystem } from '../systems/HungerSystem'
+import type { LightSystem } from '../systems/LightSystem'
 import type { RestaurantSystem } from '../systems/RestaurantSystem'
 import type { SleepSystem } from '../systems/SleepSystem'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
@@ -17,6 +18,7 @@ import { screenToGrid } from '../utils/isoGrid'
 import type { FloorTileLayer } from './FloorTileLayer'
 import type { SpawnerState } from './ObjectSpawner'
 import { removeStockableProp } from './stockablePropPlacement'
+import { unblockNavCellsForArcadeBody } from './footprintBlocker'
 
 interface ObjectRemovalContext {
   state: SpawnerState
@@ -28,6 +30,7 @@ interface ObjectRemovalContext {
   cookingSystem: CookingSystem
   bladderSystem: BladderSystem
   farmingSystem: FarmingSystem
+  lightSystem?: LightSystem
   getFloorLayer: () => FloorTileLayer
 }
 
@@ -56,7 +59,12 @@ export function removePlacedObjectAt(
   unregisterObject(context, sprite, type, x, y)
   removeObjectAt(x, y)
 
-  if (OBJECT_TYPE_REGISTRY[type].hasPhysicsBody) unblockCell(context.pathfinder, x, y)
+  if (entry.footprintBlocker?.body) {
+    unblockNavCellsForArcadeBody(context.pathfinder, entry.footprintBlocker.body as any)
+  } else if (OBJECT_TYPE_REGISTRY[type].hasPhysicsBody && sprite.body) {
+    unblockNavCellsForArcadeBody(context.pathfinder, sprite.body as any)
+  }
+
   if (menuIsInventory) {
     addToInventory(type)
     menuRefreshInventory()
@@ -86,18 +94,16 @@ function unregisterObject(
   else if (type === 'chair') context.restaurantSystem.unregisterChair(sprite as Phaser.GameObjects.Sprite)
   else if (type === 'drinking_water') {
     context.hydrationSystem.unregisterStation(sprite as Phaser.Physics.Arcade.Sprite)
-    unblockCell(context.pathfinder, x, y)
   } else if (isStockablePropType(type)) {
-    removeStockableProp(context, type, sprite, x, y)
+    removeStockableProp(context, type, sprite)
   } else if (type === 'portable_toilet') {
     context.bladderSystem.unregisterStation(sprite as Phaser.Physics.Arcade.Sprite)
-    unblockCell(context.pathfinder, x, y)
   } else if (type === 'crop') {
     context.farmingSystem.unregisterCrop(sprite)
-    unblockCell(context.pathfinder, x, y)
   } else if (isBedType(type)) {
     context.sleepSystem.unregisterBed(sprite as Phaser.GameObjects.Sprite)
-    unblockCell(context.pathfinder, x, y)
+  } else if (type === 'lamp_post') {
+    context.lightSystem?.unregisterLamp(sprite as Phaser.GameObjects.Sprite)
   } else if (type === 'table2' || type === 'table4') {
     context.restaurantSystem.unregisterTable(sprite)
   } else if (type === 'counter') {
@@ -106,11 +112,6 @@ function unregisterObject(
       Math.abs(p.tableX - x) >= 2 || Math.abs(p.tableY - y) >= 2,
     )
   }
-}
-
-function unblockCell(pathfinder: GridPathfinder, x: number, y: number): void {
-  const g = screenToGrid(x, y)
-  pathfinder.unblockCell(Math.round(g.gx), Math.round(g.gy))
 }
 
 function removeFloorTile(context: ObjectRemovalContext, x: number, y: number): void {

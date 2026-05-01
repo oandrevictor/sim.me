@@ -1,15 +1,21 @@
 import Phaser from 'phaser'
 import type { BotNirv } from '../entities/BotNirv'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
-import { queueSlotBehindStation } from './waterQueueLayout'
+import {
+  resolveReachableQueueSlot,
+  resolveStationApproach,
+  type StationApproach,
+} from './stationApproach'
 
 const STATION_REACH_PX = 32
+export type WaterApproach = StationApproach
 
 export interface WaterStation {
   sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite
   x: number
   y: number
   active: BotNirv | null
+  activeApproach: WaterApproach | null
   queue: BotNirv[]
 }
 
@@ -20,22 +26,44 @@ export function findWaterStationForBot(
   return stations.find(st => st.active === bot || st.queue.includes(bot)) ?? null
 }
 
+export function resolveWaterStationApproach(
+  pathfinder: GridPathfinder,
+  st: WaterStation,
+  bot: BotNirv,
+): WaterApproach | null {
+  return resolveStationApproach(pathfinder, st.x, st.y, bot)
+}
+
 export function checkWaterTapArrivals(stations: readonly WaterStation[]): void {
   for (const st of stations) {
     if (!st.active || st.active.state !== 'walking_to_water') continue
-    const d = Phaser.Math.Distance.Between(st.active.nirv.sprite.x, st.active.nirv.sprite.y, st.x, st.y)
+    if (!st.activeApproach) continue
+    const d = Phaser.Math.Distance.Between(
+      st.active.nirv.sprite.x,
+      st.active.nirv.sprite.y,
+      st.activeApproach.x,
+      st.activeApproach.y,
+    )
     if (d < STATION_REACH_PX) st.active.arriveAtWaterStation()
   }
 }
 
 export function checkWaterTapArrivalsWithAccess(
+  pathfinder: GridPathfinder,
   stations: readonly WaterStation[],
   canInteract: (bot: BotNirv, x: number, y: number) => boolean,
 ): void {
   for (const st of stations) {
     if (!st.active || st.active.state !== 'walking_to_water') continue
     if (!canInteract(st.active, st.x, st.y)) continue
-    const d = Phaser.Math.Distance.Between(st.active.nirv.sprite.x, st.active.nirv.sprite.y, st.x, st.y)
+    st.activeApproach ??= resolveWaterStationApproach(pathfinder, st, st.active)
+    if (!st.activeApproach) continue
+    const d = Phaser.Math.Distance.Between(
+      st.active.nirv.sprite.x,
+      st.active.nirv.sprite.y,
+      st.activeApproach.x,
+      st.activeApproach.y,
+    )
     if (d < STATION_REACH_PX) st.active.arriveAtWaterStation()
   }
 }
@@ -45,12 +73,18 @@ export function checkWaterQueueSlotArrivals(
   stations: readonly WaterStation[],
 ): void {
   for (const st of stations) {
-    st.queue.forEach((bot, lineIndex) => {
-      if (bot.state !== 'walking_to_water_queue') return
-      const slot = queueSlotBehindStation(pathfinder, st.x, st.y, lineIndex)
+    for (let lineIndex = st.queue.length - 1; lineIndex >= 0; lineIndex--) {
+      const bot = st.queue[lineIndex]!
+      if (bot.state !== 'walking_to_water_queue') continue
+      const slot = resolveReachableQueueSlot(pathfinder, st.x, st.y, bot, lineIndex)
+      if (!slot) {
+        st.queue.splice(lineIndex, 1)
+        bot.cancelWaterQueue()
+        continue
+      }
       const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, slot.x, slot.y)
       if (d < STATION_REACH_PX) bot.arriveAtWaterQueueSlot()
-    })
+    }
   }
 }
 
@@ -63,6 +97,7 @@ export function releaseFinishedWaterStations(
     const s = st.active.state
     if (s === 'walking_to_water' || s === 'drinking_water') continue
     st.active = null
+    st.activeApproach = null
     promoteNextInLine(pathfinder, st)
   }
 }
@@ -80,15 +115,29 @@ export function repairOrphanWaterQueues(
 function promoteNextInLine(pathfinder: GridPathfinder, st: WaterStation): void {
   const next = st.queue.shift()
   if (!next) return
+  const approach = resolveWaterStationApproach(pathfinder, st, next)
+  if (!approach) {
+    next.cancelWaterQueue()
+    promoteNextInLine(pathfinder, st)
+    return
+  }
   st.active = next
-  next.redirectToWater(st.x, st.y)
+  st.activeApproach = approach
+  next.redirectToWater(approach.x, approach.y)
   syncQueueSlots(pathfinder, st)
 }
 
 function syncQueueSlots(pathfinder: GridPathfinder, st: WaterStation): void {
-  st.queue.forEach((bot, i) => {
-    if (bot.state !== 'waiting_at_water_queue' && bot.state !== 'walking_to_water_queue') return
-    const p = queueSlotBehindStation(pathfinder, st.x, st.y, i)
+  const kept: BotNirv[] = []
+  for (const bot of st.queue) {
+    if (bot.state !== 'waiting_at_water_queue' && bot.state !== 'walking_to_water_queue') continue
+    const p = resolveReachableQueueSlot(pathfinder, st.x, st.y, bot, kept.length)
+    if (!p) {
+      bot.cancelWaterQueue()
+      continue
+    }
     bot.redirectToWaterQueueSlot(p.x, p.y)
-  })
+    kept.push(bot)
+  }
+  st.queue.splice(0, st.queue.length, ...kept)
 }

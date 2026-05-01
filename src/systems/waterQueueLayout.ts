@@ -131,6 +131,17 @@ function slotGridForIndex(
   return { gx, gy }
 }
 
+export function queueSlotCellBehindStation(
+  pathfinder: GridPathfinder,
+  stationX: number,
+  stationY: number,
+  lineIndex: number,
+): { gx: number; gy: number } {
+  const k = Math.min(Math.max(0, lineIndex), MAX_QUEUE_SLOTS - 1)
+  const { gx, gy } = screenToGrid(stationX, stationY)
+  return slotGridForIndex(pathfinder, Math.round(gx), Math.round(gy), k)
+}
+
 /**
  * Pixel center of the `lineIndex` queue slot (0 = first behind the station).
  * Follows cardinal grid steps from the station tile; bends in an L when the primary run hits a wall.
@@ -141,10 +152,6 @@ export function queueSlotBehindStation(
   stationY: number,
   lineIndex: number,
 ): { x: number; y: number } {
-  const k = Math.min(Math.max(0, lineIndex), MAX_QUEUE_SLOTS - 1)
-  const { gx, gy } = screenToGrid(stationX, stationY)
-  const sgxi = Math.round(gx)
-  const sgyi = Math.round(gy)
-  const cell = slotGridForIndex(pathfinder, sgxi, sgyi, k)
+  const cell = queueSlotCellBehindStation(pathfinder, stationX, stationY, lineIndex)
   return gridToScreen(cell.gx, cell.gy)
 }

@@ -64,6 +64,35 @@ class BotNirvNeedActionMethods {
     this.currentIndex = (this.currentIndex + 1) % this.waypoints.length
     this.computePathToWaypoint()
   }
+  /** Group activity: Dance Floor — bot stays at stage position, stageId preserved. */
+  enterDancing(): void {
+    if (this._state !== 'watching_stage') return
+    this._state = 'dancing'
+    this.nirv.sprite.setVelocity(0, 0)
+  }
+  leaveDancing(): void {
+    if (this._state !== 'dancing') return
+    this._state = 'watching_stage'
+  }
+  /** Group activity: Picnic — bot sits at a free table. */
+  enterPicnicking(): void {
+    if (this._state !== 'waiting' && this._state !== 'seated') return
+    this.nirv.sprite.setVelocity(0, 0)
+    this._state = 'picnicking'
+  }
+  leavePicnicking(): void {
+    if (this._state !== 'picnicking') return
+    this._state = 'waiting'
+  }
+  /** Group activity: Game Night — bot stays inside a house. */
+  enterGameNight(): void {
+    if (this._state !== 'inside_house') return
+    this._state = 'game_night'
+  }
+  leaveGameNight(): void {
+    if (this._state !== 'game_night') return
+    this._state = 'inside_house'
+  }
   redirectToBed(x: number, y: number): void {
     this.performInterior = null
     this.pathEndCell = null
@@ -190,7 +219,8 @@ class BotNirvNeedActionMethods {
     this.nirv.updateAnimation(0, 0)
     this._state = 'waiting_at_water_queue'
   }
-  cancelWaterQueue(): void {
+  cancelWaterQueue(force = false): void {
+    if (this._state === 'drinking_water' && !force) return
     if (
       this._state !== 'walking_to_water' &&
       this._state !== 'drinking_water' &&
@@ -213,13 +243,13 @@ class BotNirvNeedActionMethods {
     this.seatTimer = 3000
     this.showStatusIcon()
   }
-  redirectToToilet(x: number, y: number): void {
+  redirectToToilet(x: number, y: number, approachX = x, approachY = y): void {
     this.performInterior = null
     this.pathEndCell = null
-    this.redirectTarget = { x, y }
+    this.redirectTarget = { x: approachX, y: approachY }
     this._state = 'walking_to_toilet'
     this.nirv.sprite.setVelocity(0, 0)
-    this.computePathToPixel(x, y)
+    this.computePathToPixel(approachX, approachY)
   }
   redirectToToiletQueueSlot(x: number, y: number): void {
     this.performInterior = null
@@ -297,14 +327,14 @@ class BotNirvNeedActionMethods {
     this.currentIndex = (this.currentIndex + 1) % this.waypoints.length
     this.computePathToWaypoint()
   }
-  redirectToSnack(stationX: number, stationY: number): void {
+  redirectToSnack(stationX: number, stationY: number, approachX = stationX, approachY = stationY): void {
     this.performInterior = null
     this.pathEndCell = null
     this.satiationAnchor = { x: stationX, y: stationY }
-    this.redirectTarget = { x: stationX, y: stationY }
+    this.redirectTarget = { x: approachX, y: approachY }
     this._state = 'walking_to_snack'
     this.nirv.sprite.setVelocity(0, 0)
-    this.computePathToPixel(stationX, stationY)
+    this.computePathToPixel(approachX, approachY)
   }
   redirectToSnackQueueSlot(x: number, y: number): void {
     this.performInterior = null

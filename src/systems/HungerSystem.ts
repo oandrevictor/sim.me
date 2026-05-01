@@ -5,7 +5,6 @@ import { isHouseState, isWorkJobState, type BotNirv } from '../entities/BotNirv'
 import { CRITICAL_SATIATION } from '../entities/nirvHunger'
 import { updatePlacedObjectAt } from '../storage/persistence'
 import type { RestaurantSystem } from './RestaurantSystem'
-import { queueSlotBehindStation } from './waterQueueLayout'
 import {
   clampFoodStock,
   maxStockForFoodType,
@@ -24,15 +23,18 @@ import {
   repairFruitOrphanQueues,
   unregisterFruitCrateStation,
 } from './hungerFruitCrates'
+import {
+  assignBotToSnackStation,
+  checkSnackQueueArrivals,
+  checkSnackTapArrivals,
+  findSnackStationForBot,
+  releaseFinishedSnackStations,
+  repairSnackOrphanQueues,
+  type SnackStation,
+} from './snackStationRuntime'
 import type { RelationshipSystem } from './RelationshipSystem'
 
 const CHECK_INTERVAL_MS = 2000
-const STATION_REACH_PX = 32
-
-interface SnackStation extends FoodStockStation {
-  active: BotNirv | null
-  queue: BotNirv[]
-}
 
 type StationCandidate =
   | { kind: 'snack'; st: SnackStation; dist: number }
@@ -77,6 +79,7 @@ export class HungerSystem {
       maxStock: maxStockForFoodType('snack_machine'),
       reservedByStockerBotId: null,
       active: null,
+      activeApproach: null,
       queue: [],
     })
   }
@@ -96,6 +99,7 @@ export class HungerSystem {
       maxStock: maxStockForFoodType('fruit_crate'),
       reservedByStockerBotId: null,
       slots: [null, null, null],
+      slotApproaches: [null, null, null],
       queue: [],
     })
   }
@@ -107,6 +111,7 @@ export class HungerSystem {
     if (st.active) {
       st.active.cancelSatiationQueue()
       st.active = null
+      st.activeApproach = null
     }
     for (const b of st.queue) b.cancelSatiationQueue()
     st.queue.length = 0
@@ -127,13 +132,23 @@ export class HungerSystem {
   }
 
   updateStations(_delta: number): void {
-    this.checkTapArrivals()
-    checkFruitSlotArrivals(this.fruitStations, st => this.consumeStationStock(st), this.canBotInteractWithStation)
-    this.checkQueueSlotArrivals()
+    checkSnackTapArrivals(
+      this.pathfinder,
+      this.stations,
+      st => this.consumeStationStock(st),
+      this.canBotInteractWithStation,
+    )
+    checkFruitSlotArrivals(
+      this.pathfinder,
+      this.fruitStations,
+      st => this.consumeStationStock(st),
+      this.canBotInteractWithStation,
+    )
+    checkSnackQueueArrivals(this.pathfinder, this.stations)
     checkFruitQueueArrivals(this.pathfinder, this.fruitStations)
-    this.releaseFinishedServing()
+    releaseFinishedSnackStations(this.pathfinder, this.stations)
     releaseFruitSlotsAfterInteract(this.fruitStations, st => promoteFruitQueue(this.pathfinder, st))
-    this.repairOrphanQueues()
+    repairSnackOrphanQueues(this.pathfinder, this.stations)
     repairFruitOrphanQueues(this.fruitStations, st => promoteFruitQueue(this.pathfinder, st))
 
     this.assignAccum += _delta
@@ -143,10 +158,7 @@ export class HungerSystem {
   }
 
   private findSnackStationForBot(bot: BotNirv): SnackStation | null {
-    for (const st of this.stations) {
-      if (st.active === bot || st.queue.includes(bot)) return st
-    }
-    return null
+    return findSnackStationForBot(this.stations, bot)
   }
 
   private findAnyStationForBot(bot: BotNirv): boolean {
@@ -160,80 +172,6 @@ export class HungerSystem {
   setFoodStationStock(station: FoodStockStation, stock: number): void {
     station.stock = clampFoodStock(station.type, stock)
     updatePlacedObjectAt(station.x, station.y, station.type, { stock: station.stock })
-  }
-
-  /** One at a time at any vending machine: approach + panel (not wander/eat). */
-  private anySnackApproachOrInteract(): boolean {
-    for (const st of this.stations) {
-      const b = st.active
-      if (!b) continue
-      if (b.state === 'walking_to_snack' || b.state === 'snack_interact') return true
-    }
-    return false
-  }
-
-  private checkTapArrivals(): void {
-    for (const st of this.stations) {
-      if (!st.active) continue
-      const bot = st.active
-      if (bot.state !== 'walking_to_snack') continue
-      if (!this.canBotInteractWithStation(bot, st.x, st.y)) continue
-      const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, st.x, st.y)
-      if (d < STATION_REACH_PX) {
-        if (this.consumeStationStock(st)) bot.arriveAtSnackStation()
-        else bot.cancelSatiationQueue()
-      }
-    }
-  }
-
-  private checkQueueSlotArrivals(): void {
-    for (const st of this.stations) {
-      st.queue.forEach((bot, lineIndex) => {
-        if (bot.state !== 'walking_to_snack_queue') return
-        const slot = queueSlotBehindStation(this.pathfinder, st.x, st.y, lineIndex)
-        const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, slot.x, slot.y)
-        if (d < STATION_REACH_PX) bot.arriveAtSnackQueueSlot()
-      })
-    }
-  }
-
-  private releaseFinishedServing(): void {
-    for (const st of this.stations) {
-      if (!st.active) continue
-      const s = st.active.state
-      if (s === 'walking_to_snack' || s === 'snack_interact') continue
-      st.active = null
-      this.promoteNextInLine(st)
-    }
-  }
-
-  private repairOrphanQueues(): void {
-    if (this.anySnackApproachOrInteract()) return
-    for (const st of this.stations) {
-      if (st.active || st.queue.length === 0) continue
-      this.promoteNextInLine(st)
-    }
-  }
-
-  private promoteNextInLine(st: SnackStation): void {
-    const next = st.queue.shift()
-    if (!next) return
-    if (this.anySnackApproachOrInteract()) {
-      st.queue.unshift(next)
-      return
-    }
-    st.active = next
-    next.redirectToSnack(st.x, st.y)
-    this.syncQueueSlots(st)
-  }
-
-  private syncQueueSlots(st: SnackStation): void {
-    st.queue.forEach((bot, i) => {
-      const p = queueSlotBehindStation(this.pathfinder, st.x, st.y, i)
-      if (bot.state === 'waiting_at_snack_queue' || bot.state === 'walking_to_snack_queue') {
-        bot.redirectToSnackQueueSlot(p.x, p.y)
-      }
-    })
   }
 
   private tryAssignHungryBots(): void {
@@ -267,6 +205,7 @@ export class HungerSystem {
         continue
       }
       if (stBot === 'walking_to_perform' || stBot === 'performing_on_stage') continue
+      if (stBot === 'drinking_water') continue
 
       if (this.findAnyStationForBot(bot)) continue
 
@@ -279,7 +218,7 @@ export class HungerSystem {
         // Avoid over-triggering: mild hunger should not become social stress.
         if (sat <= CRITICAL_SATIATION - 8) {
           const severity = 1.4 + (CRITICAL_SATIATION - sat) / 28
-          this.relationshipSystem?.applyNeedStress(bot, severity)
+          this.relationshipSystem?.applyNeedStress(bot, severity, 'hunger')
         }
         if (stBot === 'sleeping' || stBot === 'walking_to_bed') bot.cancelSleep()
         bot.cancelWaterQueue()
@@ -308,22 +247,11 @@ export class HungerSystem {
       }
       if (candidates.length === 0) continue
       candidates.sort((a, b) => a.dist - b.dist)
-      const best = candidates[0]
-      if (best.kind === 'snack') {
-        const st = best.st
-        const canTakeMachineNow =
-          !st.active && st.queue.length === 0 && !this.anySnackApproachOrInteract()
-        if (canTakeMachineNow) {
-          st.active = bot
-          bot.redirectToSnack(st.x, st.y)
-        } else {
-          st.queue.push(bot)
-          const lineIndex = st.queue.length - 1
-          const p = queueSlotBehindStation(this.pathfinder, st.x, st.y, lineIndex)
-          bot.redirectToSnackQueueSlot(p.x, p.y)
-        }
-      } else {
-        assignBotToFruitCrate(this.pathfinder, best.st, bot)
+      for (const candidate of candidates) {
+        const assigned = candidate.kind === 'snack'
+          ? assignBotToSnackStation(this.pathfinder, this.stations, candidate.st, bot)
+          : assignBotToFruitCrate(this.pathfinder, candidate.st, bot)
+        if (assigned) break
       }
     }
   }

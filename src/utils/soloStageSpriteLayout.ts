@@ -1,9 +1,7 @@
-import Phaser from 'phaser'
-import { gridToScreen, TILE_W } from './isoGrid'
+import { gridToScreen, TILE_H, TILE_W } from './isoGrid'
 
 /**
- * Scale the sprite to match the iso diamond's width, anchor at the bottom vertex (br).
- * The rig/structure above the deck naturally overflows upward, which is correct for tall props.
+ * Scale the sprite to the footprint bounding box, anchor bottom-center on the deck.
  */
 export function layoutSoloStageSprite(
   sprite: Phaser.GameObjects.Sprite,
@@ -12,17 +10,17 @@ export function layoutSoloStageSprite(
   gridW: number,
   gridH: number,
 ): void {
-  const br = gridToScreen(gridX + gridW + 1, gridY + gridH + 1)
-  // Diamond bboxW = (gridW + gridH) * TILE_W/2, derived from the left/right vertices.
-  const bboxW = (gridW + gridH) * (TILE_W / 2)
+  const c0 = gridToScreen(gridX, gridY)
+  const topLeft = { x: c0.x - TILE_W / 2, y: c0.y - TILE_H / 2 }
+  const bboxW = gridW * TILE_W
+  const bboxH = gridH * TILE_H
+  const bottomCenter = { x: topLeft.x + bboxW / 2, y: topLeft.y + bboxH }
+
   const tw = sprite.frame.width || sprite.width
-  const s = bboxW / tw
-  console.log(br.x, br.y, s)
+  const th = sprite.frame.height || sprite.height
+  const s = Math.min(bboxW / tw, bboxH / th)
   sprite.setScale(s)
   sprite.setOrigin(0.5, 1)
-  sprite.setPosition(br.x, br.y)
-  // Depth at top vertex so Nirvs on stage render above the platform
-  const tl = gridToScreen(gridX, gridY)
-  const tr = gridToScreen(gridX + gridW, gridY)
-  sprite.setDepth(Math.min(tl.y, tr.y))
+  sprite.setPosition(bottomCenter.x, bottomCenter.y)
+  sprite.setDepth(topLeft.y)
 }

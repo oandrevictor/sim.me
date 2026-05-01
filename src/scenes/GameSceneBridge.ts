@@ -139,6 +139,11 @@ class GameSceneBridgeMethods {
 			if (!band || band.memberBotIds.length < 2) return false
 		}
 		this.stageSystem.setStageAttraction(stageId, attraction)
+		// Sync spotlight positions whenever attraction changes
+		if (st) {
+			const performerCount = attraction ? this.getStagePerformers(stageId).length : 0
+			this.concertSpotlights.syncStage(st, performerCount)
+		}
 		return true
 	}
 	getBandsForUI(): BandRecord[] {
@@ -163,5 +168,17 @@ class GameSceneBridgeMethods {
 	}
 	getClockLabel(): string {
 		return this.worldClock.getLabel()
+	}
+	getDayNightSystem(): import('../systems/DayNightSystem').DayNightSystem {
+		return this.dayNightSystem
+	}
+	getConcertSpotlights(): import('../systems/ConcertSpotlightSystem').ConcertSpotlightSystem {
+		return this.concertSpotlights
+	}
+	getLightSystem(): import('../systems/LightSystem').LightSystem {
+		return this.lightSystem
+	}
+	getGroupActivitySystem(): import('../systems/GroupActivitySystem').GroupActivitySystem {
+		return this.groupActivitySystem
 	}
 }

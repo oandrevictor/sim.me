@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { gridToScreen } from '../utils/isoGrid'
+import { getGridRect, gridToScreen, TILE_H, TILE_W } from '../utils/isoGrid'
 
 const THEME = {
   floor: 0x1a1a2e,
@@ -20,68 +20,35 @@ export function drawDefaultStageGraphics(
 ): void {
   gfx.clear()
 
-  const tl = gridToScreen(gridX, gridY)
-  const tr = gridToScreen(gridX + gridW, gridY)
-  const br = gridToScreen(gridX + gridW, gridY + gridH)
-  const bl = gridToScreen(gridX, gridY + gridH)
+  const rect = getGridRect(gridX, gridY, gridW, gridH)
 
   gfx.fillStyle(THEME.floor, 1)
-  gfx.beginPath()
-  gfx.moveTo(tl.x, tl.y)
-  gfx.lineTo(tr.x, tr.y)
-  gfx.lineTo(br.x, br.y)
-  gfx.lineTo(bl.x, bl.y)
-  gfx.closePath()
-  gfx.fillPath()
+  gfx.fillRect(rect.x, rect.y, rect.width, rect.height)
 
   gfx.lineStyle(1, THEME.grid, 0.35)
-  for (let x = gridX; x <= gridX + gridW; x++) {
-    const from = gridToScreen(x, gridY)
-    const to = gridToScreen(x, gridY + gridH)
-    gfx.lineBetween(from.x, from.y, to.x, to.y)
+  for (let i = 0; i <= gridW; i++) {
+    const x = rect.x + i * TILE_W
+    gfx.lineBetween(x, rect.y, x, rect.y + rect.height)
   }
-  for (let y = gridY; y <= gridY + gridH; y++) {
-    const from = gridToScreen(gridX, y)
-    const to = gridToScreen(gridX + gridW, y)
-    gfx.lineBetween(from.x, from.y, to.x, to.y)
+  for (let i = 0; i <= gridH; i++) {
+    const y = rect.y + i * TILE_H
+    gfx.lineBetween(rect.x, y, rect.x + rect.width, y)
   }
-
-  const pi = 0.5
-  const ptl = gridToScreen(gridX + pi, gridY + pi)
-  const ptr = gridToScreen(gridX + gridW - pi, gridY + pi)
-  const pbr = gridToScreen(gridX + gridW - pi, gridY + gridH - pi)
-  const pbl = gridToScreen(gridX + pi, gridY + gridH - pi)
 
   gfx.fillStyle(THEME.platform, 1)
-  gfx.beginPath()
-  gfx.moveTo(ptl.x, ptl.y)
-  gfx.lineTo(ptr.x, ptr.y)
-  gfx.lineTo(pbr.x, pbr.y)
-  gfx.lineTo(pbl.x, pbl.y)
-  gfx.closePath()
-  gfx.fillPath()
+  gfx.fillRect(
+    rect.x + TILE_W / 2,
+    rect.y + TILE_H / 2,
+    Math.max(0, rect.width - TILE_W),
+    Math.max(0, rect.height - TILE_H),
+  )
 
   gfx.lineStyle(2, THEME.accent, 0.9)
-  gfx.beginPath()
-  gfx.moveTo(tl.x, tl.y)
-  gfx.lineTo(tr.x, tr.y)
-  gfx.lineTo(br.x, br.y)
-  gfx.lineTo(bl.x, bl.y)
-  gfx.closePath()
-  gfx.strokePath()
+  gfx.strokeRect(rect.x, rect.y, rect.width, rect.height)
 
-  const otl = gridToScreen(gridX - 1, gridY - 1)
-  const otr = gridToScreen(gridX + gridW, gridY - 1)
-  const obr = gridToScreen(gridX + gridW, gridY + gridH)
-  const obl = gridToScreen(gridX - 1, gridY + gridH)
+  const outer = getGridRect(gridX - 1, gridY - 1, gridW + 2, gridH + 2)
   gfx.lineStyle(2, THEME.grid, 0.95)
-  gfx.beginPath()
-  gfx.moveTo(otl.x, otl.y)
-  gfx.lineTo(otr.x, otr.y)
-  gfx.lineTo(obr.x, obr.y)
-  gfx.lineTo(obl.x, obl.y)
-  gfx.closePath()
-  gfx.strokePath()
+  gfx.strokeRect(outer.x, outer.y, outer.width, outer.height)
 
   const numLights = gridW
   for (let i = 0; i < numLights; i++) {
@@ -94,6 +61,5 @@ export function drawDefaultStageGraphics(
   }
 
   // Depth at top vertex so Nirvs on the stage platform render above it
-  const topY = Math.min(tl.y, tr.y)
-  gfx.setDepth(topY)
+  gfx.setDepth(rect.y)
 }

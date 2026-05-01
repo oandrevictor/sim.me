@@ -4,7 +4,7 @@ import { platformInsetContainsPixel } from './isoQuad'
 
 /**
  * Integer tile indices whose centers lie on the raised platform (inset quad matches Stage.draw).
- * `gridToScreen(gx, gy)` is the tile center — do not add 0.5 (skewed iso would miss the deck).
+ * `gridToScreen(gx, gy)` is the tile center — fractional gx/gy are avoided so centers stay on the deck.
  */
 function collectPlatformTileCells(
   gridX: number,
@@ -40,10 +40,7 @@ function flatRectFallback(
 }
 
 function boundsFromCells(cells: { gx: number; gy: number }[]): StageInteriorBounds {
-  let minGX = Infinity
-  let maxGX = -Infinity
-  let minGY = Infinity
-  let maxGY = -Infinity
+  let minGX = Infinity, maxGX = -Infinity, minGY = Infinity, maxGY = -Infinity
   for (const c of cells) {
     minGX = Math.min(minGX, c.gx)
     maxGX = Math.max(maxGX, c.gx)

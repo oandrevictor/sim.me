@@ -1,8 +1,9 @@
 import Phaser from 'phaser'
 import type { BotNirv } from '../entities/BotNirv'
-import type { Building } from '../entities/Building'
 import type { Nirv } from '../entities/Nirv'
 import type { RelationshipEvent, RelationshipSystem, RelationshipStage } from '../systems/RelationshipSystem'
+import type { HomeSpace } from '../systems/HomeSpace'
+import { getMoodEmoji, getMoodLabel, getMoodColor } from '../systems/MoodSystem'
 import { createPanelBackground } from './components/Panel'
 import { getBotStatusColor, getBotStatusLabel } from './statusUtils'
 import { relationshipEventLabel } from './relationshipEventLabels'
@@ -42,7 +43,7 @@ export class NirvsPanel {
 
   private getBots: () => readonly BotNirv[] = () => []
   private getPlayer: () => Nirv | null = () => null
-  private getBuildings: () => readonly Building[] = () => []
+  private getHomes: () => readonly HomeSpace[] = () => []
   private getRelationships: () => RelationshipSystem | null = () => null
 
   constructor(scene: Phaser.Scene) {
@@ -72,12 +73,12 @@ export class NirvsPanel {
   setProviders(
     getPlayer: () => Nirv | null,
     getBots: () => readonly BotNirv[],
-    getBuildings: () => readonly Building[],
+    getHomes: () => readonly HomeSpace[],
     getRelationships: () => RelationshipSystem | null,
   ): void {
     this.getPlayer = getPlayer
     this.getBots = getBots
-    this.getBuildings = getBuildings
+    this.getHomes = getHomes
     this.getRelationships = getRelationships
   }
 
@@ -135,6 +136,12 @@ export class NirvsPanel {
           fontSize: '9px', color: '#8893b1',
         }).setOrigin(1, 0.5)
         this.listLayer.add(tag)
+      } else if (entry.bot) {
+        const emoji = getMoodEmoji(entry.bot.nirv.getMood())
+        const moodTag = scene.add.text(startX + LIST_W - 28, y + ROW_H / 2, emoji, {
+          fontSize: '12px',
+        }).setOrigin(1, 0.5)
+        this.listLayer.add(moodTag)
       }
 
       const zone = scene.add.zone(startX + (LIST_W - 12) / 2, y + ROW_H / 2, LIST_W - 12, ROW_H - 2).setInteractive({ useHandCursor: true })
@@ -173,6 +180,14 @@ export class NirvsPanel {
     const status = entry.bot ? getBotStatusLabel(entry.bot.state) : (entry.isPlayer ? 'idle' : '—')
     const statusColor = entry.bot ? getBotStatusColor(entry.bot.state) : '#8893b1'
     this.detailLayer.add(this.kvLine(scene, baseX, y, 'Status', status, statusColor))
+    y += 18
+
+    const mood = entry.bot ? entry.bot.nirv.getMood() : null
+    const moodLine = mood
+      ? `${getMoodEmoji(mood)} ${getMoodLabel(mood)}`
+      : '—'
+    const moodColor = mood ? getMoodColor(mood) : '#8893b1'
+    this.detailLayer.add(this.kvLine(scene, baseX, y, 'Mood', moodLine, moodColor))
     y += 18
 
     const home = this.findHome(entry.id)
@@ -244,10 +259,10 @@ export class NirvsPanel {
 
   private findHome(entryId: string): string {
     if (entryId === 'player') return '—'
-    const home = this.getBuildings().find(b => b.type === 'house' && b.ownerBotIds.includes(entryId))
+    const home = this.getHomes().find(h => h.ownerBotIds.includes(entryId))
     if (!home) return 'no home'
     const otherCount = home.ownerBotIds.length - 1
-    return otherCount > 0 ? `house (shared with ${otherCount})` : 'house'
+    return otherCount > 0 ? `${home.label} (shared with ${otherCount})` : home.label
   }
 
   private collectRelationshipsFor(entryId: string): {

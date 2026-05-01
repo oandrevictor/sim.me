@@ -10,13 +10,15 @@ import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import type { RestaurantSystem } from './RestaurantSystem'
 import { SocialSystem } from './SocialSystem'
 import type { RelationshipSystem } from './RelationshipSystem'
-import { queueSlotBehindStation } from './waterQueueLayout'
+import { resolveReachableQueueSlot } from './stationApproach'
 import {
   checkWaterQueueSlotArrivals,
   checkWaterTapArrivalsWithAccess,
   findWaterStationForBot,
   releaseFinishedWaterStations,
   repairOrphanWaterQueues,
+  resolveWaterStationApproach,
+  type WaterApproach,
   type WaterStation,
 } from './waterStationRuntime'
 
@@ -65,7 +67,7 @@ export class HydrationSystem {
     x: number,
     y: number,
   ): void {
-    this.stations.push({ sprite, x, y, active: null, queue: [] })
+    this.stations.push({ sprite, x, y, active: null, activeApproach: null, queue: [] })
   }
 
   unregisterStation(sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite): void {
@@ -73,8 +75,9 @@ export class HydrationSystem {
     if (idx === -1) return
     const st = this.stations[idx]
     if (st.active) {
-      st.active.cancelWaterQueue()
+      st.active.cancelWaterQueue(true)
       st.active = null
+      st.activeApproach = null
     }
     for (const b of st.queue) b.cancelWaterQueue()
     st.queue.length = 0
@@ -114,7 +117,7 @@ export class HydrationSystem {
   }
 
   updateStations(delta: number): void {
-    checkWaterTapArrivalsWithAccess(this.stations, this.canBotInteractWithStation)
+    checkWaterTapArrivalsWithAccess(this.pathfinder, this.stations, this.canBotInteractWithStation)
     checkWaterQueueSlotArrivals(this.pathfinder, this.stations)
     releaseFinishedWaterStations(this.pathfinder, this.stations)
     repairOrphanWaterQueues(this.pathfinder, this.stations)
@@ -156,7 +159,7 @@ export class HydrationSystem {
         // Only severe thirst contributes to social stress signals.
         if (h <= CRITICAL_HYDRATION_THRESHOLD - 12) {
           const severity = 1.35 + (CRITICAL_HYDRATION_THRESHOLD - h) / 35
-          this.relationshipSystem?.applyNeedStress(bot, severity)
+          this.relationshipSystem?.applyNeedStress(bot, severity, 'hydration')
         }
         if (stBot === 'sleeping' || stBot === 'walking_to_bed') bot.cancelSleep()
         bot.cancelSatiationQueue()
@@ -170,25 +173,33 @@ export class HydrationSystem {
         else if (isWorkJobState(stBot)) bot.abortWorkDuty()
       }
 
-      let best: WaterStation | null = null
+      let best: { st: WaterStation; approach: WaterApproach | null } | null = null
       let bestD = Infinity
       for (const st of this.stations) {
         if (!this.canBotUseStation(bot, st.x, st.y)) continue
         const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, st.x, st.y)
-        if (d < TILE_W * 15 && d < bestD) {
+        if (d >= TILE_W * 15 || d >= bestD) continue
+        if (!st.active && st.queue.length === 0) {
+          const approach = resolveWaterStationApproach(this.pathfinder, st, bot)
+          if (!approach) continue
           bestD = d
-          best = st
+          best = { st, approach }
+        } else {
+          bestD = d
+          best = { st, approach: null }
         }
       }
       if (!best) continue
 
-      if (!best.active && best.queue.length === 0) {
-        best.active = bot
-        bot.redirectToWater(best.x, best.y)
+      if (!best.st.active && best.st.queue.length === 0) {
+        if (!best.approach) continue
+        best.st.active = bot
+        best.st.activeApproach = best.approach
+        bot.redirectToWater(best.approach.x, best.approach.y)
       } else {
-        best.queue.push(bot)
-        const lineIndex = best.queue.length - 1
-        const p = queueSlotBehindStation(this.pathfinder, best.x, best.y, lineIndex)
+        const p = resolveReachableQueueSlot(this.pathfinder, best.st.x, best.st.y, bot, best.st.queue.length)
+        if (!p) continue
+        best.st.queue.push(bot)
         bot.redirectToWaterQueueSlot(p.x, p.y)
       }
     }

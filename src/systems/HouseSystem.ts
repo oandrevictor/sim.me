@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import { type BotNirv, isHouseState, isWorkJobState } from '../entities/BotNirv'
 import type { Building } from '../entities/Building'
-import { assignHouseOwner, setHouseOwner } from '../storage/buildingPersistence'
+import { buildingHomeSpace, type HomeSpace } from './HomeSpace'
 import type { RelationshipSystem } from './RelationshipSystem'
 
 const CHECK_INTERVAL_MS = 2500
@@ -30,6 +30,7 @@ export class HouseSystem {
   constructor(
     private readonly buildings: Building[],
     private readonly bots: BotNirv[],
+    private readonly getLotHomes: () => HomeSpace[] = () => [],
   ) {}
 
   update(delta: number): void {
@@ -71,7 +72,6 @@ export class HouseSystem {
       if (!owner) continue
       if (!validBotIds.has(owner) || claimedBotIds.has(owner)) {
         house.setOwnerBotId(null)
-        setHouseOwner(house.id, null)
         continue
       }
       claimedBotIds.add(owner)
@@ -147,21 +147,20 @@ export class HouseSystem {
     }
   }
 
-  private handleClaimArrival(bot: BotNirv, house: Building): void {
+  private handleClaimArrival(bot: BotNirv, house: HomeSpace): void {
     if (house.ownerBotId || this.houseForOwner(bot.id)) {
       bot.finishHouseFlow()
       return
     }
-    if (!assignHouseOwner(house.id, bot.id)) {
+    if (!house.assignOwner(bot.id)) {
       bot.finishHouseFlow()
       return
     }
-    house.setOwnerBotId(bot.id)
     bot.houseMode = 'owner'
     this.sendInside(bot, house, OWNER_STAY_MS)
   }
 
-  private handleVisitorArrival(bot: BotNirv, house: Building): void {
+  private handleVisitorArrival(bot: BotNirv, house: HomeSpace): void {
     const owner = this.ownerForHouse(house)
     if (!owner || owner.state !== 'inside_house') {
       if (house.ownerBotId) this.relationshipSystem?.registerIgnoredAtDoor(bot.id, house.ownerBotId)
@@ -173,7 +172,7 @@ export class HouseSystem {
     this.timers.set(bot.id, { bot, kind: 'ring', remainingMs: RING_WAIT_MS })
   }
 
-  private sendInside(bot: BotNirv, house: Building, stayMs: number): void {
+  private sendInside(bot: BotNirv, house: HomeSpace, stayMs: number): void {
     const slot = this.occupantsInHouse(house.id).length
     const p = house.getInteriorSpot(slot)
     bot.redirectIntoHouse(p.x, p.y)
@@ -270,7 +269,7 @@ export class HouseSystem {
     return bot.state === 'walking' || bot.state === 'waiting'
   }
 
-  private nearestEligibleBot(house: Building): BotNirv | null {
+  private nearestEligibleBot(house: HomeSpace): BotNirv | null {
     const door = house.getDoorPosition()
     let best: BotNirv | null = null
     let bestD = Infinity
@@ -285,7 +284,7 @@ export class HouseSystem {
     return best
   }
 
-  private pickKnownOccupiedHouse(visitor: BotNirv, houses: Building[]): Building | null {
+  private pickKnownOccupiedHouse(visitor: BotNirv, houses: HomeSpace[]): HomeSpace | null {
     const scored = houses
       .map(h => {
         const owner = this.ownerForHouse(h)
@@ -295,7 +294,7 @@ export class HouseSystem {
         const score = knownBoost + relationshipBias
         return { house: h, score }
       })
-      .filter((entry): entry is { house: Building; score: number } => !!entry)
+      .filter((entry): entry is { house: HomeSpace; score: number } => !!entry)
       .sort((a, b) => b.score - a.score)
     if (scored.length === 0) return null
     const capped = scored.slice(0, Math.min(3, scored.length))
@@ -304,28 +303,35 @@ export class HouseSystem {
     return Phaser.Utils.Array.GetRandom(pool)?.house ?? null
   }
 
-  private ownerInside(house: Building): boolean {
+  private ownerInside(house: HomeSpace): boolean {
     const owner = this.ownerForHouse(house)
     return owner?.state === 'inside_house' && owner.houseId === house.id && owner.houseMode === 'owner'
   }
 
-  private ownerForHouse(house: Building): BotNirv | null {
+  private ownerForHouse(house: HomeSpace): BotNirv | null {
     return house.ownerBotId ? this.bots.find(b => b.id === house.ownerBotId) ?? null : null
   }
 
-  private houseForOwner(botId: string): Building | null {
+  private houseForOwner(botId: string): HomeSpace | null {
     return this.houses().find(h => h.ownerBotId === botId) ?? null
   }
 
-  private houseById(id: string): Building | null {
+  private houseById(id: string): HomeSpace | null {
     return this.houses().find(h => h.id === id) ?? null
   }
 
-  private houses(): Building[] {
-    return this.buildings.filter(b => b.type === 'house')
+  getHomes(): HomeSpace[] {
+    return this.houses()
   }
 
-  private assignedHouseAt(x: number, y: number): Building | null {
+  private houses(): HomeSpace[] {
+    return [
+      ...this.buildings.filter(b => b.type === 'house').map(buildingHomeSpace),
+      ...this.getLotHomes(),
+    ]
+  }
+
+  private assignedHouseAt(x: number, y: number): HomeSpace | null {
     return this.houses().find(h => h.ownerBotId && h.containsPixel(x, y)) ?? null
   }
 

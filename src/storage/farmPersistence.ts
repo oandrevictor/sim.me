@@ -1,14 +1,17 @@
+import { cacheGet, cacheSet } from './saveCache'
+import { SAVE_KEYS } from './saveSchema'
+
 export interface FarmRecord {
   cornCount: number
   farmerBotIds: string[]
   stockerBotIds: string[]
 }
 
-const STORAGE_KEY = 'simme_farm_v1'
+const STORAGE_KEY = SAVE_KEYS.farm
 
 export function loadFarmRecord(): FarmRecord {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = cacheGet(STORAGE_KEY)
     if (!raw) return emptyFarmRecord()
     const parsed = JSON.parse(raw) as Partial<FarmRecord>
     return {
@@ -22,7 +25,7 @@ export function loadFarmRecord(): FarmRecord {
 }
 
 export function saveFarmRecord(record: FarmRecord): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify({
+  cacheSet(STORAGE_KEY, JSON.stringify({
     cornCount: Math.max(0, Math.floor(record.cornCount)),
     farmerBotIds: [...new Set(record.farmerBotIds)],
     stockerBotIds: [...new Set(record.stockerBotIds)],

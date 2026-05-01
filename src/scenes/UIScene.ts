@@ -97,6 +97,7 @@ export default class UIScene extends Phaser.Scene {
 	update(): void {
 		this.menuUI.updateWorkPanel()
 		this.clockText.setText(this.gameScene.getClockLabel())
+		this.clockText.setColor(this.gameScene.getDayNightSystem().getClockColor())
 	}
 
 	private positionUI(): void {

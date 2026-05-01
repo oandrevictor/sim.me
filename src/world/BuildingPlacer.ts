@@ -1,5 +1,5 @@
 import Phaser from 'phaser'
-import { Building, BUILDING_GRID_W, BUILDING_GRID_H } from '../entities/Building'
+import { Building } from '../entities/Building'
 import { BuildingSign } from '../entities/BuildingSign'
 import { savePlacedBuilding, updateBuildingType } from '../storage/buildingPersistence'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
@@ -47,14 +47,7 @@ export class BuildingPlacer {
   }
 
   blockCells(building: Building): void {
-    const { gridX: gx, gridY: gy } = building
-    for (let x = gx; x < gx + BUILDING_GRID_W; x++) this.pathfinder.blockCell(x, gy)
-    for (let x = gx; x < gx + BUILDING_GRID_W; x++) {
-      if (x === gx + 3 || x === gx + 4) continue
-      this.pathfinder.blockCell(x, gy + BUILDING_GRID_H - 1)
-    }
-    for (let y = gy; y < gy + BUILDING_GRID_H; y++) this.pathfinder.blockCell(gx, y)
-    for (let y = gy; y < gy + BUILDING_GRID_H; y++) this.pathfinder.blockCell(gx + BUILDING_GRID_W - 1, y)
+    for (const cell of building.getWallCells()) this.pathfinder.blockWorldCell(cell.gx, cell.gy)
   }
 
   private onSignClicked(buildingId: string): void {

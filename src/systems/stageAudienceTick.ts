@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import type { Stage } from '../entities/Stage'
 import type { BotNirv } from '../entities/BotNirv'
-import { gridToScreen } from '../utils/isoGrid'
+import { gridToScreen, TILE_W } from '../utils/isoGrid'
 import type { BandRecord } from '../storage/bandPersistence'
 import type { MusicTag } from '../data/musicTags'
 import { affinityScore, rollAttractedToStage } from './stageAffinity'
@@ -17,7 +17,6 @@ import { botIsStagePerformer } from './stagePerformerIds'
 
 const MAX_WATCHERS_PER_STAGE = 5
 const WATCH_RADIUS_TILES = 20
-const TILE_W = 64
 
 export interface StageAudienceTickContext {
   readonly stages: Stage[]
@@ -28,6 +27,8 @@ export interface StageAudienceTickContext {
   readonly arrivalRegistered: Set<string>
   readonly pairSocialBias?: (idA: string, idB: string) => number
   readonly onCompanionExposure?: (subjectId: string, otherId: string, weight: number) => void
+  /** Added by DayNightSystem — boosts attraction roll probability at night. */
+  readonly nightAttractionBonus?: number
 }
 
 function resolvePerformanceTags(
@@ -58,6 +59,7 @@ export function advancePerformanceCycles(ctx: StageAudienceTickContext, now: num
       if (bot.stageId !== stage.id) continue
       if (
         bot.state !== 'watching_stage' &&
+        bot.state !== 'dancing' &&
         bot.state !== 'walking_to_stage' &&
         bot.state !== 'performing_on_stage' &&
         bot.state !== 'walking_to_perform'
@@ -93,7 +95,7 @@ export function updateConcurrentWatcherMax(ctx: StageAudienceTickContext): void 
     for (const bot of ctx.bots) {
       if (bot.stageId !== stage.id) continue
       if (botIsStagePerformer(bot.id, rt.attraction, ctx.getBands)) continue
-      if (bot.state === 'watching_stage' || bot.state === 'walking_to_stage') n++
+      if (bot.state === 'watching_stage' || bot.state === 'dancing' || bot.state === 'walking_to_stage') n++
     }
     tickMaxConcurrent(rt, n)
   }
@@ -149,7 +151,8 @@ export function tryAttractBotsToStages(ctx: StageAudienceTickContext): void {
     if (rtBest?.attraction && botIsStagePerformer(bot.id, rtBest.attraction, ctx.getBands)) continue
 
     const affinity = affinityScore(bot.interests, bestTags)
-    if (!funSeeking && !rollAttractedToStage(affinity)) continue
+    const nightBonus = ctx.nightAttractionBonus ?? 0
+    if (!funSeeking && !rollAttractedToStage(affinity + nightBonus)) continue
 
     const allPositions = bestStage.getWatchPositions()
     const occupiedPixels = new Set(

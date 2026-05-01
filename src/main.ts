@@ -2,6 +2,8 @@ import Phaser from "phaser";
 import GameScene from "./scenes/GameScene";
 import UIScene from "./scenes/UIScene";
 import Preload from "./scenes/Preload";
+import { hydrateSaveCache } from "./storage/saveCache";
+import { SaveStore } from "./storage/SaveStore";
 
 class Boot extends Phaser.Scene {
 
@@ -20,16 +22,18 @@ class Boot extends Phaser.Scene {
     }
 }
 
-window.addEventListener('load', function () {
+window.addEventListener('load', async function () {
+
+	await hydrateSaveCache();
 
 	const game = new Phaser.Game({
-		width: 1280,
-		height: 720,
+		width: window.innerWidth,
+		height: window.innerHeight,
 		backgroundColor: "#2f2f2f",
 		parent: "game-container",
 		scale: {
-			mode: Phaser.Scale.ScaleModes.FIT,
-			autoCenter: Phaser.Scale.Center.CENTER_BOTH
+			mode: Phaser.Scale.ScaleModes.RESIZE,
+			autoCenter: Phaser.Scale.Center.NO_CENTER
 		},
 		physics: {
 			default: 'arcade',
@@ -39,4 +43,14 @@ window.addEventListener('load', function () {
 	});
 
 	game.scene.start("Boot");
+});
+
+// Best-effort flush of pending writes when the tab is hidden or unloaded.
+window.addEventListener('visibilitychange', () => {
+	if (document.visibilityState === 'hidden') {
+		void SaveStore.flush();
+	}
+});
+window.addEventListener('beforeunload', () => {
+	void SaveStore.flush();
 });

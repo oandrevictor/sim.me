@@ -1,3 +1,6 @@
+import { cacheGet, cacheSet, cacheDelete } from './saveCache'
+import { SAVE_KEYS } from './saveSchema'
+
 export type BuildingType = 'empty' | 'restaurant' | 'house'
 
 export interface BuildingRecord {
@@ -10,7 +13,7 @@ export interface BuildingRecord {
   ownerBotIds?: string[]
 }
 
-const STORAGE_KEY = 'simme_placed_buildings'
+const STORAGE_KEY = SAVE_KEYS.placedBuildings
 
 function normalize(record: BuildingRecord): BuildingRecord {
   const type = record.type ?? 'empty'
@@ -23,12 +26,12 @@ function normalize(record: BuildingRecord): BuildingRecord {
 }
 
 function persist(records: BuildingRecord[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records.map(normalize)))
+  cacheSet(STORAGE_KEY, JSON.stringify(records.map(normalize)))
 }
 
 export function loadPlacedBuildings(): BuildingRecord[] {
   try {
-    const records = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]') as BuildingRecord[]
+    const records = JSON.parse(cacheGet(STORAGE_KEY) ?? '[]') as BuildingRecord[]
     return records.map(normalize)
   } catch {
     return []
@@ -98,5 +101,5 @@ export function removeHouseOwner(buildingId: string, ownerBotId: string): void {
 }
 
 export function clearPlacedBuildings(): void {
-  localStorage.removeItem(STORAGE_KEY)
+  cacheDelete(STORAGE_KEY)
 }

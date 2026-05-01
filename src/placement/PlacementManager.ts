@@ -3,7 +3,7 @@ import { stageFootprint, type StageVariant } from '../config/stageVariants'
 import { OBJECT_TYPE_REGISTRY, type ObjectType } from '../objects/objectTypes'
 import { BUILDING_GRID_W, BUILDING_GRID_H } from '../entities/Building'
 import type { MenuUI } from '../ui/MenuUI'
-import { snapToIsoGrid, screenToGrid, gridToScreen } from '../utils/isoGrid'
+import { snapToIsoGrid, screenToCell, gridRectCenter } from '../utils/isoGrid'
 import { layoutSoloStageSprite } from '../utils/soloStageSpriteLayout'
 import { createObjectGhost, createBuildingGhost, createStageGhost, ROTATABLE_TYPES } from './GhostFactory'
 import { isBedType } from '../objects/bedTypes'
@@ -136,19 +136,17 @@ export class PlacementManager {
       const snapped = snapToIsoGrid(pointer.worldX, pointer.worldY)
       ;(this.ghost as Phaser.GameObjects.Sprite).setPosition(snapped.x, snapped.y)
     } else if (this.mode === 'building') {
-      const g = screenToGrid(pointer.worldX, pointer.worldY)
-      const center = gridToScreen(Math.floor(g.gx) + BUILDING_GRID_W / 2, Math.floor(g.gy) + BUILDING_GRID_H / 2)
+      const g = screenToCell(pointer.worldX, pointer.worldY)
+      const center = gridRectCenter(g.gx, g.gy, BUILDING_GRID_W, BUILDING_GRID_H)
       ;(this.ghost as Phaser.GameObjects.Graphics).setPosition(center.x, center.y)
     } else if (this.mode === 'stage') {
-      const g = screenToGrid(pointer.worldX, pointer.worldY)
-      const gx = Math.floor(g.gx)
-      const gy = Math.floor(g.gy)
+      const { gx, gy } = screenToCell(pointer.worldX, pointer.worldY)
       const gw = this.stageGW()
       const gh = this.stageGH()
       if (this.stagePlacingVariant === 'solo_platform' && this.ghost instanceof Phaser.GameObjects.Sprite) {
         layoutSoloStageSprite(this.ghost, gx, gy, gw, gh)
       } else {
-        const center = gridToScreen(gx + gw / 2, gy + gh / 2)
+        const center = gridRectCenter(gx, gy, gw, gh)
         ;(this.ghost as Phaser.GameObjects.Graphics).setPosition(center.x, center.y)
       }
     }
@@ -165,11 +163,11 @@ export class PlacementManager {
       this.onPlace(this.activeType, snapped.x, snapped.y, rot)
       if (this.inventoryMode) { this.exit(); return }
     } else if (this.mode === 'building') {
-      const g = screenToGrid(pointer.worldX, pointer.worldY)
-      if (this.onPlaceBuilding(Math.floor(g.gx), Math.floor(g.gy))) this.exit()
+      const g = screenToCell(pointer.worldX, pointer.worldY)
+      if (this.onPlaceBuilding(g.gx, g.gy)) this.exit()
     } else if (this.mode === 'stage') {
-      const g = screenToGrid(pointer.worldX, pointer.worldY)
-      if (this.onPlaceStage(Math.floor(g.gx), Math.floor(g.gy), this.stageRotation, this.stagePlacingVariant)) this.exit()
+      const g = screenToCell(pointer.worldX, pointer.worldY)
+      if (this.onPlaceStage(g.gx, g.gy, this.stageRotation, this.stagePlacingVariant)) this.exit()
     }
   }
 

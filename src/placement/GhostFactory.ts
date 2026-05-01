@@ -54,7 +54,7 @@ export function createObjectGhost(
   }
 
   if (type === 'portable_toilet' && scene.textures.exists(config.textureKey)) {
-    const sprite = scene.add.sprite(0, 0, config.textureKey)
+    const sprite = scene.add.sprite(0, 0, config.textureKey, config.frame ?? 0)
     const { w, h } = getFramedObjectDisplaySize(type, 2.2)
     sprite.setDisplaySize(w, h)
     sprite.setOrigin(0.5, 1)
@@ -84,16 +84,10 @@ export function createBuildingGhost(scene: Phaser.Scene): Phaser.GameObjects.Gra
   const gfx = scene.add.graphics()
   gfx.fillStyle(0x6b5b3a, 0.4)
   gfx.lineStyle(2, 0x4a3d28, 0.6)
-  const hw = BUILDING_GRID_W * TILE_W / 2
-  const hh = BUILDING_GRID_H * TILE_H / 2
-  gfx.beginPath()
-  gfx.moveTo(0, -hh)
-  gfx.lineTo(hw, 0)
-  gfx.lineTo(0, hh)
-  gfx.lineTo(-hw, 0)
-  gfx.closePath()
-  gfx.fillPath()
-  gfx.strokePath()
+  const hw = (BUILDING_GRID_W * TILE_W) / 2
+  const hh = (BUILDING_GRID_H * TILE_H) / 2
+  gfx.fillRect(-hw, -hh, hw * 2, hh * 2)
+  gfx.strokeRect(-hw, -hh, hw * 2, hh * 2)
   gfx.setDepth(DEPTH_UI + 10)
   return gfx
 }
@@ -112,13 +106,10 @@ export function createStageGhost(
 
   const { w: gw, h: gh } = stageFootprint(variant, stageRotation)
 
-  // Local coordinate helper: converts a grid offset from the footprint's
-  // top-left corner into screen coords relative to the footprint center.
-  const cx = (gw - gh) * TILE_W / 4
-  const cy = (gw + gh) * TILE_H / 4
+  // Local coords: footprint top-left at origin, centered on graphics (0,0).
   const lp = (dx: number, dy: number) => ({
-    x: (dx - dy) * (TILE_W / 2) - cx,
-    y: (dx + dy) * (TILE_H / 2) - cy,
+    x: dx * TILE_W - (gw * TILE_W) / 2,
+    y: dy * TILE_H - (gh * TILE_H) / 2,
   })
 
   const gfx = scene.add.graphics()

@@ -8,6 +8,7 @@ import type { CookingSystem } from '../systems/CookingSystem'
 import type { FarmingSystem } from '../systems/FarmingSystem'
 import type { HydrationSystem } from '../systems/HydrationSystem'
 import type { HungerSystem } from '../systems/HungerSystem'
+import type { LightSystem } from '../systems/LightSystem'
 import type { RestaurantSystem } from '../systems/RestaurantSystem'
 import type { SleepSystem } from '../systems/SleepSystem'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
@@ -15,6 +16,7 @@ import { screenToGrid } from '../utils/isoGrid'
 import type { FloorTileLayer } from './FloorTileLayer'
 import type { PlateEntry, PlacedSpriteEntry, SpawnerState } from './ObjectSpawner'
 import { spawnFoodPlate } from './foodPlatePlacement'
+import { createFootprintBlocker, blockNavCellsForArcadeBody } from './footprintBlocker'
 import { placeStockableProp } from './stockablePropPlacement'
 
 interface NonPhysicsContext {
@@ -31,6 +33,7 @@ interface NonPhysicsContext {
   hungerSystem: HungerSystem
   bladderSystem: BladderSystem
   farmingSystem: FarmingSystem
+  lightSystem?: LightSystem
   getFloorLayer: () => FloorTileLayer
 }
 
@@ -69,6 +72,7 @@ export function spawnNonPhysicsObject(context: NonPhysicsContext, args: NonPhysi
     sprite.setInteractive({ useHandCursor: true })
     sprite.on('pointerdown', () => context.onInteractableClicked(sprite))
   } else if (args.type === 'chair') context.restaurantSystem.registerChair(sprite, args.x, args.y)
+  else if (args.type === 'lamp_post') context.lightSystem?.registerLamp(sprite)
   else context.state.backgroundSprites.push(sprite)
   return true
 }
@@ -79,7 +83,7 @@ function typeConfig(type: ObjectType) {
 
 function applyDefaultDisplay(sprite: Phaser.GameObjects.Sprite, type: ObjectType): void {
   const config = typeConfig(type)
-  if (config.frame !== undefined) {
+  if (config.frame !== undefined && type !== 'portable_toilet') {
     const { w, h } = getFramedObjectDisplaySize(type, 1.6)
     sprite.setDisplaySize(w, h)
   } else if (
@@ -114,7 +118,7 @@ function spawnBed(context: NonPhysicsContext, args: NonPhysicsArgs): void {
   blocker.body!.setSize(OBJECT_SIZE, OBJECT_SIZE / 2)
   blocker.body!.setOffset(-OBJECT_SIZE / 2, -OBJECT_SIZE / 4)
   blocker.refreshBody()
-  blockCell(context.pathfinder, args.x, args.y)
+  blockNavCellsForArcadeBody(context.pathfinder, blocker.body as Phaser.Physics.Arcade.Body | Phaser.Physics.Arcade.StaticBody)
   context.sleepSystem.registerBed(sprite, args.x, args.y, rot)
   context.state.placedSprites.push({ sprite, type: args.type, x: args.x, y: args.y, rotation: rot, footprintBlocker: blocker })
 }
@@ -135,7 +139,7 @@ function spawnCrop(context: NonPhysicsContext, sprite: Phaser.GameObjects.Sprite
   blocker.body!.setSize(OBJECT_SIZE, OBJECT_SIZE / 2)
   blocker.body!.setOffset(-OBJECT_SIZE / 2, -OBJECT_SIZE / 4)
   blocker.refreshBody()
-  blockCell(context.pathfinder, args.x, args.y)
+  blockNavCellsForArcadeBody(context.pathfinder, blocker.body as Phaser.Physics.Arcade.Body | Phaser.Physics.Arcade.StaticBody)
   context.state.placedSprites.push({ sprite, type: args.type, x: args.x, y: args.y, rotation: args.rotation, footprintBlocker: blocker })
   context.farmingSystem.registerCrop(sprite, args.x, args.y, args.objectState)
 }
@@ -162,7 +166,17 @@ function spawnPortableToilet(
   const { w, h } = getFramedObjectDisplaySize(args.type, 2.2)
   sprite.setDisplaySize(w, h)
   sprite.setOrigin(0.5, 1)
-  const blocker = baseBlocker(context, args.x, args.y, Math.max(OBJECT_SIZE, Math.round(w * 0.55)), true)
+  // Top-down toilet: floor collision matches bowl/base width (slightly wider than min tile).
+  const footW = Math.max(OBJECT_SIZE + 4, Math.round(w * 0.58))
+  const footH = 22
+  const blocker = createFootprintBlocker(
+    context.obstacleGroup,
+    context.pathfinder,
+    args.x,
+    args.y,
+    footW,
+    footH,
+  )
   if (placedEntry) placedEntry.footprintBlocker = blocker
   context.bladderSystem.registerStation(sprite as unknown as Phaser.Physics.Arcade.Sprite, args.x, args.y)
 }
@@ -181,11 +195,6 @@ function baseBlocker(
   blocker.body!.setSize(footW, footH)
   blocker.body!.setOffset(bottomAnchored ? 16 - footW / 2 : -OBJECT_SIZE / 2, bottomAnchored ? 8 : -OBJECT_SIZE / 4)
   blocker.refreshBody()
-  blockCell(context.pathfinder, x, y)
+  blockNavCellsForArcadeBody(context.pathfinder, blocker.body as Phaser.Physics.Arcade.Body | Phaser.Physics.Arcade.StaticBody)
   return blocker
-}
-
-function blockCell(pathfinder: GridPathfinder, x: number, y: number): void {
-  const g = screenToGrid(x, y)
-  pathfinder.blockCell(Math.round(g.gx), Math.round(g.gy))
 }

@@ -2,26 +2,29 @@ import Phaser from 'phaser'
 import type { BotNirv } from '../entities/BotNirv'
 import type { Stage } from '../entities/Stage'
 import type { StageWorkBridge } from './WorkPanelStageSection'
+import { BuildPanel, BUILD_BAR_HEIGHT, BUILD_PANEL_HEIGHT, BUILD_PANEL_WIDTH, type BuildTool } from './BuildPanel'
 import { ShopPanel } from './ShopPanel'
 import { WorkPanel, WORK_PANEL_HEIGHT, WORK_PANEL_WIDTH, type RestaurantStaffBridge } from './WorkPanel'
 import type { FarmWorkBridge } from './WorkPanelFarmSection'
 import type { StockWorkBridge } from './WorkPanelStockSection'
 import { BAR_HEIGHT, BAR_WIDTH, buildMenuDock, refreshMenuDock, type MenuTab, type TabButton } from './MenuDock'
-import { SHOP_PANEL_HEIGHT, SHOP_PANEL_WIDTH } from './ShopPanelLayout'
+import { SHOP_BAR_HEIGHT, SHOP_PANEL_HEIGHT, SHOP_PANEL_WIDTH } from './ShopPanelLayout'
 import { RelationshipsPanel, RELATIONSHIPS_PANEL_HEIGHT, RELATIONSHIPS_PANEL_WIDTH } from './RelationshipsPanel'
 import { NirvsPanel, NIRVS_PANEL_HEIGHT, NIRVS_PANEL_WIDTH } from './NirvsPanel'
 import type { RelationshipSystem } from '../systems/RelationshipSystem'
-import type { Building } from '../entities/Building'
 import type { Nirv } from '../entities/Nirv'
+import type { LotType } from '../storage/lotPersistence'
+import type { HomeSpace } from '../systems/HomeSpace'
 
 export class MenuUI {
   private scene: Phaser.Scene
   private gameEvents: Phaser.Events.EventEmitter
   private container: Phaser.GameObjects.Container
   private tabBar!: Phaser.GameObjects.Container
-  private activeTab: MenuTab = 'home'
+  private activeTab: MenuTab = 'play'
   private tabButtons = new Map<MenuTab, TabButton>()
 
+  private buildPanel!: BuildPanel
   private shopPanel!: ShopPanel
   private workPanel!: WorkPanel
   private relationshipsPanel!: RelationshipsPanel
@@ -31,6 +34,9 @@ export class MenuUI {
     this.scene = scene
     this.gameEvents = gameEvents
     this.container = scene.add.container(0, 0)
+
+    this.buildPanel = new BuildPanel(scene)
+    this.container.add(this.buildPanel.container)
 
     this.shopPanel = new ShopPanel(scene, gameEvents)
     this.container.add(this.shopPanel.container)
@@ -45,7 +51,7 @@ export class MenuUI {
     this.container.add(this.nirvsPanel.container)
 
     this.buildTabBar()
-    this.setTab('home')
+    this.setTab('play')
   }
 
   // ── Public API ──
@@ -68,20 +74,26 @@ export class MenuUI {
       this.container.x - BAR_WIDTH / 2, this.container.y - BAR_HEIGHT, BAR_WIDTH, BAR_HEIGHT,
     )
     if (barBounds.contains(px, py)) return true
-    if (this.activeTab === 'shop' || this.activeTab === 'work' || this.activeTab === 'social' || this.activeTab === 'nirvs') {
+    if (this.activeTab === 'build' || this.activeTab === 'shop' || this.activeTab === 'work' || this.activeTab === 'social' || this.activeTab === 'nirvs') {
       const panelH =
-        this.activeTab === 'work' ? WORK_PANEL_HEIGHT
+        this.activeTab === 'build' ? BUILD_PANEL_HEIGHT
+        : this.activeTab === 'work' ? WORK_PANEL_HEIGHT
         : this.activeTab === 'social' ? RELATIONSHIPS_PANEL_HEIGHT
         : this.activeTab === 'nirvs' ? NIRVS_PANEL_HEIGHT
         : SHOP_PANEL_HEIGHT
       const panelW =
-        this.activeTab === 'work' ? WORK_PANEL_WIDTH
+        this.activeTab === 'build' ? BUILD_PANEL_WIDTH
+        : this.activeTab === 'work' ? WORK_PANEL_WIDTH
         : this.activeTab === 'social' ? RELATIONSHIPS_PANEL_WIDTH
         : this.activeTab === 'nirvs' ? NIRVS_PANEL_WIDTH
         : SHOP_PANEL_WIDTH
+      const barHeight =
+        this.activeTab === 'build' ? BUILD_BAR_HEIGHT
+        : this.activeTab === 'shop' ? SHOP_BAR_HEIGHT
+        : BAR_HEIGHT
       const panelBounds = new Phaser.Geom.Rectangle(
         this.container.x - panelW / 2,
-        this.container.y - BAR_HEIGHT - panelH - 6,
+        this.container.y - barHeight - panelH - 6,
         panelW, panelH,
       )
       if (panelBounds.contains(px, py)) return true
@@ -90,7 +102,20 @@ export class MenuUI {
   }
 
   isShopMode(): boolean { return this.activeTab === 'shop' }
+  isBuildMode(): boolean { return this.activeTab === 'build' }
   isInventoryMode(): boolean { return this.activeTab === 'shop' && this.shopPanel.isInventoryMode() }
+  isPhysicsMode(): boolean { return this.activeTab === 'physics' }
+
+  getSelectedLotType(): LotType { return this.buildPanel.getSelectedLotType() }
+  getSelectedBuildTool(): BuildTool { return this.buildPanel.getSelectedTool() }
+
+  openLotMergePrompt(onMerge: () => void, onCancel: () => void): void {
+    this.buildPanel.openMergePrompt(onMerge, onCancel)
+  }
+
+  closeLotMergePrompt(): void {
+    this.buildPanel.closeMergePrompt()
+  }
 
   setProviders(
     getBotNirvs: () => BotNirv[],
@@ -139,7 +164,7 @@ export class MenuUI {
   }
 
   private onTabClicked(tab: MenuTab): void {
-    this.setTab(tab === this.activeTab ? 'home' : tab)
+    this.setTab(tab === this.activeTab ? 'play' : tab)
   }
 
   private setTab(tab: MenuTab): void {
@@ -147,14 +172,22 @@ export class MenuUI {
     this.activeTab = tab
     this.refreshTabStyles()
 
+    this.buildPanel.container.setVisible(tab === 'build')
     this.shopPanel.container.setVisible(tab === 'shop')
     this.workPanel.container.setVisible(tab === 'work')
     this.relationshipsPanel.container.setVisible(tab === 'social')
     this.nirvsPanel.container.setVisible(tab === 'nirvs')
     if (tab !== 'social') this.relationshipsPanel.clearSelection()
 
-    if (tab === 'shop') this.gameEvents.emit('menu:shop-open')
-    else if (prevTab === 'shop') this.gameEvents.emit('menu:shop-close')
+    if (tab === 'shop' && prevTab !== 'shop') this.gameEvents.emit('menu:shop-open')
+    if (prevTab === 'shop' && tab !== 'shop') this.gameEvents.emit('menu:shop-close')
+    if (tab === 'build' && prevTab !== 'build') this.gameEvents.emit('menu:build-open')
+    if (prevTab === 'build' && tab !== 'build') {
+      this.closeLotMergePrompt()
+      this.gameEvents.emit('menu:build-close')
+    }
+    if (tab === 'physics' && prevTab !== 'physics') this.gameEvents.emit('menu:physics-open')
+    if (prevTab === 'physics' && tab !== 'physics') this.gameEvents.emit('menu:physics-close')
 
     if (tab === 'work') this.workPanel.refresh()
     if (tab === 'social') this.relationshipsPanel.refresh()
@@ -171,10 +204,10 @@ export class MenuUI {
   setNirvsProviders(
     getPlayer: () => Nirv | null,
     getBots: () => readonly BotNirv[],
-    getBuildings: () => readonly Building[],
+    getHomes: () => readonly HomeSpace[],
     getRelationships: () => RelationshipSystem | null,
   ): void {
-    this.nirvsPanel.setProviders(getPlayer, getBots, getBuildings, getRelationships)
+    this.nirvsPanel.setProviders(getPlayer, getBots, getHomes, getRelationships)
   }
 
   refreshRelationshipsPanel(): void {

@@ -1,10 +1,10 @@
 import Phaser from 'phaser'
 
-export type MenuTab = 'home' | 'shop' | 'work' | 'social' | 'nirvs'
+export type MenuTab = 'play' | 'build' | 'shop' | 'work' | 'social' | 'nirvs' | 'physics'
 
-export const BAR_WIDTH = 660
+export const BAR_WIDTH = 760
 export const BAR_HEIGHT = 50
-const TAB_W = 120
+const TAB_W = 90
 const TAB_H = 38
 const TAB_GAP = 8
 
@@ -28,11 +28,13 @@ export function buildMenuDock(
   parent.add(barBg)
 
   const tabs: { tab: MenuTab; label: string }[] = [
-    { tab: 'home', label: 'Home' },
+    { tab: 'play', label: 'Play' },
+    { tab: 'build', label: 'Build' },
     { tab: 'shop', label: 'Shop' },
     { tab: 'work', label: 'Work' },
     { tab: 'social', label: 'Social' },
     { tab: 'nirvs', label: 'Nirvs' },
+    { tab: 'physics', label: 'Physics' },
   ]
   const totalW = tabs.length * TAB_W + (tabs.length - 1) * TAB_GAP
   const startX = -totalW / 2

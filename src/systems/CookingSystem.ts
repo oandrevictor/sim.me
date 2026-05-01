@@ -95,14 +95,14 @@ export class CookingSystem {
     return this.stoves.find(s => s.sprite === sprite) ?? null
   }
 
-  startCooking(stove: StoveState, recipeId: string): void {
+  startCooking(stove: StoveState, recipeId: string, moodModifier = 1.0): void {
     const recipe = getRecipe(recipeId)
     if (!recipe || stove.status !== 'idle') return
 
     stove.status = 'cooking'
     stove.recipeId = recipeId
     stove.cookProgress = 0
-    stove.cookDuration = recipe.cookTimeMs
+    stove.cookDuration = recipe.cookTimeMs * moodModifier
     stove.sprite.clearTint()
     // Clay oven: single image only — never play furniture_stove cooking animation.
     if (isSpritesheetStoveTexture(stove.sprite.texture.key) && stove.sprite.scene.anims.exists(STOVE_ANIM_COOKING)) {

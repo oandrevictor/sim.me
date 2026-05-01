@@ -14,7 +14,6 @@ export interface RuntimeBehavior {
   recentNegativeTicks: number
   recentPositiveTicks: number
   jealousyPressure: number
-  crowdingStrikes: number
   negativeBySource: Partial<Record<RelationshipNegativeSource, number>>
   lastInteractionDay: number
 }
@@ -32,7 +31,6 @@ export function applyPairTensionMutation(
   behavior.recentPositiveTicks = Math.max(0, behavior.recentPositiveTicks - delta * 0.5)
   behavior.negativeBySource[source] = (behavior.negativeBySource[source] ?? 0) + delta
   if (source === 'jealousy') behavior.jealousyPressure = Math.min(100, behavior.jealousyPressure + delta)
-  if (source === 'crowding') behavior.crowdingStrikes = Math.min(100, behavior.crowdingStrikes + delta)
 }
 
 export function collectRomanticPartners(rels: Iterable<RuntimeRelationship>, id: string): string[] {
@@ -57,7 +55,6 @@ export function bondWeightFromStage(stage: RelationshipStage, isCohabiting: bool
 export function negativeEventTypeForSource(source: RelationshipNegativeSource): RelationshipEventType {
   if (source === 'need_stress') return 'need_stress'
   if (source === 'ignored_at_door') return 'ignored_at_door'
-  if (source === 'crowding') return 'crowding_conflict'
   if (source === 'jealousy') return 'jealousy_spike'
   return 'interest_mismatch'
 }
@@ -72,4 +69,19 @@ export function decayAmount(idleDays: number, conflictScore: number): number {
 
 export function decayEventSource(): RelationshipEventSource {
   return 'decay_tick'
+}
+
+export function shouldApplyNeedStress(
+  lastNeedStressAt: Map<string, number>,
+  botId: string,
+  severity: number,
+): boolean {
+  if (severity < 1.35) return false
+  const now = Date.now()
+  const last = lastNeedStressAt.get(botId) ?? 0
+  if (now - last < 90_000) return false
+  const chance = Math.min(0.42, Math.max(0.12, 0.12 + (severity - 1.35) * 0.12))
+  if (Math.random() > chance) return false
+  lastNeedStressAt.set(botId, now)
+  return true
 }

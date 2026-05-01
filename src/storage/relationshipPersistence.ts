@@ -1,3 +1,6 @@
+import { cacheGet, cacheSet } from './saveCache'
+import { SAVE_KEYS } from './saveSchema'
+
 export type RelationshipStage =
   | 'acquaintance'
   | 'colleague'
@@ -18,10 +21,10 @@ export interface RelationshipRecord {
   isCohabiting: boolean
 }
 
-const STORAGE_KEY = 'simme_relationships_v1'
-const BEHAVIOR_STORAGE_KEY = 'simme_relationship_behavior_v1'
-const EVENT_STORAGE_KEY = 'simme_relationship_events_v1'
-const INTERACTION_STORAGE_KEY = 'simme_nirv_interactions_v1'
+const STORAGE_KEY = SAVE_KEYS.relationships
+const BEHAVIOR_STORAGE_KEY = SAVE_KEYS.relationshipBehavior
+const EVENT_STORAGE_KEY = SAVE_KEYS.relationshipEvents
+const INTERACTION_STORAGE_KEY = SAVE_KEYS.nirvInteractions
 
 export type RelationshipBondTier = 'none' | 'friend' | 'lover' | 'spouse' | 'housemate'
 
@@ -38,10 +41,12 @@ export interface RelationshipBehaviorRecord {
 }
 
 export type RelationshipEventType =
+  | 'first_interaction'
   | 'became_friend'
   | 'started_dating'
   | 'got_engaged'
   | 'moved_in_together'
+  | 'positive_chat'
   | 'need_stress'
   | 'ignored_at_door'
   | 'crowding_conflict'
@@ -50,9 +55,11 @@ export type RelationshipEventType =
   | 'relationship_decayed'
 
 export type RelationshipEventSource =
+  | 'first_interaction'
   | 'stage_transition'
   | 'cohabitation_merge'
   | 'already_cohabiting'
+  | 'chat_positive'
   | 'need_pressure'
   | 'door_rejection'
   | 'crowding'
@@ -63,7 +70,6 @@ export type RelationshipEventSource =
 export type RelationshipNegativeSource =
   | 'need_stress'
   | 'ignored_at_door'
-  | 'crowding'
   | 'jealousy'
   | 'interest_mismatch'
 
@@ -78,6 +84,7 @@ export interface RelationshipEventRecord {
   dayCount: number
   timestamp: number
   source: RelationshipEventSource
+  affinityDelta?: number
 }
 
 export type NirvInteractionKind =
@@ -101,6 +108,7 @@ export interface NirvInteractionRecord {
     source?: string
     eventType?: RelationshipEventType
     sharedInterestCount?: number
+    affinityDelta?: number
     fromStage?: RelationshipStage
     toStage?: RelationshipStage
   }
@@ -108,7 +116,7 @@ export interface NirvInteractionRecord {
 
 export function loadRelationships(): RelationshipRecord[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = cacheGet(STORAGE_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw) as RelationshipRecord[]
     if (!Array.isArray(parsed)) return []
@@ -128,12 +136,12 @@ export function loadRelationships(): RelationshipRecord[] {
 }
 
 export function saveRelationships(records: RelationshipRecord[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records))
+  cacheSet(STORAGE_KEY, JSON.stringify(records))
 }
 
 export function loadRelationshipBehaviorRecords(): RelationshipBehaviorRecord[] {
   try {
-    const raw = localStorage.getItem(BEHAVIOR_STORAGE_KEY)
+    const raw = cacheGet(BEHAVIOR_STORAGE_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw) as RelationshipBehaviorRecord[]
     if (!Array.isArray(parsed)) return []
@@ -156,17 +164,19 @@ export function loadRelationshipBehaviorRecords(): RelationshipBehaviorRecord[] 
 }
 
 export function saveRelationshipBehaviorRecords(records: RelationshipBehaviorRecord[]): void {
-  localStorage.setItem(BEHAVIOR_STORAGE_KEY, JSON.stringify(records))
+  cacheSet(BEHAVIOR_STORAGE_KEY, JSON.stringify(records))
 }
 
 export function loadRelationshipEventRecords(): RelationshipEventRecord[] {
   try {
-    const raw = localStorage.getItem(EVENT_STORAGE_KEY)
+    const raw = cacheGet(EVENT_STORAGE_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw) as RelationshipEventRecord[]
     if (!Array.isArray(parsed)) return []
     return parsed
       .filter(r => !!r?.id && !!r?.pairKey && !!r?.idA && !!r?.idB)
+      // Crowding irritation has been removed from the design; hide historical entries too.
+      .filter(r => r.type !== 'crowding_conflict' && r.source !== 'crowding')
       .map(r => ({
         id: r.id,
         pairKey: r.pairKey,
@@ -178,6 +188,7 @@ export function loadRelationshipEventRecords(): RelationshipEventRecord[] {
         dayCount: Number.isFinite(r.dayCount) ? r.dayCount : 0,
         timestamp: Number.isFinite(r.timestamp) ? r.timestamp : Date.now(),
         source: r.source ?? 'stage_transition',
+        affinityDelta: Number.isFinite(r.affinityDelta) ? r.affinityDelta : undefined,
       }))
   } catch {
     return []
@@ -185,12 +196,12 @@ export function loadRelationshipEventRecords(): RelationshipEventRecord[] {
 }
 
 export function saveRelationshipEventRecords(records: RelationshipEventRecord[]): void {
-  localStorage.setItem(EVENT_STORAGE_KEY, JSON.stringify(records))
+  cacheSet(EVENT_STORAGE_KEY, JSON.stringify(records))
 }
 
 export function loadNirvInteractionRecords(): NirvInteractionRecord[] {
   try {
-    const raw = localStorage.getItem(INTERACTION_STORAGE_KEY)
+    const raw = cacheGet(INTERACTION_STORAGE_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw) as NirvInteractionRecord[]
     if (!Array.isArray(parsed)) return []
@@ -213,5 +224,5 @@ export function loadNirvInteractionRecords(): NirvInteractionRecord[] {
 }
 
 export function saveNirvInteractionRecords(records: NirvInteractionRecord[]): void {
-  localStorage.setItem(INTERACTION_STORAGE_KEY, JSON.stringify(records))
+  cacheSet(INTERACTION_STORAGE_KEY, JSON.stringify(records))
 }

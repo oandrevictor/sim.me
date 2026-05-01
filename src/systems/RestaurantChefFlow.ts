@@ -86,7 +86,7 @@ export class RestaurantChefFlow {
     if (fridge) return this.tryCollectIngredients(bot, building, stove, fridge)
     if (!staffNextToStation(this.restaurant, bot, stove.x, stove.y)) return
     if (stove.status !== 'idle') return this.abort(bot)
-    this.cooking.startCooking(stove, CHEF_AUTO_RECIPE)
+    this.cooking.startCooking(stove, CHEF_AUTO_RECIPE, bot.nirv.getMoodWorkModifier())
     bot.enterChefCooking()
   }
 

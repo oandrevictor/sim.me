@@ -1,4 +1,6 @@
 import type { StageVariant } from '../config/stageVariants'
+import { cacheGet, cacheSet, cacheDelete } from './saveCache'
+import { SAVE_KEYS } from './saveSchema'
 
 export type StageAttraction =
   | { kind: 'solo'; botId: string }
@@ -24,15 +26,19 @@ export interface StageRecord {
 
 export const MAX_PERFORMANCE_HISTORY = 20
 
-const STORAGE_KEY = 'simme_placed_stages'
+const STORAGE_KEY = SAVE_KEYS.placedStages
 
 function trimHistory(h: PerformanceCycleRecord[]): PerformanceCycleRecord[] {
   return h.length <= MAX_PERFORMANCE_HISTORY ? h : h.slice(-MAX_PERFORMANCE_HISTORY)
 }
 
+function persist(records: StageRecord[]): void {
+  cacheSet(STORAGE_KEY, JSON.stringify(records))
+}
+
 export function loadPlacedStages(): StageRecord[] {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]') as StageRecord[]
+    return JSON.parse(cacheGet(STORAGE_KEY) ?? '[]') as StageRecord[]
   } catch {
     return []
   }
@@ -41,16 +47,15 @@ export function loadPlacedStages(): StageRecord[] {
 export function savePlacedStage(record: StageRecord): void {
   const records = loadPlacedStages()
   records.push(record)
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records))
+  persist(records)
 }
 
 export function removePlacedStage(id: string): void {
-  const records = loadPlacedStages().filter(r => r.id !== id)
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records))
+  persist(loadPlacedStages().filter(r => r.id !== id))
 }
 
 export function clearPlacedStages(): void {
-  localStorage.removeItem(STORAGE_KEY)
+  cacheDelete(STORAGE_KEY)
 }
 
 export function updateStageRecord(id: string, patch: Partial<StageRecord>): void {
@@ -60,5 +65,5 @@ export function updateStageRecord(id: string, patch: Partial<StageRecord>): void
   const next = { ...records[i]!, ...patch }
   if (next.performanceHistory) next.performanceHistory = trimHistory(next.performanceHistory)
   records[i] = next
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records))
+  persist(records)
 }

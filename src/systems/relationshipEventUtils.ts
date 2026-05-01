@@ -1,4 +1,9 @@
-import type { RelationshipEvent, RelationshipEventSource, RelationshipEventType, RelationshipStage } from '../storage/relationshipPersistence'
+import type {
+  RelationshipEventRecord,
+  RelationshipEventSource,
+  RelationshipEventType,
+  RelationshipStage,
+} from '../storage/relationshipPersistence'
 
 export function relationshipEventTypeForStage(stage: RelationshipStage): RelationshipEventType | null {
   if (stage === 'friend') return 'became_friend'
@@ -16,7 +21,8 @@ export function buildRelationshipEvent(params: {
   toStage?: RelationshipStage
   dayCount: number
   source: RelationshipEventSource
-}): RelationshipEvent {
+  affinityDelta?: number
+}): RelationshipEventRecord {
   const now = Date.now()
   return {
     id: `${params.pairKey}:${params.type}:${now}`,
@@ -29,5 +35,6 @@ export function buildRelationshipEvent(params: {
     dayCount: params.dayCount,
     timestamp: now,
     source: params.source,
+    affinityDelta: params.affinityDelta,
   }
 }

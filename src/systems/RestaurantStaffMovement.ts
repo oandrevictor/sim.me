@@ -3,7 +3,7 @@ import type { Building } from '../entities/Building'
 import type { BotNirv } from '../entities/BotNirv'
 import { GRID_COLS, GRID_ROWS } from '../config/world'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
-import { gridToScreen, screenToGrid } from '../utils/isoGrid'
+import { screenToGrid, gridToScreen } from '../utils/isoGrid'
 import type { RestaurantSystem } from './RestaurantSystem'
 
 const STAFF_PIXEL_REACH = 56
@@ -51,7 +51,7 @@ export function findStaffApproachPoint(
   })
 
   for (const c of candidates) {
-    const path = pathfinder.findPath(Math.round(start.gx), Math.round(start.gy), c.gx, c.gy, 800)
+    const path = pathfinder.findPath(Math.round(start.gx), Math.round(start.gy), c.gx, c.gy, 1600)
     if (path) return gridToScreen(c.gx, c.gy)
   }
   return null
@@ -81,7 +81,7 @@ export function findRestaurantIdlePoint(
     return as - bs
   })
   for (const c of candidates) {
-    const path = pathfinder.findPath(Math.round(start.gx), Math.round(start.gy), c.gx, c.gy, 800)
+    const path = pathfinder.findPath(Math.round(start.gx), Math.round(start.gy), c.gx, c.gy, 1600)
     if (path) return gridToScreen(c.gx, c.gy)
   }
   return null

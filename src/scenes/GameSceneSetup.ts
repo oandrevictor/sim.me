@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { getTileCorners, gridToScreen } from '../utils/isoGrid'
+import { gridToScreen } from '../utils/isoGrid'
 import { WORLD_WIDTH, WORLD_HEIGHT, GRID_COLS, GRID_ROWS } from '../config/world'
 import { loadPlacedBuildings } from '../storage/buildingPersistence'
 import { loadPlacedStages } from '../storage/stagePersistence'
@@ -13,6 +13,9 @@ import { BotNirv, isRestaurantStaffState } from '../entities/BotNirv'
 import { Building } from '../entities/Building'
 import { Stage } from '../entities/Stage'
 import { PlacementManager } from '../placement/PlacementManager'
+import { LotPlacementManager } from '../world/LotPlacementManager'
+import { WallPlacementManager } from '../world/WallPlacementManager'
+import { BuildOverlayLayer } from '../world/BuildOverlayLayer'
 import { countRestaurantEquipment } from '../world/restaurantBuildingCounts'
 import { maxChefs, maxWaiters } from '../systems/restaurantStaffCaps'
 import { installStageBarrier } from '../world/stageBarrier'
@@ -61,6 +64,22 @@ class GameSceneSetupMethods {
 				(gx, gy) => this.buildingPlacer.place(gx, gy),
 				(gx, gy, rot, variant) => this.stagePlacer.place(gx, gy, rot, variant),
 			)
+			this.lotPlacementManager = new LotPlacementManager(
+				this,
+				this.menuUI,
+				this.buildOverlay,
+				() => this.menuUI.getSelectedBuildTool(),
+				() => this.menuUI.getSelectedLotType(),
+				(botId) => this.botNirvs.find(b => b.id === botId)?.nirv.name ?? null,
+				(onMerge, onCancel) => this.menuUI.openLotMergePrompt(onMerge, onCancel),
+			)
+			this.wallPlacementManager = new WallPlacementManager(
+				this,
+				this.menuUI,
+				this.obstacleGroup,
+				this.pathfinder,
+				() => this.menuUI.getSelectedBuildTool(),
+			)
 			this.events.on('store:select', (type: ObjectType) => this.placementManager.enter(type))
 			this.events.on('store:select-building', () => this.placementManager.enterBuildingPlacement())
 			this.events.on('store:select-stage', () => this.placementManager.enterStagePlacement(0, 'default'))
@@ -73,6 +92,31 @@ class GameSceneSetupMethods {
 			this.events.on('menu:shop-close', () => {
 				if (this.placementManager.isActive()) this.placementManager.exit()
 				this.game.canvas.style.cursor = ''
+				if (!this.menuUI.isBuildMode()) this.buildOverlay.setVisible(false)
+				if (!this.menuUI.isBuildMode()) this.lotPlacementManager.setSignsVisible(false)
+			})
+			this.events.on('menu:shop-open', () => {
+				this.buildOverlay.setVisible(true)
+				this.lotPlacementManager.setSignsVisible(true)
+			})
+			this.events.on('menu:build-open', () => {
+				if (this.placementManager.isActive()) this.placementManager.exit()
+				this.game.canvas.style.cursor = ''
+				this.buildOverlay.setVisible(true)
+				this.lotPlacementManager.setSignsVisible(true)
+				this.lotPlacementManager.enter()
+				this.wallPlacementManager.enter()
+				this.setBuildModePaused(true)
+			})
+			this.events.on('menu:build-close', () => {
+				this.lotPlacementManager.exit()
+				this.wallPlacementManager.exit()
+				this.setBuildModePaused(false)
+				if (!this.menuUI.isShopMode()) this.buildOverlay.setVisible(false)
+				if (!this.menuUI.isShopMode()) this.lotPlacementManager.setSignsVisible(false)
+			})
+			this.events.on('world:walls-changed', () => {
+				for (const bot of this.botNirvs) bot.refreshNavigationPath?.()
 			})
 			this.menuUI.setRelationshipProviders(
 				() => this.botNirvs,
@@ -81,7 +125,7 @@ class GameSceneSetupMethods {
 			this.menuUI.setNirvsProviders(
 				() => this.playerNirv ?? null,
 				() => this.botNirvs,
-				() => this.buildings,
+				() => this.houseSystem?.getHomes() ?? [],
 				() => this.relationshipSystem ?? null,
 			)
 		}
@@ -92,17 +136,9 @@ class GameSceneSetupMethods {
 		const bg = this.add.graphics()
 		bg.fillStyle(0x4a7c59)
 		bg.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT)
-		bg.lineStyle(1, 0x3d6b4a, 0.4)
-		for (let gx = 0; gx < GRID_COLS; gx++) {
-			for (let gy = 0; gy < GRID_ROWS; gy++) {
-				const c = getTileCorners(gx, gy)
-				bg.lineBetween(c.top.x, c.top.y, c.right.x, c.right.y)
-				bg.lineBetween(c.right.x, c.right.y, c.bottom.x, c.bottom.y)
-				bg.lineBetween(c.bottom.x, c.bottom.y, c.left.x, c.left.y)
-				bg.lineBetween(c.left.x, c.left.y, c.top.x, c.top.y)
-			}
-		}
 		bg.setDepth(0)
+		this.buildOverlay = new BuildOverlayLayer(this)
+		this.buildOverlay.setVisible(false)
 	}
 	private createNirvAnimations(): void {
 		const directions = [

@@ -1,14 +1,17 @@
+import { cacheGet, cacheSet } from './saveCache'
+import { SAVE_KEYS } from './saveSchema'
+
 export interface RestaurantStaffRecord {
   buildingId: string
   chefBotIds: string[]
   waiterBotIds: string[]
 }
 
-const STORAGE_KEY = 'simme_restaurant_staff_v1'
+const STORAGE_KEY = SAVE_KEYS.restaurantStaff
 
 export function loadRestaurantStaffRecords(): RestaurantStaffRecord[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = cacheGet(STORAGE_KEY)
     if (!raw) return []
     const parsed = JSON.parse(raw) as RestaurantStaffRecord[]
     if (!Array.isArray(parsed)) return []
@@ -23,5 +26,5 @@ export function loadRestaurantStaffRecords(): RestaurantStaffRecord[] {
 }
 
 export function saveRestaurantStaffRecords(records: RestaurantStaffRecord[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records))
+  cacheSet(STORAGE_KEY, JSON.stringify(records))
 }

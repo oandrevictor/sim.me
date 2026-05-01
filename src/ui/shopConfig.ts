@@ -3,7 +3,7 @@ import type { ObjectType } from '../objects/objectTypes'
 export type Category = 'build' | 'farm' | 'dine' | 'bedroom' | 'decoration' | 'misc' | 'inventory'
 
 export const CATEGORIES: { key: Category; label: string }[] = [
-  { key: 'build', label: 'Build' },
+  { key: 'build', label: 'Structures' },
   { key: 'farm', label: 'Farm' },
   { key: 'dine', label: 'Dine' },
   { key: 'bedroom', label: 'Bedroom' },
@@ -28,6 +28,8 @@ export const CATEGORY_MAP: Record<string, Category> = {
   fruit_crate: 'dine',
   fridge: 'dine',
   background: 'decoration',
+  lamp_post: 'decoration',
+  tv: 'bedroom',
   interactable: 'misc',
   trash: 'misc',
   bed_ms_blue: 'bedroom',

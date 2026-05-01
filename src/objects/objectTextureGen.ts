@@ -84,6 +84,49 @@ export function generateObjectTextures(scene: Phaser.Scene): void {
   trashGfx.generateTexture('obj_trash', OBJECT_SIZE, OBJECT_SIZE)
   trashGfx.destroy()
 
+  // TV: flat-screen panel with blue-gray screen, dark bezel, thin stand + base
+  const tvGfx = scene.make.graphics({ x: 0, y: 0 })
+  // Outer bezel
+  tvGfx.fillStyle(0x1a1a2a)
+  tvGfx.fillRoundedRect(0, 2, 32, 22, 3)
+  // Screen (blue-gray, slightly inset)
+  tvGfx.fillStyle(0x2a3f5f)
+  tvGfx.fillRect(3, 5, 26, 16)
+  // Screen subtle highlight strip (top of screen)
+  tvGfx.fillStyle(0x4466aa, 0.6)
+  tvGfx.fillRect(3, 5, 26, 3)
+  // Screen glow dot (simulates power light)
+  tvGfx.fillStyle(0x00ffcc)
+  tvGfx.fillRect(29, 22, 2, 2)
+  // Stand (thin vertical neck)
+  tvGfx.fillStyle(0x222233)
+  tvGfx.fillRect(14, 24, 4, 5)
+  // Base
+  tvGfx.fillStyle(0x2a2a3a)
+  tvGfx.fillRect(8, 29, 16, 3)
+  tvGfx.generateTexture('tv', OBJECT_SIZE, OBJECT_SIZE)
+  tvGfx.destroy()
+
+  // Lamp post: iron pole with warm amber lantern head
+  const lampGfx = scene.make.graphics({ x: 0, y: 0 })
+  // pole
+  lampGfx.fillStyle(0x2a2a3a)
+  lampGfx.fillRect(14, 10, 4, 20)
+  // base
+  lampGfx.fillStyle(0x1e1e2e)
+  lampGfx.fillRect(10, 28, 12, 4)
+  // lantern body
+  lampGfx.fillStyle(0x222233)
+  lampGfx.fillRect(10, 4, 12, 10)
+  // lantern glow (warm amber)
+  lampGfx.fillStyle(0xffd966, 0.9)
+  lampGfx.fillRect(12, 6, 8, 6)
+  // lantern top cap
+  lampGfx.fillStyle(0x1e1e2e)
+  lampGfx.fillRect(10, 2, 12, 4)
+  lampGfx.generateTexture('lamp_post', OBJECT_SIZE, OBJECT_SIZE)
+  lampGfx.destroy()
+
   // Ghost: white semi-transparent square (tinted at runtime per type)
   const ghostGfx = scene.make.graphics({ x: 0, y: 0 })
   ghostGfx.fillStyle(0xffffff, 0.45)

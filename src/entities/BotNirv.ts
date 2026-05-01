@@ -68,6 +68,8 @@ export class BotNirv {
   // Path following
   private path: { gx: number; gy: number }[] = []
   private pathNodeIndex = 0
+  private pathFailed = false
+  private pathResolvedEndCell: { gx: number; gy: number } | null = null
   private prevX = 0
   private prevY = 0
   private stuckFrames = 0

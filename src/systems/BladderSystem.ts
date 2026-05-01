@@ -4,7 +4,11 @@ import { isHouseState, isWorkJobState, type BotNirv } from '../entities/BotNirv'
 import type { Nirv } from '../entities/Nirv'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import type { RestaurantSystem } from './RestaurantSystem'
-import { queueSlotBehindStation } from './waterQueueLayout'
+import {
+  resolveReachableQueueSlot,
+  resolveStationApproach,
+  type StationApproach,
+} from './stationApproach'
 import type { RelationshipSystem } from './RelationshipSystem'
 
 const CHECK_INTERVAL_MS = 2000
@@ -17,6 +21,7 @@ interface ToiletStation {
   x: number
   y: number
   active: BotNirv | null
+  activeApproach: StationApproach | null
   queue: BotNirv[]
 }
 
@@ -49,7 +54,7 @@ export class BladderSystem {
     x: number,
     y: number,
   ): void {
-    this.stations.push({ sprite, x, y, active: null, queue: [] })
+    this.stations.push({ sprite, x, y, active: null, activeApproach: null, queue: [] })
   }
 
   setRelationshipSystem(system: RelationshipSystem): void {
@@ -63,6 +68,7 @@ export class BladderSystem {
     if (st.active) {
       st.active.cancelToiletQueue()
       st.active = null
+      st.activeApproach = null
     }
     for (const b of st.queue) b.cancelToiletQueue()
     st.queue.length = 0
@@ -134,19 +140,30 @@ export class BladderSystem {
       const bot = st.active
       if (bot.state !== 'walking_to_toilet') continue
       if (!this.canBotInteractWithStation(bot, st.x, st.y)) continue
-      const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, st.x, st.y)
+      st.activeApproach ??= resolveStationApproach(this.pathfinder, st.x, st.y, bot)
+      if (!st.activeApproach) {
+        bot.cancelToiletQueue()
+        continue
+      }
+      const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, st.activeApproach.x, st.activeApproach.y)
       if (d < STATION_REACH_PX) bot.arriveAtToiletStation(st.x, st.y)
     }
   }
 
   private checkQueueSlotArrivals(): void {
     for (const st of this.stations) {
-      st.queue.forEach((bot, lineIndex) => {
-        if (bot.state !== 'walking_to_toilet_queue') return
-        const slot = queueSlotBehindStation(this.pathfinder, st.x, st.y, lineIndex)
+      for (let lineIndex = st.queue.length - 1; lineIndex >= 0; lineIndex--) {
+        const bot = st.queue[lineIndex]!
+        if (bot.state !== 'walking_to_toilet_queue') continue
+        const slot = resolveReachableQueueSlot(this.pathfinder, st.x, st.y, bot, lineIndex)
+        if (!slot) {
+          st.queue.splice(lineIndex, 1)
+          bot.cancelToiletQueue()
+          continue
+        }
         const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, slot.x, slot.y)
         if (d < STATION_REACH_PX) bot.arriveAtToiletQueueSlot()
-      })
+      }
     }
   }
 
@@ -156,6 +173,7 @@ export class BladderSystem {
       const s = st.active.state
       if (s === 'walking_to_toilet' || s === 'using_toilet') continue
       st.active = null
+      st.activeApproach = null
       this.promoteNextInLine(st)
     }
   }
@@ -170,18 +188,32 @@ export class BladderSystem {
   private promoteNextInLine(st: ToiletStation): void {
     const next = st.queue.shift()
     if (!next) return
+    const approach = resolveStationApproach(this.pathfinder, st.x, st.y, next)
+    if (!approach) {
+      next.cancelToiletQueue()
+      this.promoteNextInLine(st)
+      return
+    }
     st.active = next
-    next.redirectToToilet(st.x, st.y)
+    st.activeApproach = approach
+    next.redirectToToilet(st.x, st.y, approach.x, approach.y)
     this.syncQueueSlots(st)
   }
 
   private syncQueueSlots(st: ToiletStation): void {
-    st.queue.forEach((bot, i) => {
-      const p = queueSlotBehindStation(this.pathfinder, st.x, st.y, i)
+    const kept: BotNirv[] = []
+    for (const bot of st.queue) {
+      const p = resolveReachableQueueSlot(this.pathfinder, st.x, st.y, bot, kept.length)
+      if (!p) {
+        bot.cancelToiletQueue()
+        continue
+      }
       if (bot.state === 'waiting_at_toilet_queue' || bot.state === 'walking_to_toilet_queue') {
         bot.redirectToToiletQueueSlot(p.x, p.y)
       }
-    })
+      kept.push(bot)
+    }
+    st.queue.splice(0, st.queue.length, ...kept)
   }
 
   private tryAssignBotsNeedingToilet(): void {
@@ -203,6 +235,7 @@ export class BladderSystem {
         continue
       }
       if (stBot === 'walking_to_perform' || stBot === 'performing_on_stage') continue
+      if (stBot === 'drinking_water') continue
 
       if (this.findStationForBot(bot)) continue
 
@@ -214,7 +247,7 @@ export class BladderSystem {
         const severeThreshold = Math.max(0, t - 24)
         if (level <= severeThreshold) {
           const severity = 1.35 + (severeThreshold - level) / 30
-          this.relationshipSystem?.applyNeedStress(bot, severity)
+          this.relationshipSystem?.applyNeedStress(bot, severity, 'bladder')
         }
         if (stBot === 'sleeping' || stBot === 'walking_to_bed') bot.cancelSleep()
         bot.cancelWaterQueue()
@@ -241,12 +274,15 @@ export class BladderSystem {
       if (!best) continue
 
       if (!best.active && best.queue.length === 0) {
+        const approach = resolveStationApproach(this.pathfinder, best.x, best.y, bot)
+        if (!approach) continue
         best.active = bot
-        bot.redirectToToilet(best.x, best.y)
+        best.activeApproach = approach
+        bot.redirectToToilet(best.x, best.y, approach.x, approach.y)
       } else {
+        const p = resolveReachableQueueSlot(this.pathfinder, best.x, best.y, bot, best.queue.length)
+        if (!p) continue
         best.queue.push(bot)
-        const lineIndex = best.queue.length - 1
-        const p = queueSlotBehindStation(this.pathfinder, best.x, best.y, lineIndex)
         bot.redirectToToiletQueueSlot(p.x, p.y)
       }
     }

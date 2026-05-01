@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import type { BotNirv, BotState } from '../entities/BotNirv'
 import type { MusicTag } from '../data/musicTags'
 import type { RelationshipSystem } from './RelationshipSystem'
+import { getMoodSocialModifier } from './MoodSystem'
 
 const SOCIAL_SCAN_INTERVAL_MS = 2000
 const CHAT_TICK_MS = 2000
@@ -63,6 +64,22 @@ const STAGE_LINES: [string, string][] = [
   ['That was a great show!', 'I agree, it was amazing.'],
   ['What is the setlist for tonight?', 'I am not sure, but I heard they are playing some new songs.']
 
+]
+
+const STRESSED_LINES: [string, string][] = [
+  ['I am exhausted.', 'Me too, honestly.'],
+  ['Not feeling great today.', 'Sorry to hear that.'],
+  ['This is a lot.', 'Tell me about it.'],
+  ['I need a break.', 'Yeah, same here.'],
+  ['Everything feels off today.', 'I know that feeling.'],
+]
+
+const MISERABLE_LINES: [string, string][] = [
+  ['I can barely keep going.', 'Hang in there.'],
+  ['This is too much.', 'You okay?'],
+  ['I need to sit down.', 'Let me know if you need anything.'],
+  ['I am not okay.', 'I am sorry.'],
+  ['Why does everything feel so hard?', 'It will pass.'],
 ]
 
 export class SocialSystem {
@@ -175,10 +192,28 @@ export class SocialSystem {
   }
 
   private pickLines(chat: ChatSession): [string, string] {
+    // Mood-driven lines take priority over context lines
+    const moodA = chat.a.nirv.getMood()
+    const moodB = chat.b.nirv.getMood()
+    const worstMood = (moodA === 'miserable' || moodB === 'miserable') ? 'miserable'
+      : (moodA === 'stressed' || moodB === 'stressed') ? 'stressed'
+      : moodA
+
+    if (worstMood === 'miserable') return Phaser.Utils.Array.GetRandom(MISERABLE_LINES)
+    if (worstMood === 'stressed') return Phaser.Utils.Array.GetRandom(STRESSED_LINES)
+
     if (chat.sharedInterest) {
       return chat.firstMeeting
         ? [`You like ${chat.sharedInterest}?`, `Yeah, I love ${chat.sharedInterest}.`]
         : [`Still into ${chat.sharedInterest}?`, `Always into ${chat.sharedInterest}.`]
+    }
+    if (worstMood === 'happy') {
+      if (chat.a.state === 'watching_stage' || chat.b.state === 'watching_stage') {
+        return Phaser.Utils.Array.GetRandom(STAGE_LINES)
+      }
+      if (this.isQueueState(chat.a.state) || this.isQueueState(chat.b.state)) {
+        return Phaser.Utils.Array.GetRandom(QUEUE_LINES)
+      }
     }
     if (chat.a.state === 'watching_stage' || chat.b.state === 'watching_stage') {
       return Phaser.Utils.Array.GetRandom(STAGE_LINES)
@@ -218,7 +253,8 @@ export class SocialSystem {
     const socialDeficit = (200 - (a.nirv.getSocialNeed() + b.nirv.getSocialNeed())) / 220
     const relBias = this.relationshipSystem?.getPairSocialBias(a.id, b.id, 'private') ?? 0
     const relationshipChance = Phaser.Math.Clamp((relBias + 1) * 0.24, 0, 0.34)
-    return Phaser.Math.Clamp(socialDeficit + relationshipChance, 0.06, 0.95)
+    const moodModifier = getMoodSocialModifier(a.nirv.getMood()) + getMoodSocialModifier(b.nirv.getMood())
+    return Phaser.Math.Clamp(socialDeficit + relationshipChance + moodModifier * 0.5, 0.06, 0.95)
   }
 
   private findSharedInterest(a: readonly MusicTag[], b: readonly MusicTag[]): MusicTag | null {

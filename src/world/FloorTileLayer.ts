@@ -54,11 +54,7 @@ export class FloorTileLayer {
     for (const key of this.cells) {
       const [gx, gy] = key.split(',').map(Number)
       const c = getTileCorners(gx, gy)
-      // top-right edge: neighbor at (gx+1, gy-1)... no, iso neighbors:
-      // top    edge (top→right):  neighbor sharing this edge is (gx, gy-1)
-      // right  edge (right→bottom): neighbor is (gx+1, gy)
-      // bottom edge (bottom→left):  neighbor is (gx, gy+1)
-      // left   edge (left→top):     neighbor is (gx-1, gy)
+      // Outer edges only: cardinal neighbors share full tile sides.
       if (!this.has(gx, gy - 1)) this.gfx.lineBetween(c.top.x, c.top.y, c.right.x, c.right.y)
       if (!this.has(gx + 1, gy)) this.gfx.lineBetween(c.right.x, c.right.y, c.bottom.x, c.bottom.y)
       if (!this.has(gx, gy + 1)) this.gfx.lineBetween(c.bottom.x, c.bottom.y, c.left.x, c.left.y)

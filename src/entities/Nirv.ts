@@ -3,6 +3,8 @@ import { NirvBubbles } from './NirvBubbles'
 import { NirvNeeds } from './NirvNeeds'
 import { updateNirvAnimation } from './nirvAnimation'
 import { getBedSleepWorldOffset } from './nirvSleepPose'
+import { computeMood, getMoodWorkModifier, type MoodState } from '../systems/MoodSystem'
+export type { MoodState } from '../systems/MoodSystem'
 
 export type NirvVariant = 'm' | 'f' | 'f2' | 'f3'
 
@@ -48,8 +50,8 @@ export class Nirv {
     const textureKey = `${variant}_idle`
     this.sprite = scene.physics.add.sprite(x, y, textureKey, 16)
     this.sprite.setDepth(y)
-    this.sprite.body!.setSize(20, 24)
-    this.sprite.body!.setOffset(14, 20)
+    this.sprite.body!.setSize(16, 16)
+    this.sprite.body!.setOffset(16, 28)
     this.bubbles = new NirvBubbles(scene, this.sprite)
   }
 
@@ -77,6 +79,20 @@ export class Nirv {
   getBladderLevel(): number { return this.needs.getBladderLevel() }
   getSocialNeed(): number { return this.needs.getSocialNeed() }
   relieveSocialNeed(amount: number): void { this.needs.relieveSocialNeed(amount) }
+
+  getMood(): MoodState {
+    return computeMood({
+      hydration: this.needs.getHydrationLevel(),
+      satiation: this.needs.getSatiation(),
+      rest: this.needs.getRestLevel(),
+      fun: this.needs.getFunLevel(),
+      social: this.needs.getSocialNeed(),
+      bladder: this.needs.getBladderLevel(),
+    })
+  }
+
+  /** Work-speed multiplier based on mood: >1 = slower, <1 = faster. */
+  getMoodWorkModifier(): number { return getMoodWorkModifier(this.getMood()) }
   knowsNirv(name: string): boolean { return this.knownNirvs.has(name) }
   getKnownNirvs(): string[] { return [...this.knownNirvs] }
 

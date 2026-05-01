@@ -3,6 +3,7 @@ import { TILE_W } from '../utils/isoGrid'
 import { isHouseState, isWorkJobState, type BotNirv } from '../entities/BotNirv'
 import type { Nirv } from '../entities/Nirv'
 import { CRITICAL_REST_THRESHOLD } from '../entities/nirvSleep'
+import { CRITICAL_HYDRATION_THRESHOLD } from '../entities/nirvHydration'
 import type { RestaurantSystem } from './RestaurantSystem'
 
 const CHECK_INTERVAL_MS = 2000
@@ -239,6 +240,12 @@ export class SleepSystem {
       const stBot = bot.state
       if (stBot === 'walking_to_bed' || stBot === 'sleeping') continue
       if (stBot === 'walking_to_perform' || stBot === 'performing_on_stage') continue
+      if (stBot === 'drinking_water') continue
+
+      if (bot.nirv.getHydrationLevel() <= CRITICAL_HYDRATION_THRESHOLD) continue
+      const bladder = bot.nirv.getBladderLevel()
+      const bt = bot.nirv.bladderLevelThreshold
+      if (bladder <= 0 || bladder <= bt - 10) continue
 
       const critical = r <= CRITICAL_REST_THRESHOLD
       if (!critical) {
@@ -253,8 +260,7 @@ export class SleepSystem {
         else if (
           stBot === 'walking_to_water' ||
           stBot === 'walking_to_water_queue' ||
-          stBot === 'waiting_at_water_queue' ||
-          stBot === 'drinking_water'
+          stBot === 'waiting_at_water_queue'
         ) bot.cancelWaterQueue()
         else if (
           stBot === 'walking_to_toilet' ||

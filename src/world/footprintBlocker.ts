@@ -1,17 +1,38 @@
 import Phaser from 'phaser'
 import { OBJECT_SIZE } from '../objects/objectTypes'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
-import { screenToGrid } from '../utils/isoGrid'
+import { screenToCell } from '../utils/isoGrid'
 
-export function blockCellAt(pathfinder: GridPathfinder, x: number, y: number): void {
-  const g = screenToGrid(x, y)
-  pathfinder.blockCell(Math.round(g.gx), Math.round(g.gy))
+/**
+ * Block nav cells that correspond to the physical body footprint.
+ * bodyW/bodyH are in pixels; we convert to nav cells and block the right area.
+ */
+export function blockNavCellsForArcadeBody(
+  pathfinder: GridPathfinder,
+  body: Phaser.Physics.Arcade.Body | Phaser.Physics.Arcade.StaticBody,
+): void {
+  const min = screenToCell(body.x, body.y)
+  const max = screenToCell(body.x + body.width - 0.01, body.y + body.height - 0.01)
+  for (let gx = min.gx; gx <= max.gx; gx++) {
+    for (let gy = min.gy; gy <= max.gy; gy++) {
+      pathfinder.blockCell(gx, gy)
+    }
+  }
 }
 
-export function unblockCellAt(pathfinder: GridPathfinder, x: number, y: number): void {
-  const g = screenToGrid(x, y)
-  pathfinder.unblockCell(Math.round(g.gx), Math.round(g.gy))
+export function unblockNavCellsForArcadeBody(
+  pathfinder: GridPathfinder,
+  body: Phaser.Physics.Arcade.Body | Phaser.Physics.Arcade.StaticBody,
+): void {
+  const min = screenToCell(body.x, body.y)
+  const max = screenToCell(body.x + body.width - 0.01, body.y + body.height - 0.01)
+  for (let gx = min.gx; gx <= max.gx; gx++) {
+    for (let gy = min.gy; gy <= max.gy; gy++) {
+      pathfinder.unblockCell(gx, gy)
+    }
+  }
 }
+
 
 export function createFootprintBlocker(
   obstacleGroup: Phaser.Physics.Arcade.StaticGroup,
@@ -26,6 +47,6 @@ export function createFootprintBlocker(
   blocker.body!.setSize(Math.max(OBJECT_SIZE, footW), footH)
   blocker.body!.setOffset(16 - Math.max(OBJECT_SIZE, footW) / 2, 8)
   blocker.refreshBody()
-  blockCellAt(pathfinder, x, y)
+  blockNavCellsForArcadeBody(pathfinder, blocker.body as Phaser.Physics.Arcade.Body | Phaser.Physics.Arcade.StaticBody)
   return blocker
 }

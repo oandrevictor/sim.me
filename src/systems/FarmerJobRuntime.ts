@@ -5,6 +5,7 @@ import { CORN_SEED } from '../data/crops'
 import { cropApproachPoint, type CropPlot } from './farmingTypes'
 
 const FARMER_REACH_PX = 64
+const FARMER_APPROACH_REACH_PX = 32
 const FARMER_WORK_MS = 1600
 
 type CropAction = 'plant' | 'harvest'
@@ -73,9 +74,11 @@ export class FarmerJobRuntime {
     }
     const sprite = bot.nirv.sprite
     if (!this.canInteractWithPlot(bot, task.plot.x, task.plot.y)) return
-    const dist = Phaser.Math.Distance.Between(sprite.x, sprite.y, task.plot.x, task.plot.y)
-    if (dist > FARMER_REACH_PX) return
-    task.remainingMs = FARMER_WORK_MS
+    const plotDist = Phaser.Math.Distance.Between(sprite.x, sprite.y, task.plot.x, task.plot.y)
+    const approach = cropApproachPoint(task.plot.x, task.plot.y)
+    const approachDist = Phaser.Math.Distance.Between(sprite.x, sprite.y, approach.x, approach.y)
+    if (plotDist > FARMER_REACH_PX && approachDist > FARMER_APPROACH_REACH_PX) return
+    task.remainingMs = FARMER_WORK_MS * bot.nirv.getMoodWorkModifier()
     bot.enterFarmerWorking()
   }
 
