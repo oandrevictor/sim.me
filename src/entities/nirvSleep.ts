@@ -1,11 +1,11 @@
 export const REST_START = 100
 export const CRITICAL_REST_THRESHOLD = 5
-export const REST_DECAY_MIN = 3
-export const REST_DECAY_MAX = 15
+export const REST_DECAY_MIN = 0.06
+export const REST_DECAY_MAX = 0.18
 
-/** Random sleepy rate per Nirv: uniform in [0.7, 0.9]. */
+/** Random sleepy rate per Nirv: uniform in [0.997, 0.999]. */
 export function sampleSleepyRate(): number {
-  return 0.7 + Math.random() * 0.2
+  return 0.997 + Math.random() * 0.002
 }
 
 /** Random rest threshold per Nirv: integer in [10, 30]. */

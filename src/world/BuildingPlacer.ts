@@ -16,6 +16,7 @@ export class BuildingPlacer {
     private readonly pathfinder: GridPathfinder,
     private readonly buildingTypeUI: BuildingTypeUI,
     private readonly isPlacementActive: () => boolean,
+    private readonly getHouseOwnerName: (building: Building) => string | null = () => null,
   ) {}
 
   place(gridX: number, gridY: number): boolean {
@@ -30,13 +31,18 @@ export class BuildingPlacer {
     this.buildings.push(building)
     this.createSign(building)
     this.blockCells(building)
-    savePlacedBuilding({ id, gridX, gridY, type: 'empty' })
+    savePlacedBuilding({ id, gridX, gridY, type: 'empty', ownerBotId: null })
     return true
   }
 
   createSign(building: Building): void {
     const sign = new BuildingSign(this.scene, building.id, building.gridX, building.gridY)
     sign.onClick((buildingId) => this.onSignClicked(buildingId))
+    sign.setHoverLabelProvider(() => {
+      if (building.type !== 'house') return null
+      const owner = this.getHouseOwnerName(building)
+      return owner ? `${owner}'s house` : 'Unassigned house'
+    })
     this.buildingSigns.set(building.id, sign)
   }
 

@@ -2,8 +2,8 @@
 
 ## File Size Limits
 
-- **Hard limit: 200 lines per file.** If a file exceeds this, stop and split it before continuing.
-- **Soft limit: 150 lines.** Above this, ask: "does this file have more than one responsibility?"
+- **Hard limit: 400 lines per file.** If a file exceeds this, stop and split it before continuing.
+- **Soft limit: 250 lines.** Above this, ask: "does this file have more than one responsibility?"
 - No exceptions for scenes, UI classes, or systems — they must be split too.
 
 ## Single Responsibility

@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { screenToGrid } from '../utils/isoGrid'
+import { actorInsideObjectBuilding } from '../world/buildingInteractionAccess'
 import type { Building } from '../entities/Building'
 import type { BotNirv } from '../entities/BotNirv'
 import { removeObjectByType, type ObjectType } from '../storage/persistence'
@@ -15,6 +16,7 @@ import {
   type TableType,
   type WaiterServiceClaim,
 } from './restaurantTypes'
+import type { RelationshipSystem } from './RelationshipSystem'
 
 export type { CounterRecord, WaiterServiceClaim } from './restaurantTypes'
 
@@ -28,6 +30,7 @@ export class RestaurantSystem {
   private reservations: RestaurantReservations
   private timeSinceCheck = 0
   private staffBotFilter: (bot: BotNirv) => boolean = () => false
+  private relationshipSystem: RelationshipSystem | null = null
   onPlateConsumed: ((tableX: number, tableY: number, sprite: Phaser.GameObjects.Sprite) => void) | null = null
 
   constructor(private readonly buildings: Building[], private readonly bots: BotNirv[]) {
@@ -38,6 +41,7 @@ export class RestaurantSystem {
   }
 
   setStaffBotFilter(fn: (bot: BotNirv) => boolean): void { this.staffBotFilter = fn }
+  setRelationshipSystem(system: RelationshipSystem): void { this.relationshipSystem = system }
 
   registerChair(sprite: Phaser.GameObjects.Sprite, x: number, y: number): void {
     this.chairs.push({
@@ -160,10 +164,22 @@ export class RestaurantSystem {
   update(delta: number): void {
     this.timeSinceCheck += delta
     checkFoodService(this.tables, this.chairs, (ax, ay, bx, by) => this.isGridAdjacent(ax, ay, bx, by), this.onPlateConsumed)
-    checkArrivals(this.chairs)
+    checkArrivals(this.chairs, this.buildings)
     if (this.timeSinceCheck < CHECK_INTERVAL) return
     this.timeSinceCheck = 0
-    tryAssignRestaurantBots(this.chairs, this.buildings, this.bots, this.staffBotFilter)
+    tryAssignRestaurantBots(
+      this.chairs,
+      this.buildings,
+      this.bots,
+      this.staffBotFilter,
+      this.relationshipSystem
+        ? (idA: string, idB: string) => this.relationshipSystem?.getPairSocialBias(idA, idB, 'private') ?? 0
+        : undefined,
+      this.relationshipSystem
+        ? (subjectId: string, otherId: string, weight: number) =>
+            this.relationshipSystem?.registerJealousyExposure(subjectId, otherId, weight)
+        : undefined,
+    )
   }
 
   cleanupUnseated(): void { cleanupUnseated(this.chairs, this.reservations) }
@@ -178,6 +194,10 @@ export class RestaurantSystem {
 
   private findContainingBuilding(x: number, y: number): string | null {
     return this.buildings.find(b => b.containsPixel(x, y))?.id ?? null
+  }
+
+  actorInsideObjectBuilding(actorX: number, actorY: number, objectX: number, objectY: number): boolean {
+    return actorInsideObjectBuilding(this.buildings, actorX, actorY, objectX, objectY)
   }
 
   private isAdjacentToTable(cx: number, cy: number): boolean {

@@ -11,10 +11,10 @@ import type { HungerSystem } from '../systems/HungerSystem'
 import type { RestaurantSystem } from '../systems/RestaurantSystem'
 import type { SleepSystem } from '../systems/SleepSystem'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
-import { DEPTH_UI } from '../config/world'
 import { screenToGrid } from '../utils/isoGrid'
 import type { FloorTileLayer } from './FloorTileLayer'
 import type { PlateEntry, PlacedSpriteEntry, SpawnerState } from './ObjectSpawner'
+import { spawnFoodPlate } from './foodPlatePlacement'
 import { placeStockableProp } from './stockablePropPlacement'
 
 interface NonPhysicsContext {
@@ -44,8 +44,14 @@ interface NonPhysicsArgs {
   objectState?: { cropStage?: CropStage; cropSeed?: CropSeed; cropStageStartedAt?: number; stock?: number }
 }
 
-export function spawnNonPhysicsObject(context: NonPhysicsContext, args: NonPhysicsArgs): void {
-  if (isBedType(args.type)) return spawnBed(context, args)
+export function spawnNonPhysicsObject(context: NonPhysicsContext, args: NonPhysicsArgs): boolean {
+  if (args.type === 'food_plate') {
+    return spawnFoodPlate(context, args.x, args.y, args.frame, args.recipeId)
+  }
+  if (isBedType(args.type)) {
+    spawnBed(context, args)
+    return true
+  }
   const sprite = context.scene.add.sprite(args.x, args.y, typeConfig(args.type).textureKey, args.frame)
   sprite.setDepth(args.y)
   applyDefaultDisplay(sprite, args.type)
@@ -63,8 +69,8 @@ export function spawnNonPhysicsObject(context: NonPhysicsContext, args: NonPhysi
     sprite.setInteractive({ useHandCursor: true })
     sprite.on('pointerdown', () => context.onInteractableClicked(sprite))
   } else if (args.type === 'chair') context.restaurantSystem.registerChair(sprite, args.x, args.y)
-  else if (args.type === 'food_plate') spawnFoodPlate(context, sprite, args)
   else context.state.backgroundSprites.push(sprite)
+  return true
 }
 
 function typeConfig(type: ObjectType) {
@@ -159,17 +165,6 @@ function spawnPortableToilet(
   const blocker = baseBlocker(context, args.x, args.y, Math.max(OBJECT_SIZE, Math.round(w * 0.55)), true)
   if (placedEntry) placedEntry.footprintBlocker = blocker
   context.bladderSystem.registerStation(sprite as unknown as Phaser.Physics.Arcade.Sprite, args.x, args.y)
-}
-
-function spawnFoodPlate(context: NonPhysicsContext, sprite: Phaser.GameObjects.Sprite, args: NonPhysicsArgs): void {
-  if (!args.recipeId) return
-  const plateEntry: PlateEntry = { sprite, tableX: args.x, tableY: args.y, recipeId: args.recipeId }
-  context.state.plateSprites.push(plateEntry)
-  sprite.setInteractive({ useHandCursor: true, pixelPerfect: false })
-  sprite.setDepth(DEPTH_UI + 5)
-  sprite.on('pointerdown', () => context.onPlateClicked(plateEntry))
-  const onCounter = context.restaurantSystem.placeFoodOnCounter(args.x, args.y, args.recipeId, sprite)
-  if (!onCounter) context.restaurantSystem.placeFoodOnTable(args.x, args.y, args.recipeId, sprite)
 }
 
 function baseBlocker(

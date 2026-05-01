@@ -1,10 +1,11 @@
 import type { MusicTag } from '../data/musicTags'
 
 export const FUN_LEVEL_START = 80
+const GAME_MINUTES_PER_OLD_REAL_MINUTE = 60
 
-/** Integer fun lost per game minute. */
+/** Fun lost per game minute, preserving the old per-real-minute pacing. */
 export function sampleFunDecayStep(): number {
-  return 1 + Math.floor(Math.random() * 20)
+  return (1 + Math.floor(Math.random() * 20)) / GAME_MINUTES_PER_OLD_REAL_MINUTE
 }
 
 /** When fun falls to this or below, bots prioritize watching a performance (soft priority). */

@@ -11,10 +11,10 @@ import {
 } from './nirvSleep'
 import {
   BLADDER_START,
-  sampleBladderIncreaseStep,
+  sampleBladderDecayStep,
   sampleBladderThreshold,
 } from './nirvBladder'
-import { SOCIAL_NEED_START, sampleSocialNeedIncrementStep } from './nirvSocial'
+import { SOCIAL_NEED_START, sampleSocialNeedDecayStep } from './nirvSocial'
 
 /** Holds all per-Nirv need values and their minute-based progression rules. */
 export class NirvNeeds {
@@ -26,9 +26,9 @@ export class NirvNeeds {
   readonly hungerThreshold = sampleHungerThreshold()
   readonly funDecayStep = sampleFunDecayStep()
   readonly funThreshold = sampleFunThreshold()
-  readonly bladderIncreaseStep = sampleBladderIncreaseStep()
+  readonly bladderIncreaseStep = sampleBladderDecayStep()
   readonly bladderLevelThreshold = sampleBladderThreshold()
-  readonly socialNeedIncrementStep = sampleSocialNeedIncrementStep()
+  readonly socialNeedIncrementStep = sampleSocialNeedDecayStep()
   private hydrationLevel = HYDRATION_START
   private restLevel = REST_START
   private satiation = SATIATION_START
@@ -72,17 +72,18 @@ export class NirvNeeds {
 
   getBladderLevel(): number { return this.bladderLevel }
   applyMinuteBladder(): void {
-    this.bladderLevel = Math.min(100, this.bladderLevel + this.bladderIncreaseStep)
+    this.bladderLevel = Math.max(0, this.bladderLevel - this.bladderIncreaseStep)
   }
   resetBladderAfterUse(): void {
-    this.bladderLevel = 0
+    this.bladderLevel = 100
   }
 
   getSocialNeed(): number { return this.socialNeed }
   applyMinuteSocialNeed(): void {
-    this.socialNeed = Math.min(100, this.socialNeed + this.socialNeedIncrementStep)
+    this.socialNeed = Math.max(0, this.socialNeed - this.socialNeedIncrementStep)
   }
+  /** Back-compat name: now increases social goodness toward 100. */
   relieveSocialNeed(amount: number): void {
-    this.socialNeed = Math.max(0, this.socialNeed - amount)
+    this.socialNeed = Math.min(100, this.socialNeed + amount)
   }
 }

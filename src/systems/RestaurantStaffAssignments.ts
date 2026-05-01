@@ -30,6 +30,14 @@ export class RestaurantStaffAssignments {
     return false
   }
 
+  roleForBot(botId: string): 'chef' | 'waiter' | null {
+    for (const { chefBotIds, waiterBotIds } of this.byBuilding.values()) {
+      if (chefBotIds.includes(botId)) return 'chef'
+      if (waiterBotIds.includes(botId)) return 'waiter'
+    }
+    return null
+  }
+
   roleForBotInBuilding(botId: string, buildingId: string): 'chef' | 'waiter' | null {
     const s = this.get(buildingId)
     if (s.chefBotIds.includes(botId)) return 'chef'
@@ -38,15 +46,7 @@ export class RestaurantStaffAssignments {
   }
 
   clearBotEverywhere(botId: string): void {
-    let changed = false
-    for (const [buildingId, cur] of this.byBuilding.entries()) {
-      const chefBotIds = cur.chefBotIds.filter(id => id !== botId)
-      const waiterBotIds = cur.waiterBotIds.filter(id => id !== botId)
-      if (chefBotIds.length === cur.chefBotIds.length && waiterBotIds.length === cur.waiterBotIds.length) continue
-      this.byBuilding.set(buildingId, { chefBotIds, waiterBotIds })
-      changed = true
-    }
-    if (changed) this.persist()
+    if (this.removeBotEverywhere(botId)) this.persist()
   }
 
   /** Returns false if over cap or duplicate role across buildings is fine — caller clamps. */
@@ -57,6 +57,7 @@ export class RestaurantStaffAssignments {
     maxChefs: number,
     maxWaiters: number,
   ): void {
+    this.removeBotEverywhere(botId)
     const cur = this.get(buildingId)
     const chefs = cur.chefBotIds.filter(id => id !== botId)
     const waiters = cur.waiterBotIds.filter(id => id !== botId)
@@ -97,6 +98,18 @@ export class RestaurantStaffAssignments {
       waiterBotIds: [...v.waiterBotIds],
     }))
     saveRestaurantStaffRecords(records)
+  }
+
+  private removeBotEverywhere(botId: string): boolean {
+    let changed = false
+    for (const [buildingId, cur] of this.byBuilding.entries()) {
+      const chefBotIds = cur.chefBotIds.filter(id => id !== botId)
+      const waiterBotIds = cur.waiterBotIds.filter(id => id !== botId)
+      if (chefBotIds.length === cur.chefBotIds.length && waiterBotIds.length === cur.waiterBotIds.length) continue
+      this.byBuilding.set(buildingId, { chefBotIds, waiterBotIds })
+      changed = true
+    }
+    return changed
   }
 }
 

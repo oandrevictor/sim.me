@@ -1,12 +1,11 @@
 import Phaser from 'phaser'
 import { TILE_W } from '../utils/isoGrid'
-import { isWorkJobState, type BotNirv } from '../entities/BotNirv'
+import { isHouseState, isWorkJobState, type BotNirv } from '../entities/BotNirv'
 import type { Nirv } from '../entities/Nirv'
 import { CRITICAL_REST_THRESHOLD } from '../entities/nirvSleep'
 import type { RestaurantSystem } from './RestaurantSystem'
 
 const CHECK_INTERVAL_MS = 2000
-const MINUTE_MS = 60_000
 const STATION_REACH_PX = 32
 
 type PlayerBedPhase = 'awake' | 'walking' | 'sleeping'
@@ -28,11 +27,21 @@ export class SleepSystem {
   private restaurant: RestaurantSystem
   private getPlayer: () => Nirv
   private assignAccum = 0
-  private minuteAccum = 0
   private playerPhase: PlayerBedPhase = 'awake'
   private playerTargetBed: BedStation | null = null
+  private schedule: import('./ScheduleSystem').ScheduleSystem | null = null
 
-  constructor(bots: BotNirv[], restaurant: RestaurantSystem, getPlayer: () => Nirv) {
+  setSchedule(s: import('./ScheduleSystem').ScheduleSystem): void { this.schedule = s }
+
+  constructor(
+    bots: BotNirv[],
+    restaurant: RestaurantSystem,
+    getPlayer: () => Nirv,
+    private readonly canBotUseStation: (bot: BotNirv, x: number, y: number) => boolean = () => true,
+    private readonly canPlayerUseStation: (x: number, y: number) => boolean = () => true,
+    private readonly canBotInteractWithStation: (bot: BotNirv, x: number, y: number) => boolean = () => true,
+    private readonly canPlayerInteractWithStation: (x: number, y: number) => boolean = () => true,
+  ) {
     this.bots = bots
     this.restaurant = restaurant
     this.getPlayer = getPlayer
@@ -65,6 +74,7 @@ export class SleepSystem {
     setWalkTarget: (tx: number, ty: number) => void,
   ): void {
     if (this.playerPhase !== 'awake') return
+    if (!this.canPlayerUseStation(bedX, bedY)) return
     // Manual tap: allow sleep whenever not fully rested (bots still use threshold in tryAssignSleepyBots).
     if (playerNirv.getRestLevel() >= 100) return
 
@@ -78,6 +88,7 @@ export class SleepSystem {
       this.playerPhase = 'walking'
       bed.playerOccupant = true
     } else {
+      if (!this.canPlayerInteractWithStation(bedX, bedY)) return
       this.startPlayerSleepAtBed(bed)
     }
   }
@@ -113,21 +124,19 @@ export class SleepSystem {
     st.playerOccupant = false
   }
 
-  updateBeds(delta: number): void {
-    this.minuteAccum += delta
-    while (this.minuteAccum >= MINUTE_MS) {
-      this.minuteAccum -= MINUTE_MS
-      for (const st of this.beds) {
-        const bot = st.occupant
-        if (!bot || bot.state !== 'sleeping') continue
-        bot.nirv.addRest(bot.nirv.sleepRecharges)
-      }
-      if (this.playerPhase === 'sleeping') {
-        const p = this.getPlayer()
-        p.addRest(p.sleepRecharges)
-      }
+  tickRestMinute(): void {
+    for (const st of this.beds) {
+      const bot = st.occupant
+      if (!bot || bot.state !== 'sleeping') continue
+      bot.nirv.addRest(bot.nirv.sleepRecharges)
     }
+    if (this.playerPhase === 'sleeping') {
+      const p = this.getPlayer()
+      p.addRest(p.sleepRecharges)
+    }
+  }
 
+  updateBeds(delta: number): void {
     this.updatePlayerWalkToBed()
     this.repairBedOccupants()
     this.checkArrivals()
@@ -149,7 +158,7 @@ export class SleepSystem {
     const p = this.getPlayer().sprite
     const bed = this.playerTargetBed
     const d = Phaser.Math.Distance.Between(p.x, p.y, bed.x, bed.y)
-    if (d < STATION_REACH_PX) this.startPlayerSleepAtBed(bed)
+    if (d < STATION_REACH_PX && this.canPlayerInteractWithStation(bed.x, bed.y)) this.startPlayerSleepAtBed(bed)
   }
 
   private startPlayerSleepAtBed(bed: BedStation): void {
@@ -193,6 +202,7 @@ export class SleepSystem {
       if (!st.occupant) continue
       const bot = st.occupant
       if (bot.state !== 'walking_to_bed') continue
+      if (!this.canBotInteractWithStation(bot, st.x, st.y)) continue
       const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, st.x, st.y)
       if (d < STATION_REACH_PX) bot.arriveAtBed(st.x, st.y, st.rotation)
     }
@@ -221,7 +231,9 @@ export class SleepSystem {
 
     for (const bot of this.bots) {
       const r = bot.nirv.getRestLevel()
-      if (r > bot.nirv.restThreshold) continue
+      const sleepWindow = this.schedule?.isSleepWindow(bot) ?? false
+      const effectiveThreshold = sleepWindow ? Math.max(bot.nirv.restThreshold, 80) : bot.nirv.restThreshold
+      if (r > effectiveThreshold) continue
       if (this.findBedForBot(bot)) continue
 
       const stBot = bot.state
@@ -230,7 +242,7 @@ export class SleepSystem {
 
       const critical = r <= CRITICAL_REST_THRESHOLD
       if (!critical) {
-        if (stBot !== 'walking' && stBot !== 'waiting') continue
+        if (stBot !== 'walking' && stBot !== 'waiting' && stBot !== 'inside_house' && stBot !== 'walking_into_house') continue
       } else {
         bot.cancelSatiationQueue()
         this.restaurant.releaseChairForBot(bot)
@@ -250,6 +262,7 @@ export class SleepSystem {
           stBot === 'waiting_at_toilet_queue' ||
           stBot === 'using_toilet'
         ) bot.cancelToiletQueue()
+        else if (isHouseState(stBot) && stBot !== 'inside_house' && stBot !== 'walking_into_house') bot.cancelHouseFlow()
         else if (isWorkJobState(stBot)) bot.abortWorkDuty()
       }
 
@@ -257,6 +270,7 @@ export class SleepSystem {
       let bestD = Infinity
       for (const st of this.beds) {
         if (st.occupant || st.playerOccupant) continue
+        if (!this.canBotUseStation(bot, st.x, st.y)) continue
         const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, st.x, st.y)
         if (d < TILE_W * 15 && d < bestD) {
           bestD = d

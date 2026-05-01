@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import type { BotNirv, BotState } from '../entities/BotNirv'
 import type { MusicTag } from '../data/musicTags'
+import type { RelationshipSystem } from './RelationshipSystem'
 
 const SOCIAL_SCAN_INTERVAL_MS = 2000
 const CHAT_TICK_MS = 2000
@@ -30,8 +31,15 @@ type ChatSession = {
   accumMs: number
   reliefPerTick: number
   sharedInterest: MusicTag | null
+  sharedInterestCount: number
   firstMeeting: boolean
 }
+
+export type ChatTickListener = (
+  a: BotNirv,
+  b: BotNirv,
+  ctx: { sharedInterest: MusicTag | null; sharedInterestCount: number; firstMeeting: boolean },
+) => void
 
 const GENERIC_LINES: [string, string][] = [
   ['Nice crowd today.', 'Yeah, it is packed.'],
@@ -60,8 +68,18 @@ const STAGE_LINES: [string, string][] = [
 export class SocialSystem {
   private scanAccum = 0
   private chats = new Map<string, ChatSession>()
+  private chatTickListeners: ChatTickListener[] = []
+  private relationshipSystem: RelationshipSystem | null = null
 
   constructor(private readonly bots: readonly BotNirv[]) {}
+
+  onChatTick(listener: ChatTickListener): void {
+    this.chatTickListeners.push(listener)
+  }
+
+  setRelationshipSystem(relationshipSystem: RelationshipSystem): void {
+    this.relationshipSystem = relationshipSystem
+  }
 
   update(delta: number): void {
     this.advanceChats(delta)
@@ -85,6 +103,16 @@ export class SocialSystem {
         chat.a.nirv.relieveSocialNeed(chat.reliefPerTick)
         chat.b.nirv.relieveSocialNeed(chat.reliefPerTick)
         this.applyChatLines(chat)
+        const ctx = {
+          sharedInterest: chat.sharedInterest,
+          sharedInterestCount: chat.sharedInterestCount,
+          firstMeeting: chat.firstMeeting,
+        }
+        for (const listener of this.chatTickListeners) listener(chat.a, chat.b, ctx)
+        this.relationshipSystem?.registerJealousyExposure(chat.a.id, chat.b.id, 0.35)
+        this.relationshipSystem?.registerJealousyExposure(chat.b.id, chat.a.id, 0.35)
+        // novelty bonus only fires on the first tick after meeting
+        chat.firstMeeting = false
       }
     }
   }
@@ -93,20 +121,38 @@ export class SocialSystem {
     for (let i = 0; i < this.bots.length; i++) {
       const a = this.bots[i]
       if (!a || this.isChatting(a) || !this.canStartChat(a)) continue
+      const candidates: { bot: BotNirv; score: number }[] = []
       for (let j = i + 1; j < this.bots.length; j++) {
         const b = this.bots[j]
         if (!b || this.isChatting(b) || !this.canStartChat(b)) continue
         if (!this.isWithinDistance(a, b, START_CHAT_DISTANCE_PX)) continue
-        if (Math.random() > this.startChance(a, b)) continue
-        this.startChat(a, b)
-        break
+        const chance = this.startChance(a, b)
+        if (Math.random() > chance) continue
+        candidates.push({ bot: b, score: chance })
       }
+      const pick = this.pickWeightedChatCandidate(candidates)
+      if (!pick) continue
+      this.startChat(a, pick)
+      break
     }
+  }
+
+  private pickWeightedChatCandidate(candidates: { bot: BotNirv; score: number }[]): BotNirv | null {
+    if (candidates.length === 0) return null
+    let total = 0
+    for (const c of candidates) total += Math.max(0.01, c.score)
+    let roll = Math.random() * total
+    for (const c of candidates) {
+      roll -= Math.max(0.01, c.score)
+      if (roll <= 0) return c.bot
+    }
+    return candidates[candidates.length - 1]?.bot ?? null
   }
 
   private startChat(a: BotNirv, b: BotNirv): void {
     const alreadyKnown = a.nirv.knowsNirv(b.nirv.name) || b.nirv.knowsNirv(a.nirv.name)
     const sharedInterest = this.findSharedInterest(a.interests, b.interests)
+    const sharedInterestCount = this.countSharedInterests(a.interests, b.interests)
     a.nirv.rememberKnownNirv(b.nirv.name)
     b.nirv.rememberKnownNirv(a.nirv.name)
     const chat: ChatSession = {
@@ -115,6 +161,7 @@ export class SocialSystem {
       accumMs: 0,
       reliefPerTick: (alreadyKnown ? 5 : 10) + (sharedInterest ? 5 : 0),
       sharedInterest,
+      sharedInterestCount,
       firstMeeting: !alreadyKnown,
     }
     this.chats.set(this.chatKey(a, b), chat)
@@ -168,11 +215,20 @@ export class SocialSystem {
   }
 
   private startChance(a: BotNirv, b: BotNirv): number {
-    return Phaser.Math.Clamp((a.nirv.getSocialNeed() + b.nirv.getSocialNeed()) / 220, 0.12, 0.92)
+    const socialDeficit = (200 - (a.nirv.getSocialNeed() + b.nirv.getSocialNeed())) / 220
+    const relBias = this.relationshipSystem?.getPairSocialBias(a.id, b.id, 'private') ?? 0
+    const relationshipChance = Phaser.Math.Clamp((relBias + 1) * 0.24, 0, 0.34)
+    return Phaser.Math.Clamp(socialDeficit + relationshipChance, 0.06, 0.95)
   }
 
   private findSharedInterest(a: readonly MusicTag[], b: readonly MusicTag[]): MusicTag | null {
     return a.find(tag => b.includes(tag)) ?? null
+  }
+
+  private countSharedInterests(a: readonly MusicTag[], b: readonly MusicTag[]): number {
+    let count = 0
+    for (const tag of a) if (b.includes(tag)) count++
+    return count
   }
 
   private isQueueState(state: BotState): boolean {

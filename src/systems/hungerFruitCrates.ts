@@ -29,11 +29,13 @@ export function findFruitStationForBot(stations: FruitCrateStation[], bot: BotNi
 export function checkFruitSlotArrivals(
   stations: FruitCrateStation[],
   consumeStock: (st: FruitCrateStation) => boolean,
+  canInteract: (bot: BotNirv, x: number, y: number) => boolean = () => true,
 ): void {
   for (const st of stations) {
     for (let i = 0; i < FRUIT_CRATE_SLOT_COUNT; i++) {
       const bot = st.slots[i]
       if (!bot || bot.state !== 'walking_to_fruit') continue
+      if (!canInteract(bot, st.x, st.y)) continue
       const pos = fruitSlotWorldPosition(st.x, st.y, i)
       const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, pos.x, pos.y)
       if (d < STATION_REACH_PX) {

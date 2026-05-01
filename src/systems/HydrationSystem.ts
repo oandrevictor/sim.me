@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
 import { TILE_W } from '../utils/isoGrid'
-import { isWorkJobState, type BotNirv } from '../entities/BotNirv'
+import { isHouseState, isWorkJobState, type BotNirv } from '../entities/BotNirv'
 import type { Nirv } from '../entities/Nirv'
 import {
   CRITICAL_HYDRATION_THRESHOLD,
@@ -9,11 +9,11 @@ import {
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import type { RestaurantSystem } from './RestaurantSystem'
 import { SocialSystem } from './SocialSystem'
-import { tickWorldNeeds } from './tickWorldNeeds'
+import type { RelationshipSystem } from './RelationshipSystem'
 import { queueSlotBehindStation } from './waterQueueLayout'
 import {
   checkWaterQueueSlotArrivals,
-  checkWaterTapArrivals,
+  checkWaterTapArrivalsWithAccess,
   findWaterStationForBot,
   releaseFinishedWaterStations,
   repairOrphanWaterQueues,
@@ -21,7 +21,6 @@ import {
 } from './waterStationRuntime'
 
 const CHECK_INTERVAL_MS = 2000
-const MINUTE_MS = 60_000
 const PLAYER_STATION_INTERACT_PX = 96
 const DRINK_DURATION_MS = 3000
 
@@ -32,8 +31,8 @@ export class HydrationSystem {
   private restaurant: RestaurantSystem
   private social: SocialSystem
   private assignAccum = 0
-  private minuteAccum = 0
   private playerDrinkRemaining = 0
+  private relationshipSystem: RelationshipSystem | null = null
 
   constructor(
     bots: BotNirv[],
@@ -42,11 +41,23 @@ export class HydrationSystem {
     private readonly pathfinder: GridPathfinder,
     private readonly isPlayerSleeping: () => boolean,
     private readonly wakePlayerFromSleep: () => void,
+    private readonly canBotUseStation: (bot: BotNirv, x: number, y: number) => boolean = () => true,
+    private readonly canPlayerUseStation: (x: number, y: number) => boolean = () => true,
+    private readonly canBotInteractWithStation: (bot: BotNirv, x: number, y: number) => boolean = () => true,
+    private readonly canPlayerInteractWithStation: (x: number, y: number) => boolean = () => true,
   ) {
     this.bots = bots
     this.getPlayer = getPlayer
     this.restaurant = restaurant
     this.social = new SocialSystem(bots)
+  }
+
+  getSocialSystem(): SocialSystem {
+    return this.social
+  }
+
+  setRelationshipSystem(system: RelationshipSystem): void {
+    this.relationshipSystem = system
   }
 
   registerStation(
@@ -76,6 +87,7 @@ export class HydrationSystem {
 
   tryInteractWaterStation(stationX: number, stationY: number, playerSprite: Phaser.Physics.Arcade.Sprite, setWalkTarget: (x: number, y: number) => void): void {
     if (this.playerDrinkRemaining > 0) return
+    if (!this.canPlayerUseStation(stationX, stationY)) return
     if (this.isPlayerSleeping()) this.wakePlayerFromSleep()
     const player = this.getPlayer()
     // Allow topping up whenever not full (THIRST_THRESHOLD only applies to bot auto-assign).
@@ -86,11 +98,12 @@ export class HydrationSystem {
       setWalkTarget(stationX, stationY)
       return
     }
+    if (!this.canPlayerInteractWithStation(stationX, stationY)) return
     this.playerDrinkRemaining = DRINK_DURATION_MS
     playerSprite.setVelocity(0, 0)
   }
 
-  updatePlayerAndWorldTime(delta: number): void {
+  updatePlayerDrinking(delta: number): void {
     if (this.playerDrinkRemaining > 0) {
       this.playerDrinkRemaining -= delta
       if (this.playerDrinkRemaining <= 0) {
@@ -98,16 +111,10 @@ export class HydrationSystem {
         this.getPlayer().addHydration(30)
       }
     }
-
-    this.minuteAccum += delta
-    while (this.minuteAccum >= MINUTE_MS) {
-      this.minuteAccum -= MINUTE_MS
-      tickWorldNeeds(this.getPlayer(), this.bots, this.isPlayerSleeping())
-    }
   }
 
   updateStations(delta: number): void {
-    checkWaterTapArrivals(this.stations)
+    checkWaterTapArrivalsWithAccess(this.stations, this.canBotInteractWithStation)
     checkWaterQueueSlotArrivals(this.pathfinder, this.stations)
     releaseFinishedWaterStations(this.pathfinder, this.stations)
     repairOrphanWaterQueues(this.pathfinder, this.stations)
@@ -144,8 +151,13 @@ export class HydrationSystem {
       if (!critical) {
         if (stBot === 'walking_to_bed' || stBot === 'sleeping') continue
         if (isWorkJobState(stBot)) continue
-        if (stBot !== 'walking' && stBot !== 'waiting') continue
+        if (stBot !== 'walking' && stBot !== 'waiting' && stBot !== 'inside_house' && stBot !== 'walking_into_house') continue
       } else {
+        // Only severe thirst contributes to social stress signals.
+        if (h <= CRITICAL_HYDRATION_THRESHOLD - 12) {
+          const severity = 1.35 + (CRITICAL_HYDRATION_THRESHOLD - h) / 35
+          this.relationshipSystem?.applyNeedStress(bot, severity)
+        }
         if (stBot === 'sleeping' || stBot === 'walking_to_bed') bot.cancelSleep()
         bot.cancelSatiationQueue()
         bot.cancelToiletQueue()
@@ -154,12 +166,14 @@ export class HydrationSystem {
         else if (stBot === 'walking_to_stage') bot.abortStageApproach()
         else if (stBot === 'walking_to_chair') bot.abortWalkingToChair()
         else if (stBot === 'seated' || stBot === 'awaiting_service' || stBot === 'eating') bot.interruptSeatForHydration()
+        else if (isHouseState(stBot) && stBot !== 'inside_house' && stBot !== 'walking_into_house') bot.cancelHouseFlow()
         else if (isWorkJobState(stBot)) bot.abortWorkDuty()
       }
 
       let best: WaterStation | null = null
       let bestD = Infinity
       for (const st of this.stations) {
+        if (!this.canBotUseStation(bot, st.x, st.y)) continue
         const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, st.x, st.y)
         if (d < TILE_W * 15 && d < bestD) {
           bestD = d

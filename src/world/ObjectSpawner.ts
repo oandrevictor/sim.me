@@ -70,7 +70,7 @@ export class ObjectSpawner {
     recipeId?: string,
     rotation?: number,
     objectState?: { cropStage?: CropStage; cropSeed?: CropSeed; cropStageStartedAt?: number; stock?: number },
-  ): void {
+  ): boolean {
     const config = OBJECT_TYPE_REGISTRY[type]
     const rot = rotation ?? 0
     const frame =
@@ -78,6 +78,7 @@ export class ObjectSpawner {
         ? (type === 'stove_white_clay' ? config.frame : config.frame + rot)
         : 0
 
+    let spawned = true
     if (config.hasPhysicsBody) {
       const sprite = this.obstacleGroup.create(x, y, config.textureKey, frame) as Phaser.Physics.Arcade.Sprite
       sprite.setDepth(y)
@@ -108,7 +109,7 @@ export class ObjectSpawner {
         sprite.on('pointerdown', () => this.onTrashClicked(sprite))
       }
     } else {
-      spawnNonPhysicsObject({
+      spawned = spawnNonPhysicsObject({
         scene: this.scene,
         obstacleGroup: this.obstacleGroup,
         pathfinder: this.pathfinder,
@@ -126,6 +127,7 @@ export class ObjectSpawner {
       }, { type, x, y, frame, recipeId, rotation, objectState })
     }
 
+    if (!spawned) return false
     if (persist) {
       savePlacedObject({
         id: crypto.randomUUID(),
@@ -138,6 +140,7 @@ export class ObjectSpawner {
         cropStage: type === 'crop' ? 'empty' : undefined,
       })
     }
+    return true
   }
 
   removeAt(_pointer: Phaser.Input.Pointer, snapped: { x: number; y: number },

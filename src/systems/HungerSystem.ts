@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import { TILE_W } from '../utils/isoGrid'
-import { isWorkJobState, type BotNirv } from '../entities/BotNirv'
+import { isHouseState, isWorkJobState, type BotNirv } from '../entities/BotNirv'
 import { CRITICAL_SATIATION } from '../entities/nirvHunger'
 import { updatePlacedObjectAt } from '../storage/persistence'
 import type { RestaurantSystem } from './RestaurantSystem'
@@ -24,6 +24,7 @@ import {
   repairFruitOrphanQueues,
   unregisterFruitCrateStation,
 } from './hungerFruitCrates'
+import type { RelationshipSystem } from './RelationshipSystem'
 
 const CHECK_INTERVAL_MS = 2000
 const STATION_REACH_PX = 32
@@ -44,11 +45,18 @@ export class HungerSystem {
   private bots: BotNirv[]
   private restaurant: RestaurantSystem
   private assignAccum = 0
+  private schedule: import('./ScheduleSystem').ScheduleSystem | null = null
+  private relationshipSystem: RelationshipSystem | null = null
+
+  setSchedule(s: import('./ScheduleSystem').ScheduleSystem): void { this.schedule = s }
+  setRelationshipSystem(system: RelationshipSystem): void { this.relationshipSystem = system }
 
   constructor(
     bots: BotNirv[],
     restaurant: RestaurantSystem,
     private readonly pathfinder: GridPathfinder,
+    private readonly canBotUseStation: (bot: BotNirv, x: number, y: number) => boolean = () => true,
+    private readonly canBotInteractWithStation: (bot: BotNirv, x: number, y: number) => boolean = () => true,
   ) {
     this.bots = bots
     this.restaurant = restaurant
@@ -120,7 +128,7 @@ export class HungerSystem {
 
   updateStations(_delta: number): void {
     this.checkTapArrivals()
-    checkFruitSlotArrivals(this.fruitStations, st => this.consumeStationStock(st))
+    checkFruitSlotArrivals(this.fruitStations, st => this.consumeStationStock(st), this.canBotInteractWithStation)
     this.checkQueueSlotArrivals()
     checkFruitQueueArrivals(this.pathfinder, this.fruitStations)
     this.releaseFinishedServing()
@@ -169,6 +177,7 @@ export class HungerSystem {
       if (!st.active) continue
       const bot = st.active
       if (bot.state !== 'walking_to_snack') continue
+      if (!this.canBotInteractWithStation(bot, st.x, st.y)) continue
       const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, st.x, st.y)
       if (d < STATION_REACH_PX) {
         if (this.consumeStationStock(st)) bot.arriveAtSnackStation()
@@ -232,7 +241,9 @@ export class HungerSystem {
 
     for (const bot of this.bots) {
       const sat = bot.nirv.getSatiation()
-      if (sat > bot.nirv.hungerThreshold) continue
+      const mealWindow = this.schedule?.isMealWindow(bot) ?? false
+      const effectiveThreshold = mealWindow ? Math.max(bot.nirv.hungerThreshold, 80) : bot.nirv.hungerThreshold
+      if (sat > effectiveThreshold) continue
 
       const stBot = bot.state
       if (
@@ -263,8 +274,13 @@ export class HungerSystem {
       if (!critical) {
         if (stBot === 'walking_to_bed' || stBot === 'sleeping') continue
         if (isWorkJobState(stBot)) continue
-        if (stBot !== 'walking' && stBot !== 'waiting') continue
+        if (stBot !== 'walking' && stBot !== 'waiting' && stBot !== 'inside_house' && stBot !== 'walking_into_house') continue
       } else {
+        // Avoid over-triggering: mild hunger should not become social stress.
+        if (sat <= CRITICAL_SATIATION - 8) {
+          const severity = 1.4 + (CRITICAL_SATIATION - sat) / 28
+          this.relationshipSystem?.applyNeedStress(bot, severity)
+        }
         if (stBot === 'sleeping' || stBot === 'walking_to_bed') bot.cancelSleep()
         bot.cancelWaterQueue()
         bot.cancelToiletQueue()
@@ -273,17 +289,20 @@ export class HungerSystem {
         else if (stBot === 'walking_to_stage') bot.abortStageApproach()
         else if (stBot === 'walking_to_chair') bot.abortWalkingToChair()
         else if (stBot === 'seated' || stBot === 'awaiting_service' || stBot === 'eating') bot.interruptSeatForFood()
+        else if (isHouseState(stBot) && stBot !== 'inside_house' && stBot !== 'walking_into_house') bot.cancelHouseFlow()
         else if (isWorkJobState(stBot)) bot.abortWorkDuty()
       }
 
       const candidates: StationCandidate[] = []
       for (const st of this.stations) {
         if (this.availableSnackStock(st) <= 0) continue
+        if (!this.canBotUseStation(bot, st.x, st.y)) continue
         const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, st.x, st.y)
         if (d < TILE_W * 15) candidates.push({ kind: 'snack', st, dist: d })
       }
       for (const st of this.fruitStations) {
         if (this.availableFruitStock(st) <= 0) continue
+        if (!this.canBotUseStation(bot, st.x, st.y)) continue
         if (!isWithinStationRange(bot, st)) continue
         candidates.push({ kind: 'fruit', st, dist: distanceToStation(bot, st) })
       }

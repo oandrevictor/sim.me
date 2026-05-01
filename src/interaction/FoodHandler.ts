@@ -26,11 +26,12 @@ export class FoodHandler {
     private readonly recipeSelectUI: RecipeSelectUI,
     private readonly getPlayer: () => Phaser.Physics.Arcade.Sprite,
     private readonly setWalkTarget: (x: number, y: number) => void,
-    private readonly spawnObject: (type: ObjectType, x: number, y: number, persist: boolean, recipeId?: string) => void,
+    private readonly spawnObject: (type: ObjectType, x: number, y: number, persist: boolean, recipeId?: string) => boolean,
     private readonly getTableSprites: () => { x: number; y: number }[],
     private readonly getCounterSprites: () => { x: number; y: number }[],
     private readonly removePlateEntry: (entry: PlateEntry) => void,
     private readonly isPlacementActive: () => boolean,
+    private readonly canPlayerUseObjectAt: (x: number, y: number) => boolean = () => true,
   ) {}
 
   isCarrying(): boolean { return this.carriedPlate !== null }
@@ -45,6 +46,7 @@ export class FoodHandler {
 
   onStoveClicked(sprite: Phaser.Physics.Arcade.Sprite): void {
     if (this.isPlacementActive()) return
+    if (!this.canPlayerUseObjectAt(sprite.x, sprite.y)) return
     const player = this.getPlayer()
     const dist = Phaser.Math.Distance.Between(player.x, player.y, sprite.x, sprite.y)
     if (dist >= INTERACTION_RADIUS * 1.5) {
@@ -59,6 +61,7 @@ export class FoodHandler {
   onTrashClicked(sprite: Phaser.Physics.Arcade.Sprite): void {
     if (this.isPlacementActive()) return
     if (!this.carriedPlate) return
+    if (!this.canPlayerUseObjectAt(sprite.x, sprite.y)) return
     const player = this.getPlayer()
     const dist = Phaser.Math.Distance.Between(player.x, player.y, sprite.x, sprite.y)
     if (dist >= INTERACTION_RADIUS * 1.5) {
@@ -75,6 +78,7 @@ export class FoodHandler {
     if (this.isPlacementActive()) return
     if (isShopMode()) return
     if (this.carriedPlate) return
+    if (!this.canPlayerUseObjectAt(entry.tableX, entry.tableY)) return
     const player = this.getPlayer()
     const dist = Phaser.Math.Distance.Between(player.x, player.y, entry.sprite.x, entry.sprite.y)
     if (dist >= INTERACTION_RADIUS * 1.5) {
@@ -95,10 +99,12 @@ export class FoodHandler {
     let target: { x: number; y: number } | null = null
     let bestDist = TILE_W
     for (const t of this.getTableSprites()) {
+      if (!this.canPlayerUseObjectAt(t.x, t.y)) continue
       const d = Phaser.Math.Distance.Between(snapped.x, snapped.y, t.x, t.y)
       if (d < bestDist) { bestDist = d; target = t }
     }
     for (const c of this.getCounterSprites()) {
+      if (!this.canPlayerUseObjectAt(c.x, c.y)) continue
       const d = Phaser.Math.Distance.Between(snapped.x, snapped.y, c.x, c.y)
       if (d < bestDist) { bestDist = d; target = c }
     }
@@ -176,7 +182,7 @@ export class FoodHandler {
   private placeFood(x: number, y: number): void {
     if (!this.carriedPlate) return
     const recipeId = this.carriedPlate.recipeId
-    this.spawnObject('food_plate', x, y, true, recipeId)
+    if (!this.spawnObject('food_plate', x, y, true, recipeId)) return
     this.carriedPlate = null
     if (this.carryIndicator) { this.carryIndicator.destroy(); this.carryIndicator = null }
   }

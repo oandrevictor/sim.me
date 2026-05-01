@@ -39,6 +39,7 @@ export function tryStationsAtPointer(
   farmingSystem: FarmingSystem,
   playerNirv: Nirv,
   setWalkTarget: (x: number, y: number) => void,
+  canPlayerUseObjectAt: (x: number, y: number) => boolean = () => true,
 ): boolean {
   const pt = camera.getWorldPoint(pointer.x, pointer.y)
   const wx = pt.x
@@ -48,6 +49,7 @@ export function tryStationsAtPointer(
     const { sprite, type, x, y } = entry
     if (!sprite.active || !sprite.visible) continue
     if (!pointerHitsPlaced(wx, wy, sprite, x, y)) continue
+    if (!canPlayerUseObjectAt(x, y)) return true
     if (type === 'drinking_water') {
       hydrationSystem.tryInteractWaterStation(x, y, playerNirv.sprite, setWalkTarget)
       return true

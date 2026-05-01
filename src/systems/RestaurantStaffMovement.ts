@@ -16,6 +16,7 @@ export function staffNextToStation(
 ): boolean {
   const sx = bot.nirv.sprite.x
   const sy = bot.nirv.sprite.y
+  if (!restaurant.actorInsideObjectBuilding(sx, sy, worldX, worldY)) return false
   if (Phaser.Math.Distance.Between(sx, sy, worldX, worldY) < STAFF_PIXEL_REACH) return true
   return restaurant.isGridAdjacent(sx, sy, worldX, worldY)
 }
@@ -27,7 +28,9 @@ export function findStaffApproachPoint(
   worldX: number,
   worldY: number,
 ): { x: number; y: number } | null {
-  if (staffNextToStationPlaceholder(bot, worldX, worldY)) return { x: bot.nirv.sprite.x, y: bot.nirv.sprite.y }
+  if (building.containsPixel(bot.nirv.sprite.x, bot.nirv.sprite.y) && staffNextToStationPlaceholder(bot, worldX, worldY)) {
+    return { x: bot.nirv.sprite.x, y: bot.nirv.sprite.y }
+  }
   const bounds = building.getInteriorPathBounds(GRID_COLS, GRID_ROWS)
   const station = screenToGrid(worldX, worldY)
   const start = screenToGrid(bot.nirv.sprite.x, bot.nirv.sprite.y)
@@ -47,6 +50,36 @@ export function findStaffApproachPoint(
     return da - db
   })
 
+  for (const c of candidates) {
+    const path = pathfinder.findPath(Math.round(start.gx), Math.round(start.gy), c.gx, c.gy, 800)
+    if (path) return gridToScreen(c.gx, c.gy)
+  }
+  return null
+}
+
+export function findRestaurantIdlePoint(
+  pathfinder: GridPathfinder,
+  bot: BotNirv,
+  building: Building,
+): { x: number; y: number } | null {
+  const bounds = building.getInteriorPathBounds(GRID_COLS, GRID_ROWS)
+  const start = screenToGrid(bot.nirv.sprite.x, bot.nirv.sprite.y)
+  const centerGX = Math.round((bounds.minGX + bounds.maxGX) / 2)
+  const centerGY = Math.round((bounds.minGY + bounds.maxGY) / 2)
+  const candidates: { gx: number; gy: number }[] = []
+  for (let gy = bounds.minGY; gy <= bounds.maxGY; gy++) {
+    for (let gx = bounds.minGX; gx <= bounds.maxGX; gx++) {
+      if (!pathfinder.isBlocked(gx, gy)) candidates.push({ gx, gy })
+    }
+  }
+  candidates.sort((a, b) => {
+    const ac = Math.abs(a.gx - centerGX) + Math.abs(a.gy - centerGY)
+    const bc = Math.abs(b.gx - centerGX) + Math.abs(b.gy - centerGY)
+    if (ac !== bc) return ac - bc
+    const as = Math.abs(a.gx - Math.round(start.gx)) + Math.abs(a.gy - Math.round(start.gy))
+    const bs = Math.abs(b.gx - Math.round(start.gx)) + Math.abs(b.gy - Math.round(start.gy))
+    return as - bs
+  })
   for (const c of candidates) {
     const path = pathfinder.findPath(Math.round(start.gx), Math.round(start.gy), c.gx, c.gy, 800)
     if (path) return gridToScreen(c.gx, c.gy)

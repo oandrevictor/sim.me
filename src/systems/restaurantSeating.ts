@@ -4,14 +4,16 @@ import type { Building } from '../entities/Building'
 import type { BotNirv } from '../entities/BotNirv'
 import type { ChairRecord } from './restaurantTypes'
 import type { RestaurantReservations } from './RestaurantReservations'
+import { actorInsideObjectBuilding } from '../world/buildingInteractionAccess'
 
 const ENTER_PROBABILITY = 0.4
 
-export function checkArrivals(chairs: ChairRecord[]): void {
+export function checkArrivals(chairs: ChairRecord[], buildings: readonly Building[]): void {
   for (const chair of chairs) {
     if (!chair.occupiedBy) continue
     const bot = chair.occupiedBy
     if (bot.state !== 'walking_to_chair') continue
+    if (!actorInsideObjectBuilding(buildings, bot.nirv.sprite.x, bot.nirv.sprite.y, chair.x, chair.y)) continue
     const dist = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, chair.x, chair.y)
     if (dist < 32) bot.seat(chair.nextToTable)
   }
@@ -22,6 +24,8 @@ export function tryAssignRestaurantBots(
   buildings: Building[],
   bots: BotNirv[],
   staffBotFilter: (bot: BotNirv) => boolean,
+  pairSocialBias?: (idA: string, idB: string) => number,
+  onCompanionExposure?: (subjectId: string, otherId: string, weight: number) => void,
 ): void {
   const availableChairs = chairs.filter(c => {
     if (c.occupiedBy || !c.buildingId) return false
@@ -37,7 +41,7 @@ export function tryAssignRestaurantBots(
     if (bot.nirv.getFunLevel() <= bot.nirv.getFunThreshold()) continue
     if (Math.random() > ENTER_PROBABILITY) continue
 
-    const chair = nearestChair(bot, availableChairs)
+    const chair = nearestChair(bot, availableChairs, chairs, pairSocialBias, onCompanionExposure)
     if (!chair) continue
     chair.occupiedBy = bot
     bot.redirectToChair(chair.x, chair.y)
@@ -67,15 +71,47 @@ export function releaseChairForBot(
   }
 }
 
-function nearestChair(bot: BotNirv, chairs: ChairRecord[]): ChairRecord | null {
+function nearestChair(
+  bot: BotNirv,
+  chairs: ChairRecord[],
+  allChairs: ChairRecord[],
+  pairSocialBias?: (idA: string, idB: string) => number,
+  onCompanionExposure?: (subjectId: string, otherId: string, weight: number) => void,
+): ChairRecord | null {
   let best: ChairRecord | null = null
-  let bestDist = Infinity
+  let bestScore = -Infinity
   for (const chair of chairs) {
     const dist = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, chair.x, chair.y)
-    if (dist < TILE_W * 15 && dist < bestDist) {
-      bestDist = dist
-      best = chair
+    if (dist < TILE_W * 15) {
+      const distanceScore = 1 - dist / (TILE_W * 15)
+      const socialScore = seatCompanionScore(bot, chair, allChairs, pairSocialBias, onCompanionExposure)
+      const score = distanceScore + socialScore
+      if (score > bestScore) {
+        bestScore = score
+        best = chair
+      }
     }
   }
   return best
+}
+
+function seatCompanionScore(
+  bot: BotNirv,
+  candidate: ChairRecord,
+  allChairs: ChairRecord[],
+  pairSocialBias?: (idA: string, idB: string) => number,
+  onCompanionExposure?: (subjectId: string, otherId: string, weight: number) => void,
+): number {
+  if (!pairSocialBias) return 0
+  let score = 0
+  for (const chair of allChairs) {
+    const sitter = chair.occupiedBy
+    if (!sitter || sitter.id === bot.id) continue
+    const dist = Phaser.Math.Distance.Between(candidate.x, candidate.y, chair.x, chair.y)
+    if (dist > TILE_W * 3) continue
+    onCompanionExposure?.(bot.id, sitter.id, 0.1)
+    const context = dist < TILE_W * 1.5 ? 1 : 0.6
+    score += pairSocialBias(bot.id, sitter.id) * context * 0.3
+  }
+  return Phaser.Math.Clamp(score, -0.6, 0.8)
 }

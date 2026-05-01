@@ -1,79 +1,113 @@
-import Phaser from 'phaser'
+
+// @ts-nocheck
+import * as Phaser from 'phaser';
+
+/* START OF COMPILED CODE */
+
+/* START-USER-IMPORTS */
 import { MenuUI } from '../ui/MenuUI'
 import type { StageWorkBridge } from '../ui/WorkPanelStageSection'
-import type { GameScene } from './GameScene'
+import type GameScene from './GameScene'
+/* END-USER-IMPORTS */
 
-export class UIScene extends Phaser.Scene {
-  menuUI!: MenuUI
-  private helpText!: Phaser.GameObjects.Text
+export default class UIScene extends Phaser.Scene {
 
-  constructor() {
-    super({ key: 'UIScene' })
-  }
+	constructor() {
+		super("UIScene");
 
-  create(): void {
-    const gameScene = this.scene.get('GameScene') as GameScene
+		/* START-USER-CTR-CODE */
+		/* END-USER-CTR-CODE */
+	}
 
-    // Render and process input above the world so panel buttons are clickable.
-    this.scene.moveAbove('GameScene')
+	editorCreate(): void {
 
-    this.menuUI = new MenuUI(this, gameScene.events)
-    this.positionUI()
+		this.events.emit("scene-awake");
+	}
 
-    const stageBridge: StageWorkBridge = {
-      getPerformanceView: id => gameScene.getStagePerformanceView(id),
-      setStageAttraction: (id, a) => gameScene.setStageAttraction(id, a),
-      getBands: () => gameScene.getBandsForUI(),
-      getPerformerBots: () => gameScene.getPerformerBotsForUI(),
-      formBandFromFirstTwoPerformers: () => gameScene.formBandFromFirstTwoPerformers(),
-      stageAllowsBand: id => gameScene.stageAllowsBandForStage(id),
-    }
+	/* START-USER-CODE */
 
-    const restaurantStaffBridge = {
-      getStaffView: () => gameScene.getRestaurantStaffUiView(),
-      setStaffRole: (buildingId: string, botId: string, role: 'none' | 'chef' | 'waiter') =>
-        gameScene.setRestaurantStaffRole(buildingId, botId, role),
-    }
+	menuUI!: MenuUI
+	private helpText!: Phaser.GameObjects.Text
+	private clockText!: Phaser.GameObjects.Text
+	private gameScene!: GameScene
 
-    const farmBridge = {
-      getFarmView: () => gameScene.getFarmWorkView(),
-      setFarmerRole: (botId: string, assigned: boolean) => gameScene.setFarmerRole(botId, assigned),
-    }
+	create(): void {
+		this.editorCreate()
+		const gameScene = this.scene.get('GameScene') as GameScene
+		this.gameScene = gameScene
 
-    const stockBridge = {
-      getStockView: () => gameScene.getStockWorkView(),
-      setStockerRole: (botId: string, assigned: boolean) => gameScene.setStockerRole(botId, assigned),
-    }
+		this.scene.moveAbove('GameScene')
 
-    this.menuUI.setProviders(
-      () => gameScene.getBotNirvs(),
-      () => gameScene.isPlayerInsideRestaurant(),
-      () => gameScene.getPlayerStage(),
-      (stageId) => gameScene.getStageWatchers(stageId),
-      (stageId) => gameScene.getStagePerformers(stageId),
-      stageBridge,
-      restaurantStaffBridge,
-      farmBridge,
-      stockBridge,
-    )
+		this.menuUI = new MenuUI(this, gameScene.events)
+		this.positionUI()
 
-    this.helpText = this.add.text(10, 10, 'Move: WASD / Arrows  |  Shop: place & move objects  |  R: rotate  |  ESC to cancel', {
-      fontSize: '12px',
-      color: '#ffffff',
-    })
-    this.helpText.setAlpha(0.6)
+		const stageBridge: StageWorkBridge = {
+			getPerformanceView: id => gameScene.getStagePerformanceView(id),
+			setStageAttraction: (id, a) => gameScene.setStageAttraction(id, a),
+			getBands: () => gameScene.getBandsForUI(),
+			getPerformerBots: () => gameScene.getPerformerBotsForUI(),
+			formBandFromFirstTwoPerformers: () => gameScene.formBandFromFirstTwoPerformers(),
+			stageAllowsBand: id => gameScene.stageAllowsBandForStage(id),
+		}
 
-    this.scale.on('resize', () => this.positionUI())
-  }
+		const restaurantStaffBridge = {
+			getStaffView: () => gameScene.getRestaurantStaffUiView(),
+			setStaffRole: (buildingId: string, botId: string, role: 'none' | 'chef' | 'waiter') =>
+				gameScene.setRestaurantStaffRole(buildingId, botId, role),
+		}
 
-  update(): void {
-    this.menuUI.updateWorkPanel()
-  }
+		const farmBridge = {
+			getFarmView: () => gameScene.getFarmWorkView(),
+			setFarmerRole: (botId: string, assigned: boolean) => gameScene.setFarmerRole(botId, assigned),
+		}
 
-  private positionUI(): void {
-    this.menuUI.setPosition(
-      this.scale.width / 2,
-      this.scale.height,
-    )
-  }
+		const stockBridge = {
+			getStockView: () => gameScene.getStockWorkView(),
+			setStockerRole: (botId: string, assigned: boolean) => gameScene.setStockerRole(botId, assigned),
+		}
+
+		this.menuUI.setProviders(
+			() => gameScene.getBotNirvs(),
+			() => gameScene.isPlayerInsideRestaurant(),
+			() => gameScene.getPlayerStage(),
+			(stageId) => gameScene.getStageWatchers(stageId),
+			(stageId) => gameScene.getStagePerformers(stageId),
+			stageBridge,
+			restaurantStaffBridge,
+			farmBridge,
+			stockBridge,
+		)
+
+		this.helpText = this.add.text(10, 10, 'Move: WASD / Arrows  |  Shop: place & move objects  |  R: rotate  |  ESC to cancel', {
+			fontSize: '12px',
+			color: '#ffffff',
+		})
+		this.helpText.setAlpha(0.6)
+		this.clockText = this.add.text(this.scale.width - 12, 10, gameScene.getClockLabel(), {
+			fontSize: '18px',
+			color: '#ffffff',
+			fontStyle: 'bold',
+			backgroundColor: 'rgba(20,20,32,0.72)',
+			padding: { x: 8, y: 4 },
+		}).setOrigin(1, 0)
+
+		this.scale.on('resize', () => this.positionUI())
+	}
+
+	update(): void {
+		this.menuUI.updateWorkPanel()
+		this.clockText.setText(this.gameScene.getClockLabel())
+	}
+
+	private positionUI(): void {
+		this.menuUI.setPosition(
+			this.scale.width / 2,
+			this.scale.height,
+		)
+		this.clockText?.setPosition(this.scale.width - 12, 10)
+	}
+
+	/* END-USER-CODE */
 }
+
+/* END OF COMPILED CODE */

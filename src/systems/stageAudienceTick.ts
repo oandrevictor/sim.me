@@ -26,6 +26,8 @@ export interface StageAudienceTickContext {
   readonly runtimeByStageId: Map<string, StagePerformanceRuntimeState>
   readonly watchingBots: Map<BotNirv, { stageId: string; x: number; y: number }>
   readonly arrivalRegistered: Set<string>
+  readonly pairSocialBias?: (idA: string, idB: string) => number
+  readonly onCompanionExposure?: (subjectId: string, otherId: string, weight: number) => void
 }
 
 function resolvePerformanceTags(
@@ -115,7 +117,7 @@ export function tryAttractBotsToStages(ctx: StageAudienceTickContext): void {
     if (ctx.watchingBots.has(bot)) continue
 
     let bestStage: Stage | null = null
-    let bestDist = Infinity
+    let bestScore = -Infinity
     let bestTags: readonly MusicTag[] = []
 
     for (const stage of ctx.stages) {
@@ -130,9 +132,12 @@ export function tryAttractBotsToStages(ctx: StageAudienceTickContext): void {
         bot.nirv.sprite.x, bot.nirv.sprite.y,
         stageCenter.x, stageCenter.y,
       )
-
-      if (dist < TILE_W * WATCH_RADIUS_TILES && dist < bestDist) {
-        bestDist = dist
+      if (dist >= TILE_W * WATCH_RADIUS_TILES) continue
+      const distanceScore = 1 - dist / (TILE_W * WATCH_RADIUS_TILES)
+      const socialCompanionScore = getCompanionBiasScore(ctx, bot, stage.id)
+      const score = distanceScore + socialCompanionScore
+      if (score > bestScore) {
+        bestScore = score
         bestStage = stage
         bestTags = resolvePerformanceTags(ctx, stage.id)
       }
@@ -163,4 +168,15 @@ export function tryAttractBotsToStages(ctx: StageAudienceTickContext): void {
     ctx.watchingBots.set(bot, { stageId: bestStage.id, x: spot.x, y: spot.y })
     bot.redirectToStage(spot.x, spot.y, bestStage.id)
   }
+}
+
+function getCompanionBiasScore(ctx: StageAudienceTickContext, bot: BotNirv, stageId: string): number {
+  if (!ctx.pairSocialBias) return 0
+  let score = 0
+  for (const [other, watchMeta] of ctx.watchingBots) {
+    if (watchMeta.stageId !== stageId || other.id === bot.id) continue
+    ctx.onCompanionExposure?.(bot.id, other.id, 0.12)
+    score += ctx.pairSocialBias(bot.id, other.id) * 0.25
+  }
+  return Phaser.Math.Clamp(score, -0.35, 0.65)
 }

@@ -1,10 +1,11 @@
 import Phaser from 'phaser'
 import { TILE_W } from '../utils/isoGrid'
-import { isWorkJobState, type BotNirv } from '../entities/BotNirv'
+import { isHouseState, isWorkJobState, type BotNirv } from '../entities/BotNirv'
 import type { Nirv } from '../entities/Nirv'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import type { RestaurantSystem } from './RestaurantSystem'
 import { queueSlotBehindStation } from './waterQueueLayout'
+import type { RelationshipSystem } from './RelationshipSystem'
 
 const CHECK_INTERVAL_MS = 2000
 const STATION_REACH_PX = 32
@@ -26,12 +27,17 @@ export class BladderSystem {
   private restaurant: RestaurantSystem
   private assignAccum = 0
   private playerUseRemaining = 0
+  private relationshipSystem: RelationshipSystem | null = null
 
   constructor(
     bots: BotNirv[],
     getPlayer: () => Nirv,
     restaurant: RestaurantSystem,
     private readonly pathfinder: GridPathfinder,
+    private readonly canBotUseStation: (bot: BotNirv, x: number, y: number) => boolean = () => true,
+    private readonly canPlayerUseStation: (x: number, y: number) => boolean = () => true,
+    private readonly canBotInteractWithStation: (bot: BotNirv, x: number, y: number) => boolean = () => true,
+    private readonly canPlayerInteractWithStation: (x: number, y: number) => boolean = () => true,
   ) {
     this.bots = bots
     this.getPlayer = getPlayer
@@ -44,6 +50,10 @@ export class BladderSystem {
     y: number,
   ): void {
     this.stations.push({ sprite, x, y, active: null, queue: [] })
+  }
+
+  setRelationshipSystem(system: RelationshipSystem): void {
+    this.relationshipSystem = system
   }
 
   unregisterStation(sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite): void {
@@ -71,14 +81,16 @@ export class BladderSystem {
     setWalkTarget: (x: number, y: number) => void,
   ): boolean {
     if (this.playerUseRemaining > 0) return false
+    if (!this.canPlayerUseStation(stationX, stationY)) return true
     const player = this.getPlayer()
-    if (player.getBladderLevel() < player.bladderLevelThreshold) return false
+    if (player.getBladderLevel() > player.bladderLevelThreshold) return false
 
     const dist = Phaser.Math.Distance.Between(playerSprite.x, playerSprite.y, stationX, stationY)
     if (dist > PLAYER_TOILET_INTERACT_PX) {
       setWalkTarget(stationX, stationY)
       return true
     }
+    if (!this.canPlayerInteractWithStation(stationX, stationY)) return true
     this.playerUseRemaining = USE_DURATION_MS
     playerSprite.setVelocity(0, 0)
     player.enterToiletInterior(stationX, stationY)
@@ -121,6 +133,7 @@ export class BladderSystem {
       if (!st.active) continue
       const bot = st.active
       if (bot.state !== 'walking_to_toilet') continue
+      if (!this.canBotInteractWithStation(bot, st.x, st.y)) continue
       const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, st.x, st.y)
       if (d < STATION_REACH_PX) bot.arriveAtToiletStation(st.x, st.y)
     }
@@ -177,9 +190,9 @@ export class BladderSystem {
     for (const bot of this.bots) {
       const level = bot.nirv.getBladderLevel()
       const t = bot.nirv.bladderLevelThreshold
-      if (level < t) continue
+      if (level > t) continue
 
-      const urgent = level >= 100 || level >= t + 10
+      const urgent = level <= 0 || level <= t - 10
       const stBot = bot.state
       if (
         stBot === 'walking_to_toilet' ||
@@ -195,8 +208,14 @@ export class BladderSystem {
 
       if (!urgent) {
         if (stBot === 'walking_to_bed' || stBot === 'sleeping') continue
-        if (stBot !== 'walking' && stBot !== 'waiting') continue
+        if (stBot !== 'walking' && stBot !== 'waiting' && stBot !== 'inside_house' && stBot !== 'walking_into_house') continue
       } else {
+        // Only strong urgency contributes to interpersonal stress.
+        const severeThreshold = Math.max(0, t - 24)
+        if (level <= severeThreshold) {
+          const severity = 1.35 + (severeThreshold - level) / 30
+          this.relationshipSystem?.applyNeedStress(bot, severity)
+        }
         if (stBot === 'sleeping' || stBot === 'walking_to_bed') bot.cancelSleep()
         bot.cancelWaterQueue()
         bot.cancelSatiationQueue()
@@ -205,12 +224,14 @@ export class BladderSystem {
         else if (stBot === 'walking_to_stage') bot.abortStageApproach()
         else if (stBot === 'walking_to_chair') bot.abortWalkingToChair()
         else if (stBot === 'seated' || stBot === 'awaiting_service' || stBot === 'eating') bot.interruptSeatForHydration()
+        else if (isHouseState(stBot) && stBot !== 'inside_house' && stBot !== 'walking_into_house') bot.cancelHouseFlow()
         else if (isWorkJobState(stBot)) bot.abortWorkDuty()
       }
 
       let best: ToiletStation | null = null
       let bestD = Infinity
       for (const st of this.stations) {
+        if (!this.canBotUseStation(bot, st.x, st.y)) continue
         const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, st.x, st.y)
         if (d < TILE_W * 15 && d < bestD) {
           bestD = d

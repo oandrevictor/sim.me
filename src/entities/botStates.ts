@@ -27,6 +27,11 @@ export type BotState =
   | 'fruit_eat'
   | 'walking_to_bed'
   | 'sleeping'
+  | 'walking_to_house_door'
+  | 'ringing_house'
+  | 'walking_into_house'
+  | 'inside_house'
+  | 'walking_out_of_house'
   | 'walking_to_toilet'
   | 'walking_to_toilet_queue'
   | 'waiting_at_toilet_queue'
@@ -69,4 +74,14 @@ export function isStockerState(s: BotState): boolean {
 
 export function isWorkJobState(s: BotState): boolean {
   return isRestaurantStaffState(s) || isFarmerState(s) || isStockerState(s)
+}
+
+export function isHouseState(s: BotState): boolean {
+  return (
+    s === 'walking_to_house_door' ||
+    s === 'ringing_house' ||
+    s === 'walking_into_house' ||
+    s === 'inside_house' ||
+    s === 'walking_out_of_house'
+  )
 }

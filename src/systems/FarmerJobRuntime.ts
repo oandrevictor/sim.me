@@ -17,6 +17,9 @@ interface FarmerTask {
 
 export class FarmerJobRuntime {
   private tasks = new Map<string, FarmerTask>()
+  private schedule: import('./ScheduleSystem').ScheduleSystem | null = null
+
+  setSchedule(s: import('./ScheduleSystem').ScheduleSystem): void { this.schedule = s }
 
   constructor(
     private readonly bots: BotNirv[],
@@ -24,6 +27,8 @@ export class FarmerJobRuntime {
     private readonly getFarmerIds: () => Set<string>,
     private readonly plant: (plot: CropPlot, seed: typeof CORN_SEED) => void,
     private readonly harvest: (plot: CropPlot) => void,
+    private readonly canUsePlot: (bot: BotNirv, x: number, y: number) => boolean = () => true,
+    private readonly canInteractWithPlot: (bot: BotNirv, x: number, y: number) => boolean = () => true,
   ) {}
 
   update(delta: number): void {
@@ -35,7 +40,12 @@ export class FarmerJobRuntime {
         if (!canStartFarmerWork(bot.state)) continue
         bot.enterFarmerIdle()
       }
-      if (bot.state === 'farmer_idle') this.assignTask(bot)
+      if (bot.state === 'farmer_idle') {
+        if (this.tasks.has(bot.id)) this.releaseTask(bot.id)
+        const onShift = this.schedule?.isOnShift(bot) ?? true
+        if (!onShift && !this.hasUrgentHarvest()) continue
+        this.assignTask(bot)
+      }
       else if (bot.state === 'farmer_to_crop') this.tickWalk(bot)
       else if (bot.state === 'farmer_working') this.tickWork(bot, delta)
     }
@@ -62,6 +72,7 @@ export class FarmerJobRuntime {
       return
     }
     const sprite = bot.nirv.sprite
+    if (!this.canInteractWithPlot(bot, task.plot.x, task.plot.y)) return
     const dist = Phaser.Math.Distance.Between(sprite.x, sprite.y, task.plot.x, task.plot.y)
     if (dist > FARMER_REACH_PX) return
     task.remainingMs = FARMER_WORK_MS
@@ -83,13 +94,21 @@ export class FarmerJobRuntime {
     bot.enterFarmerIdle()
   }
 
+  private hasUrgentHarvest(): boolean {
+    return this.getPlots().some(p => p.stage === 'ready' && !p.reservedBy)
+  }
+
   private pickTask(bot: BotNirv): FarmerTask | null {
     const plots = this.getPlots()
-    const candidates = [
-      ...plots.filter(p => p.stage === 'ready' && !p.reservedBy),
-      ...plots.filter(p => p.stage === 'empty' && !p.reservedBy),
-    ]
-    candidates.sort((a, b) => this.distanceToBot(bot, a) - this.distanceToBot(bot, b))
+    const rank = (p: CropPlot) =>
+      this.distanceToBot(bot, p) + (p.reservedBy && p.reservedBy !== bot.id ? 1e6 : 0)
+    const candidates = plots
+      .filter(p => p.stage === 'ready' || p.stage === 'empty')
+      .filter(p => this.canUsePlot(bot, p.x, p.y))
+      .sort((a, b) => {
+        if ((a.stage === 'ready') !== (b.stage === 'ready')) return a.stage === 'ready' ? -1 : 1
+        return rank(a) - rank(b)
+      })
     const plot = candidates[0]
     if (!plot) return null
     const action = plot.stage === 'ready' ? 'harvest' : 'plant'
@@ -113,7 +132,13 @@ export class FarmerJobRuntime {
     }
     for (const [botId, task] of this.tasks) {
       // Task owner lost farmer role or task now points at a stale plot reference.
-      if (!farmerIds.has(botId) || task.plot.reservedBy !== botId) this.releaseTask(botId)
+      const bot = this.bots.find(b => b.id === botId)
+      if (
+        !farmerIds.has(botId) ||
+        task.plot.reservedBy !== botId ||
+        !bot ||
+        (bot.state !== 'farmer_to_crop' && bot.state !== 'farmer_working')
+      ) this.releaseTask(botId)
     }
   }
 

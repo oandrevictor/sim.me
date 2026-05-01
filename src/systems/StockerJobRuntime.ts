@@ -12,6 +12,9 @@ interface StockerTask {
 
 export class StockerJobRuntime {
   private tasks = new Map<string, StockerTask>()
+  private schedule: import('./ScheduleSystem').ScheduleSystem | null = null
+
+  setSchedule(s: import('./ScheduleSystem').ScheduleSystem): void { this.schedule = s }
 
   constructor(
     private readonly bots: BotNirv[],
@@ -19,6 +22,8 @@ export class StockerJobRuntime {
     private readonly getStockerIds: () => Set<string>,
     private readonly getCornCount: () => number,
     private readonly restock: (station: FoodStockStation) => number,
+    private readonly canUseStation: (bot: BotNirv, x: number, y: number) => boolean = () => true,
+    private readonly canInteractWithStation: (bot: BotNirv, x: number, y: number) => boolean = () => true,
   ) {}
 
   update(delta: number): void {
@@ -30,7 +35,11 @@ export class StockerJobRuntime {
         if (!canStartStockerWork(bot.state)) continue
         bot.enterStockerIdle()
       }
-      if (bot.state === 'stocker_idle') this.assignTask(bot)
+      if (bot.state === 'stocker_idle') {
+        const onShift = this.schedule?.isOnShift(bot) ?? true
+        if (!onShift && !this.hasUrgentEmpty()) continue
+        this.assignTask(bot)
+      }
       else if (bot.state === 'stocker_to_station') this.tickWalk(bot)
       else if (bot.state === 'stocker_restocking') this.tickRestock(bot, delta)
     }
@@ -38,6 +47,10 @@ export class StockerJobRuntime {
 
   releaseAllForBot(bot: BotNirv): void {
     this.releaseTask(bot.id)
+  }
+
+  private hasUrgentEmpty(): boolean {
+    return this.getStations().some(s => s.stock <= 0 && !s.reservedByStockerBotId)
   }
 
   private assignTask(bot: BotNirv): void {
@@ -58,6 +71,7 @@ export class StockerJobRuntime {
       return
     }
     const p = stockerApproachPoint(task.station)
+    if (!this.canInteractWithStation(bot, task.station.x, task.station.y)) return
     const dist = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, p.x, p.y)
     if (dist > STOCKER_REACH_PX) return
     task.remainingMs = RESTOCK_MS
@@ -79,7 +93,11 @@ export class StockerJobRuntime {
   }
 
   private pickStation(bot: BotNirv): FoodStockStation | null {
-    const stations = this.getStations().filter(s => s.stock < s.maxStock && !s.reservedByStockerBotId)
+    const stations = this.getStations().filter(s =>
+      s.stock < s.maxStock &&
+      !s.reservedByStockerBotId &&
+      this.canUseStation(bot, s.x, s.y),
+    )
     stations.sort((a, b) => {
       const fillA = a.stock / a.maxStock
       const fillB = b.stock / b.maxStock
@@ -92,6 +110,8 @@ export class StockerJobRuntime {
   private taskStillValid(task: StockerTask, botId: string): boolean {
     if (!this.getStations().includes(task.station)) return false
     if (task.station.reservedByStockerBotId !== botId) return false
+    const bot = this.bots.find(b => b.id === botId)
+    if (!bot || !this.canUseStation(bot, task.station.x, task.station.y)) return false
     return task.station.stock < task.station.maxStock && this.getCornCount() > 0
   }
 

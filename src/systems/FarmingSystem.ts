@@ -19,6 +19,10 @@ export class FarmingSystem {
     private readonly bots: BotNirv[],
     private readonly getPlayer: () => Nirv,
     private readonly openSeedPicker: (onSelect: (seed: CropSeed) => void) => void,
+    private readonly canBotUsePlot: (bot: BotNirv, x: number, y: number) => boolean = () => true,
+    private readonly canPlayerUsePlot: (x: number, y: number) => boolean = () => true,
+    private readonly canBotInteractWithPlot: (bot: BotNirv, x: number, y: number) => boolean = () => true,
+    private readonly canPlayerInteractWithPlot: (x: number, y: number) => boolean = () => true,
   ) {
     for (const id of loadFarmRecord().farmerBotIds) this.farmerBotIds.add(id)
     this.farmerJobs = new FarmerJobRuntime(
@@ -27,6 +31,8 @@ export class FarmingSystem {
       () => this.farmerBotIds,
       (plot, seed) => this.plant(plot, seed),
       plot => this.harvest(plot),
+      this.canBotUsePlot,
+      this.canBotInteractWithPlot,
     )
   }
 
@@ -67,6 +73,7 @@ export class FarmingSystem {
   ): boolean {
     const plot = this.plots.find(p => p.sprite === sprite || (p.x === x && p.y === y))
     if (!plot) return false
+    if (!this.canPlayerUsePlot(plot.x, plot.y)) return true
     const player = this.getPlayer().sprite
     if (Phaser.Math.Distance.Between(player.x, player.y, plot.x, plot.y) > PLAYER_REACH_PX) {
       this.pendingPlayerPlot = plot
@@ -74,6 +81,7 @@ export class FarmingSystem {
       setWalkTarget(p.x, p.y)
       return true
     }
+    if (!this.canPlayerInteractWithPlot(plot.x, plot.y)) return true
     this.resolvePlayerAction(plot)
     return true
   }
@@ -115,6 +123,10 @@ export class FarmingSystem {
     return this.farmerBotIds.has(bot.id)
   }
 
+  setSchedule(s: import('./ScheduleSystem').ScheduleSystem): void {
+    this.farmerJobs.setSchedule(s)
+  }
+
   releaseAllForBot(bot: BotNirv): void {
     this.farmerJobs.releaseAllForBot(bot)
   }
@@ -124,6 +136,7 @@ export class FarmingSystem {
     if (!plot || !this.plots.includes(plot)) return
     const player = this.getPlayer().sprite
     if (Phaser.Math.Distance.Between(player.x, player.y, plot.x, plot.y) > PLAYER_REACH_PX) return
+    if (!this.canPlayerInteractWithPlot(plot.x, plot.y)) return
     this.pendingPlayerPlot = null
     this.resolvePlayerAction(plot)
   }

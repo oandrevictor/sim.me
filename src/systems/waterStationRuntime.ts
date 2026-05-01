@@ -28,6 +28,18 @@ export function checkWaterTapArrivals(stations: readonly WaterStation[]): void {
   }
 }
 
+export function checkWaterTapArrivalsWithAccess(
+  stations: readonly WaterStation[],
+  canInteract: (bot: BotNirv, x: number, y: number) => boolean,
+): void {
+  for (const st of stations) {
+    if (!st.active || st.active.state !== 'walking_to_water') continue
+    if (!canInteract(st.active, st.x, st.y)) continue
+    const d = Phaser.Math.Distance.Between(st.active.nirv.sprite.x, st.active.nirv.sprite.y, st.x, st.y)
+    if (d < STATION_REACH_PX) st.active.arriveAtWaterStation()
+  }
+}
+
 export function checkWaterQueueSlotArrivals(
   pathfinder: GridPathfinder,
   stations: readonly WaterStation[],

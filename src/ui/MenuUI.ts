@@ -8,6 +8,11 @@ import type { FarmWorkBridge } from './WorkPanelFarmSection'
 import type { StockWorkBridge } from './WorkPanelStockSection'
 import { BAR_HEIGHT, BAR_WIDTH, buildMenuDock, refreshMenuDock, type MenuTab, type TabButton } from './MenuDock'
 import { SHOP_PANEL_HEIGHT, SHOP_PANEL_WIDTH } from './ShopPanelLayout'
+import { RelationshipsPanel, RELATIONSHIPS_PANEL_HEIGHT, RELATIONSHIPS_PANEL_WIDTH } from './RelationshipsPanel'
+import { NirvsPanel, NIRVS_PANEL_HEIGHT, NIRVS_PANEL_WIDTH } from './NirvsPanel'
+import type { RelationshipSystem } from '../systems/RelationshipSystem'
+import type { Building } from '../entities/Building'
+import type { Nirv } from '../entities/Nirv'
 
 export class MenuUI {
   private scene: Phaser.Scene
@@ -19,6 +24,8 @@ export class MenuUI {
 
   private shopPanel!: ShopPanel
   private workPanel!: WorkPanel
+  private relationshipsPanel!: RelationshipsPanel
+  private nirvsPanel!: NirvsPanel
 
   constructor(scene: Phaser.Scene, gameEvents: Phaser.Events.EventEmitter) {
     this.scene = scene
@@ -30,6 +37,12 @@ export class MenuUI {
 
     this.workPanel = new WorkPanel(scene)
     this.container.add(this.workPanel.container)
+
+    this.relationshipsPanel = new RelationshipsPanel(scene)
+    this.container.add(this.relationshipsPanel.container)
+
+    this.nirvsPanel = new NirvsPanel(scene)
+    this.container.add(this.nirvsPanel.container)
 
     this.buildTabBar()
     this.setTab('home')
@@ -55,9 +68,17 @@ export class MenuUI {
       this.container.x - BAR_WIDTH / 2, this.container.y - BAR_HEIGHT, BAR_WIDTH, BAR_HEIGHT,
     )
     if (barBounds.contains(px, py)) return true
-    if (this.activeTab === 'shop' || this.activeTab === 'work') {
-      const panelH = this.activeTab === 'work' ? WORK_PANEL_HEIGHT : SHOP_PANEL_HEIGHT
-      const panelW = this.activeTab === 'work' ? WORK_PANEL_WIDTH : SHOP_PANEL_WIDTH
+    if (this.activeTab === 'shop' || this.activeTab === 'work' || this.activeTab === 'social' || this.activeTab === 'nirvs') {
+      const panelH =
+        this.activeTab === 'work' ? WORK_PANEL_HEIGHT
+        : this.activeTab === 'social' ? RELATIONSHIPS_PANEL_HEIGHT
+        : this.activeTab === 'nirvs' ? NIRVS_PANEL_HEIGHT
+        : SHOP_PANEL_HEIGHT
+      const panelW =
+        this.activeTab === 'work' ? WORK_PANEL_WIDTH
+        : this.activeTab === 'social' ? RELATIONSHIPS_PANEL_WIDTH
+        : this.activeTab === 'nirvs' ? NIRVS_PANEL_WIDTH
+        : SHOP_PANEL_WIDTH
       const panelBounds = new Phaser.Geom.Rectangle(
         this.container.x - panelW / 2,
         this.container.y - BAR_HEIGHT - panelH - 6,
@@ -128,10 +149,41 @@ export class MenuUI {
 
     this.shopPanel.container.setVisible(tab === 'shop')
     this.workPanel.container.setVisible(tab === 'work')
+    this.relationshipsPanel.container.setVisible(tab === 'social')
+    this.nirvsPanel.container.setVisible(tab === 'nirvs')
+    if (tab !== 'social') this.relationshipsPanel.clearSelection()
 
     if (tab === 'shop') this.gameEvents.emit('menu:shop-open')
     else if (prevTab === 'shop') this.gameEvents.emit('menu:shop-close')
 
     if (tab === 'work') this.workPanel.refresh()
+    if (tab === 'social') this.relationshipsPanel.refresh()
+    if (tab === 'nirvs') this.nirvsPanel.refresh()
+  }
+
+  setRelationshipProviders(
+    getBots: () => readonly BotNirv[],
+    getRelationships: () => RelationshipSystem | null,
+  ): void {
+    this.relationshipsPanel.setProviders(getBots, getRelationships)
+  }
+
+  setNirvsProviders(
+    getPlayer: () => Nirv | null,
+    getBots: () => readonly BotNirv[],
+    getBuildings: () => readonly Building[],
+    getRelationships: () => RelationshipSystem | null,
+  ): void {
+    this.nirvsPanel.setProviders(getPlayer, getBots, getBuildings, getRelationships)
+  }
+
+  refreshRelationshipsPanel(): void {
+    if (this.activeTab !== 'social') return
+    this.relationshipsPanel.refresh()
+  }
+
+  refreshNirvsPanel(): void {
+    if (this.activeTab !== 'nirvs') return
+    this.nirvsPanel.refresh()
   }
 }

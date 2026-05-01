@@ -11,6 +11,8 @@ export class StockSystem {
     private readonly bots: BotNirv[],
     private readonly getStations: () => FoodStockStation[],
     private readonly setStationStock: (station: FoodStockStation, stock: number) => void,
+    private readonly canBotUseStation: (bot: BotNirv, x: number, y: number) => boolean = () => true,
+    private readonly canBotInteractWithStation: (bot: BotNirv, x: number, y: number) => boolean = () => true,
   ) {
     for (const id of loadFarmRecord().stockerBotIds) this.stockerBotIds.add(id)
     this.jobs = new StockerJobRuntime(
@@ -19,6 +21,8 @@ export class StockSystem {
       () => this.stockerBotIds,
       () => loadFarmRecord().cornCount,
       station => this.restockStation(station),
+      this.canBotUseStation,
+      this.canBotInteractWithStation,
     )
   }
 
@@ -59,6 +63,10 @@ export class StockSystem {
 
   isStockerBot(bot: BotNirv): boolean {
     return this.stockerBotIds.has(bot.id)
+  }
+
+  setSchedule(s: import('./ScheduleSystem').ScheduleSystem): void {
+    this.jobs.setSchedule(s)
   }
 
   releaseAllForBot(bot: BotNirv): void {

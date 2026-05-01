@@ -6,21 +6,24 @@ import { removeObjectByType } from '../storage/persistence'
 import type { ObjectType } from '../objects/objectTypes'
 import type { PlateEntry } from '../world/ObjectSpawner'
 import type { RestaurantSystem, WaiterServiceClaim } from './RestaurantSystem'
-import { findStaffApproachPoint, staffNextToStation } from './RestaurantStaffMovement'
+import { findRestaurantIdlePoint, findStaffApproachPoint, staffNextToStation } from './RestaurantStaffMovement'
+import { WaiterPlateState } from './WaiterPlateState'
 
 export class RestaurantWaiterFlow {
-  private returnCounters = new Map<string, { x: number; y: number }>()
+  private readonly plates: WaiterPlateState
 
   constructor(
     private readonly restaurant: RestaurantSystem,
     private readonly pathfinder: GridPathfinder,
-    private readonly spawnObject: (type: ObjectType, x: number, y: number, persist: boolean, recipeId?: string) => void,
+    private readonly spawnObject: (type: ObjectType, x: number, y: number, persist: boolean, recipeId?: string) => boolean,
     private readonly removePlateEntry: (entry: PlateEntry) => void,
     private readonly getPlateEntries: () => PlateEntry[],
-  ) {}
+  ) {
+    this.plates = new WaiterPlateState(restaurant, spawnObject)
+  }
 
-  releaseAllForBot(bot: BotNirv): void {
-    this.returnCounters.delete(bot.id)
+  releaseAllForBot(bot: BotNirv, building: Building | null = null): void {
+    this.plates.releaseAllForBot(bot.id, building?.id ?? null, () => true)
     this.restaurant.releaseWaiterClaim(bot.id)
     this.restaurant.releaseCounterReservationForBot(bot.id)
   }
@@ -37,23 +40,16 @@ export class RestaurantWaiterFlow {
   }
 
   private startWaiterTask(bot: BotNirv, building: Building): void {
-    if (bot.getStaffCarriedRecipeId()) {
+    if (this.plates.getCarried(bot.id)) {
       this.startReturningPlate(bot, building)
       return
     }
-    const claim = this.restaurant.claimWaiterService(
-      building.id,
-      bot.id,
-      c => findStaffApproachPoint(this.pathfinder, bot, building, c.x, c.y) !== null,
-      t => findStaffApproachPoint(this.pathfinder, bot, building, t.x, t.y) !== null,
-    )
-    if (!claim) return
-    const approach = findStaffApproachPoint(this.pathfinder, bot, building, claim.counter.x, claim.counter.y)
-    if (!approach) {
-      this.restaurant.releaseWaiterClaim(bot.id)
+    const claim = this.claimService(bot, building)
+    if (!claim) {
+      this.startJoiningRestaurant(bot, building)
       return
     }
-    bot.enterWaiterWalkToCounter(approach.x, approach.y, building.getInteriorPathBounds(GRID_COLS, GRID_ROWS))
+    this.walkToClaimedCounter(bot, building, claim)
   }
 
   private tryPickupPlate(bot: BotNirv, building: Building): void {
@@ -79,7 +75,7 @@ export class RestaurantWaiterFlow {
   }
 
   private tryDeliverPlate(bot: BotNirv, building: Building): void {
-    const recipeId = bot.getStaffCarriedRecipeId()
+    const recipeId = this.plates.getCarried(bot.id)
     const claim = this.restaurant.getWaiterClaim(bot.id)
     if (!recipeId) {
       this.restaurant.releaseWaiterClaim(bot.id)
@@ -92,15 +88,24 @@ export class RestaurantWaiterFlow {
     }
     if (!staffNextToStation(this.restaurant, bot, claim.table.x, claim.table.y)) return
     this.restaurant.releaseWaiterClaim(bot.id)
-    this.spawnObject('food_plate', claim.table.x, claim.table.y, true, recipeId)
-    bot.setStaffCarriedRecipeId(null)
-    bot.enterWaiterIdle()
+    if (this.spawnObject('food_plate', claim.table.x, claim.table.y, true, recipeId)) {
+      this.plates.setCarried(bot.id, null)
+      bot.enterWaiterIdle()
+    } else this.startReturningPlate(bot, building)
   }
 
   private tryReturnPlate(bot: BotNirv, building: Building): void {
-    const recipeId = bot.getStaffCarriedRecipeId()
+    const idleTarget = this.plates.getIdleTarget(bot.id)
+    const recipeId = this.plates.getCarried(bot.id)
     if (!recipeId) {
-      this.returnCounters.delete(bot.id)
+      const claim = this.claimService(bot, building)
+      if (claim) {
+        this.plates.clearIdleTarget(bot.id)
+        this.walkToClaimedCounter(bot, building, claim)
+        return
+      }
+      if (idleTarget && !staffNextToStation(this.restaurant, bot, idleTarget.x, idleTarget.y)) return
+      this.plates.clearIdleTarget(bot.id)
       this.restaurant.releaseCounterReservationForBot(bot.id)
       bot.enterWaiterIdle()
       return
@@ -112,15 +117,11 @@ export class RestaurantWaiterFlow {
     }
     if (!staffNextToStation(this.restaurant, bot, target.x, target.y)) return
     if (!this.restaurant.canPlaceOnReservedCounter(bot.id, target.x, target.y)) {
-      this.returnCounters.delete(bot.id)
+      this.plates.clearReturnCounter(bot.id)
       this.restaurant.releaseCounterReservationForBot(bot.id)
       return
     }
-    this.spawnObject('food_plate', target.x, target.y, true, recipeId)
-    this.returnCounters.delete(bot.id)
-    this.restaurant.releaseCounterReservationForBot(bot.id)
-    bot.setStaffCarriedRecipeId(null)
-    bot.enterWaiterIdle()
+    if (this.plates.tryPlaceOnReturnCounter(bot.id, target)) bot.enterWaiterIdle()
   }
 
   private pickupCounterPlate(bot: BotNirv, claim: WaiterServiceClaim): void {
@@ -131,7 +132,7 @@ export class RestaurantWaiterFlow {
     if (entry) this.removePlateEntry(entry)
     plate.sprite.destroy()
     this.restaurant.markWaiterPickedUp(bot.id)
-    bot.setStaffCarriedRecipeId(plate.recipeId)
+    this.plates.setCarried(bot.id, plate.recipeId)
   }
 
   private walkToClaimedTableOrReturn(bot: BotNirv, building: Building, claim: WaiterServiceClaim): void {
@@ -156,7 +157,7 @@ export class RestaurantWaiterFlow {
     }
     const approach = findStaffApproachPoint(this.pathfinder, bot, building, counter.x, counter.y)
     if (!approach) {
-      this.returnCounters.delete(bot.id)
+      this.plates.clearReturnCounter(bot.id)
       this.restaurant.releaseCounterReservationForBot(bot.id)
       bot.enterWaiterReturnPlate()
       return
@@ -165,23 +166,35 @@ export class RestaurantWaiterFlow {
   }
 
   private ensureReturnCounter(bot: BotNirv, building: Building): { x: number; y: number } | null {
-    const current = this.returnCounters.get(bot.id)
-    if (current && this.restaurant.canPlaceOnReservedCounter(bot.id, current.x, current.y)) return current
-    const counter = this.restaurant.reserveReturnCounter(
+    return this.plates.ensureReturnCounter(
       building.id,
       bot.id,
       c => findStaffApproachPoint(this.pathfinder, bot, building, c.x, c.y) !== null,
     )
-    if (!counter) {
-      this.returnCounters.delete(bot.id)
-      return null
-    }
-    this.returnCounters.set(bot.id, { x: counter.x, y: counter.y })
-    return counter
+  }
+
+  private startJoiningRestaurant(bot: BotNirv, building: Building): void {
+    const sprite = bot.nirv.sprite
+    if (building.containsPixel(sprite.x, sprite.y)) return
+    const target = findRestaurantIdlePoint(this.pathfinder, bot, building)
+    if (!target) return
+    this.plates.setIdleTarget(bot.id, target)
+    bot.enterWaiterReturnPlate(target.x, target.y, building.getInteriorPathBounds(GRID_COLS, GRID_ROWS))
+  }
+
+  private claimService(bot: BotNirv, building: Building): WaiterServiceClaim | null {
+    return this.restaurant.claimWaiterService(building.id, bot.id,
+      c => findStaffApproachPoint(this.pathfinder, bot, building, c.x, c.y) !== null,
+      t => findStaffApproachPoint(this.pathfinder, bot, building, t.x, t.y) !== null)
+  }
+
+  private walkToClaimedCounter(bot: BotNirv, building: Building, claim: WaiterServiceClaim): void {
+    const approach = findStaffApproachPoint(this.pathfinder, bot, building, claim.counter.x, claim.counter.y)
+    if (!approach) this.restaurant.releaseWaiterClaim(bot.id)
+    else bot.enterWaiterWalkToCounter(approach.x, approach.y, building.getInteriorPathBounds(GRID_COLS, GRID_ROWS))
   }
 }
 
 function isWaiterPipeline(state: BotNirv['state']): boolean {
-  return state === 'waiter_idle' || state === 'waiter_to_counter' ||
-    state === 'waiter_to_table' || state === 'waiter_returning_plate'
+  return state === 'waiter_idle' || state === 'waiter_to_counter' || state === 'waiter_to_table' || state === 'waiter_returning_plate'
 }

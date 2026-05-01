@@ -22,7 +22,7 @@ export class RestaurantChefFlow {
     private readonly restaurant: RestaurantSystem,
     private readonly cooking: CookingSystem,
     private readonly pathfinder: GridPathfinder,
-    private readonly spawnObject: (type: ObjectType, x: number, y: number, persist: boolean, recipeId?: string) => void,
+    private readonly spawnObject: (type: ObjectType, x: number, y: number, persist: boolean, recipeId?: string) => boolean,
   ) {}
 
   releaseAllForBot(bot: BotNirv): void {
@@ -138,7 +138,7 @@ export class RestaurantChefFlow {
       return
     }
     if (!staffNextToStation(this.restaurant, bot, target.x, target.y)) return
-    this.spawnObject('food_plate', target.x, target.y, true, recipeId)
+    if (!this.spawnObject('food_plate', target.x, target.y, true, recipeId)) return
     this.restaurant.releaseCounterReservationForBot(bot.id)
     this.heldRecipe.delete(bot.id)
     this.targetCounter.delete(bot.id)

@@ -18,6 +18,7 @@ import {
 } from './stageAudienceTick'
 import { getPerformerBotIdsForAttraction } from './stagePerformerIds'
 import { placeBotsAsStagePerformers } from './stagePerformerPlacement'
+import type { RelationshipSystem } from './RelationshipSystem'
 
 export type { StagePerformanceView } from './stagePerformanceTypes'
 
@@ -28,6 +29,11 @@ export class StageSystem {
   private timeSinceCheck = 0
   private watchingBots = new Map<BotNirv, { stageId: string; x: number; y: number }>()
   private arrivalRegistered = new Set<string>()
+  private relationshipSystem: RelationshipSystem | null = null
+
+  // Schedule is wired but not consumed yet — performer profession templates already encode their work hours.
+  setSchedule(_s: import('./ScheduleSystem').ScheduleSystem): void { /* reserved for future shift gating */ }
+  setRelationshipSystem(system: RelationshipSystem): void { this.relationshipSystem = system }
 
   constructor(
     private readonly stages: Stage[],
@@ -43,6 +49,13 @@ export class StageSystem {
       runtimeByStageId: this.runtimeByStageId,
       watchingBots: this.watchingBots,
       arrivalRegistered: this.arrivalRegistered,
+      pairSocialBias: this.relationshipSystem
+        ? (idA: string, idB: string) => this.relationshipSystem?.getPairSocialBias(idA, idB, 'group') ?? 0
+        : undefined,
+      onCompanionExposure: this.relationshipSystem
+        ? (subjectId: string, otherId: string, weight: number) =>
+            this.relationshipSystem?.registerJealousyExposure(subjectId, otherId, weight)
+        : undefined,
     }
   }
 

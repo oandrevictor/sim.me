@@ -15,6 +15,7 @@ const SEP_STRENGTH = 80
 export function applyNirvSeparation(
   bots: readonly BotNirv[],
   player: Nirv,
+  onCrowdingPair?: (a: BotNirv, b: BotNirv, distance: number) => void,
 ): void {
   const sprites: Phaser.Physics.Arcade.Sprite[] = [player.sprite]
   for (const b of bots) sprites.push(b.nirv.sprite)
@@ -40,6 +41,18 @@ export function applyNirvSeparation(
         const factor = (SEP_RADIUS - dist) / SEP_RADIUS
         sepX += (dx / dist) * factor
         sepY += (dy / dist) * factor
+      }
+    }
+    if (onCrowdingPair) {
+      for (const otherBot of bots) {
+        if (otherBot.id === bot.id || !otherBot.nirv.sprite.visible) continue
+        const d = Phaser.Math.Distance.Between(
+          s.x,
+          s.y,
+          otherBot.nirv.sprite.x,
+          otherBot.nirv.sprite.y,
+        )
+        if (d < SEP_RADIUS) onCrowdingPair(bot, otherBot, d)
       }
     }
 

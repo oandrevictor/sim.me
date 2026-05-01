@@ -12,6 +12,10 @@ import type { PlateEntry } from '../world/ObjectSpawner'
 export class RestaurantStaffCoordinator {
   private readonly chefs: RestaurantChefFlow
   private readonly waiters: RestaurantWaiterFlow
+  private readonly waiterBuildings = new Map<string, Building>()
+  private schedule: import('./ScheduleSystem').ScheduleSystem | null = null
+
+  setSchedule(s: import('./ScheduleSystem').ScheduleSystem): void { this.schedule = s }
 
   constructor(
     private readonly buildings: Building[],
@@ -20,7 +24,7 @@ export class RestaurantStaffCoordinator {
     restaurant: RestaurantSystem,
     cooking: CookingSystem,
     pathfinder: GridPathfinder,
-    spawnObject: (type: ObjectType, x: number, y: number, persist: boolean, recipeId?: string) => void,
+    spawnObject: (type: ObjectType, x: number, y: number, persist: boolean, recipeId?: string) => boolean,
     removePlateEntry: (entry: PlateEntry) => void,
     getPlateEntries: () => PlateEntry[],
   ) {
@@ -28,22 +32,51 @@ export class RestaurantStaffCoordinator {
     this.waiters = new RestaurantWaiterFlow(restaurant, pathfinder, spawnObject, removePlateEntry, getPlateEntries)
   }
 
+  /** Off-shift soft gate: skip non-job-state bots; bots already mid-task continue. */
+  private skipOffShift(bot: BotNirv, _role: 'chef' | 'waiter'): boolean {
+    if (!this.schedule) return false
+    if (this.schedule.isOnShift(bot)) return false
+    // If already in a restaurant-staff state, let them finish.
+    const s = bot.state
+    const inJob = s === 'chef_idle' || s === 'chef_to_stove' || s === 'chef_cooking' || s === 'chef_to_counter'
+      || s === 'waiter_idle' || s === 'waiter_to_counter' || s === 'waiter_to_table'
+    return !inJob
+  }
+
   releaseAllForBot(bot: BotNirv): void {
     this.chefs.releaseAllForBot(bot)
-    this.waiters.releaseAllForBot(bot)
+    this.waiters.releaseAllForBot(bot, this.waiterBuildings.get(bot.id) ?? null)
   }
 
   update(): void {
+    const activeWaiters = new Set<string>()
+    for (const building of this.buildings) {
+      if (building.type !== 'restaurant') continue
+      for (const id of this.assignments.get(building.id).waiterBotIds) activeWaiters.add(id)
+    }
+    for (const [id, building] of this.waiterBuildings) {
+      if (activeWaiters.has(id)) continue
+      const bot = this.bots.find(b => b.id === id)
+      if (bot) this.waiters.releaseAllForBot(bot, building)
+      this.waiterBuildings.delete(id)
+    }
     for (const building of this.buildings) {
       if (building.type !== 'restaurant') continue
       const staff = this.assignments.get(building.id)
       for (const id of staff.chefBotIds) {
         const bot = this.bots.find(b => b.id === id)
-        if (bot) this.chefs.tick(bot, building)
+        if (!bot) continue
+        if (this.skipOffShift(bot, 'chef')) continue
+        this.chefs.tick(bot, building)
       }
       for (const id of staff.waiterBotIds) {
         const bot = this.bots.find(b => b.id === id)
-        if (bot) this.waiters.tick(bot, building)
+        if (!bot) continue
+        const previous = this.waiterBuildings.get(bot.id)
+        if (previous && previous !== building) this.waiters.releaseAllForBot(bot, previous)
+        this.waiterBuildings.set(bot.id, building)
+        if (this.skipOffShift(bot, 'waiter')) continue
+        this.waiters.tick(bot, building)
       }
     }
   }
