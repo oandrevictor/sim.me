@@ -36,6 +36,7 @@ import { CookingSystem } from '../systems/CookingSystem'
 import { FarmingSystem } from '../systems/FarmingSystem'
 import { StockSystem } from '../systems/StockSystem'
 import { HouseSystem } from '../systems/HouseSystem'
+import { HouseVisitActivitySystem } from '../systems/HouseVisitActivitySystem'
 import { WorldClock } from '../systems/WorldClock'
 import { RelationshipSystem } from '../systems/RelationshipSystem'
 import { ScheduleSystem } from '../systems/ScheduleSystem'
@@ -106,6 +107,7 @@ export default class GameScene extends Phaser.Scene {
 	private farmingSystem!: FarmingSystem
 	private stockSystem!: StockSystem
 	private houseSystem!: HouseSystem
+	private houseVisitActivitySystem!: HouseVisitActivitySystem
 	private worldClock!: WorldClock
 	private relationshipSystem!: RelationshipSystem
 	private scheduleSystem!: ScheduleSystem
@@ -267,6 +269,8 @@ export default class GameScene extends Phaser.Scene {
 			() => this.lotPlacementManager?.getHomeSpaces() ?? [],
 		)
 		this.houseSystem.setRelationshipSystem(this.relationshipSystem)
+		this.houseVisitActivitySystem = new HouseVisitActivitySystem(this.botNirvs)
+		this.houseVisitActivitySystem.setRelationshipSystem(this.relationshipSystem)
 		this.scheduleSystem = new ScheduleSystem(
 			this.worldClock,
 			this.staffAssignments,

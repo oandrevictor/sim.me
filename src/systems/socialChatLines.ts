@@ -31,6 +31,14 @@ const STAGE_LINES: [string, string][] = [
   ['What is the setlist for tonight?', 'I am not sure, but I heard they are playing some new songs.'],
 ]
 
+const FARMER_LINES: [string, string][] = [
+  ['These crops are coming along.', 'Yeah, the field looks good today.'],
+  ['Can you check that row after this?', 'Sure, I am nearby.'],
+  ['Harvest should be quick.', 'If the path stays clear.'],
+  ['This soil has been busy lately.', 'Busy soil means good work.'],
+  ['I hope the next plot is ready.', 'We will get to it.'],
+]
+
 const STRESSED_LINES: [string, string][] = [
   ['I am exhausted.', 'Me too, honestly.'],
   ['Not feeling great today.', 'Sorry to hear that.'],
@@ -62,6 +70,9 @@ export function pickSocialChatLines(chat: SocialChatLineContext): [string, strin
       ? [`You like ${chat.sharedInterest}?`, `Yeah, I love ${chat.sharedInterest}.`]
       : [`Still into ${chat.sharedInterest}?`, `Always into ${chat.sharedInterest}.`]
   }
+  if (isFarmerChat(chat.a.state, chat.b.state) && Math.random() < 0.45) {
+    return Phaser.Utils.Array.GetRandom(FARMER_LINES)
+  }
   if (worstMood === 'happy') {
     if (chat.a.state === 'watching_stage' || chat.b.state === 'watching_stage') {
       return Phaser.Utils.Array.GetRandom(STAGE_LINES)
@@ -84,4 +95,12 @@ function isQueueState(state: BotState): boolean {
     state === 'waiting_at_snack_queue' ||
     state === 'waiting_at_fruit_queue' ||
     state === 'waiting_at_toilet_queue'
+}
+
+function isFarmerChat(a: BotState, b: BotState): boolean {
+  return isFarmerWorkState(a) && isFarmerWorkState(b)
+}
+
+function isFarmerWorkState(state: BotState): boolean {
+  return state === 'farmer_idle' || state === 'farmer_to_crop' || state === 'farmer_working'
 }

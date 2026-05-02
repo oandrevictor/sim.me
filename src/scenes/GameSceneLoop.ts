@@ -80,6 +80,7 @@ class GameSceneLoopMethods {
 		this.farmingSystem.update(delta)
 		this.stockSystem.update(delta)
 		this.houseSystem.update(delta)
+		this.houseVisitActivitySystem.update(delta)
 		this.cookingSystem.update(delta)
 		this.staffCoordinator.update()
 		this.restaurantSystem.update(delta)

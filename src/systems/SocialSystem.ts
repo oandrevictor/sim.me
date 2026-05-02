@@ -27,6 +27,9 @@ const ELIGIBLE_STATES = new Set<BotState>([
   'fruit_eat',
   'waiting_at_fruit_queue',
   'waiting_at_toilet_queue',
+  'farmer_idle',
+  'farmer_to_crop',
+  'farmer_working',
 ])
 
 type ChatSession = {

@@ -238,6 +238,7 @@ export class GroupActivitySystem {
       const inside = this.bots.filter(b =>
         (b.state === 'inside_house' || b.state === 'game_night') &&
         b.houseId === building.id &&
+        b.houseMode !== 'visitor' &&
         !inSession.has(b.id),
       )
       if (inside.length < MIN_GAME_SIZE) continue
