@@ -126,7 +126,13 @@ class GameSceneSetupMethods {
 				this.wallPlacementManager.enter()
 				this.setBuildModePaused(true)
 			})
+			this.events.on('build:tool-select', (tool: import('../ui/BuildPanel').BuildTool) => {
+				if (!this.menuUI.isBuildMode()) return
+				if (tool === 'path') this.placementManager.enter('path')
+				else if (this.placementManager.isActive()) this.placementManager.exit()
+			})
 			this.events.on('menu:build-close', () => {
+				if (this.placementManager.isActive()) this.placementManager.exit()
 				this.lotPlacementManager.exit()
 				this.wallPlacementManager.exit()
 				this.setBuildModePaused(false)

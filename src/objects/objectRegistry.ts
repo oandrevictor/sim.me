@@ -63,6 +63,11 @@ export const OBJECT_TYPE_REGISTRY = {
     textureKey: 'floor_yellow', previewColor: 0xf0c060,
     depth: 1, hasPhysicsBody: false, isInteractable: false,
   },
+  path: {
+    type: 'path', label: 'Path', description: 'Preferred walking path tile',
+    textureKey: 'obj_path', previewColor: 0xb88245,
+    depth: 1, hasPhysicsBody: false, isInteractable: false,
+  },
   drinking_water: {
     type: 'drinking_water', label: 'Drinking Water station',
     description: 'Nirvs drink here when thirsty', textureKey: 'water_station',

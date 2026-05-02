@@ -84,6 +84,15 @@ export function generateObjectTextures(scene: Phaser.Scene): void {
   trashGfx.generateTexture('obj_trash', OBJECT_SIZE, OBJECT_SIZE)
   trashGfx.destroy()
 
+  // Path: compact shop/ghost texture; the placed tile is rendered by FloorTileLayer.
+  const pathGfx = scene.make.graphics({ x: 0, y: 0 })
+  pathGfx.fillStyle(0xb88245)
+  pathGfx.fillRect(0, 0, OBJECT_SIZE, OBJECT_SIZE)
+  pathGfx.lineStyle(2, 0x7a4f2a)
+  pathGfx.strokeRect(1, 1, OBJECT_SIZE - 2, OBJECT_SIZE - 2)
+  pathGfx.generateTexture('obj_path', OBJECT_SIZE, OBJECT_SIZE)
+  pathGfx.destroy()
+
   // TV: flat-screen panel with blue-gray screen, dark bezel, thin stand + base
   const tvGfx = scene.make.graphics({ x: 0, y: 0 })
   // Outer bezel

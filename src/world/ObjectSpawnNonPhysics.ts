@@ -60,7 +60,7 @@ export function spawnNonPhysicsObject(context: NonPhysicsContext, args: NonPhysi
   applyDefaultDisplay(sprite, args.type)
   const placedEntry = trackPlacedSprite(context, sprite, args)
 
-  if (args.type === 'floor_yellow') spawnFloor(context, sprite, args)
+  if (args.type === 'floor_yellow' || args.type === 'path') spawnTile(context, sprite, args)
   else if (args.type === 'crop') spawnCrop(context, sprite, args)
   else if (args.type === 'drinking_water') spawnWaterStation(context, sprite, placedEntry, args)
   else if (isStockablePropType(args.type)) {
@@ -123,10 +123,13 @@ function spawnBed(context: NonPhysicsContext, args: NonPhysicsArgs): void {
   context.state.placedSprites.push({ sprite, type: args.type, x: args.x, y: args.y, rotation: rot, footprintBlocker: blocker })
 }
 
-function spawnFloor(context: NonPhysicsContext, sprite: Phaser.GameObjects.Sprite, args: NonPhysicsArgs): void {
+function spawnTile(context: NonPhysicsContext, sprite: Phaser.GameObjects.Sprite, args: NonPhysicsArgs): void {
   sprite.setVisible(false)
   const g = screenToGrid(args.x, args.y)
-  context.getFloorLayer().add(Math.round(g.gx), Math.round(g.gy))
+  const gx = Math.round(g.gx)
+  const gy = Math.round(g.gy)
+  if (args.type === 'path') context.pathfinder.preferCell(gx, gy)
+  context.getFloorLayer().add(gx, gy, args.type === 'path' ? 'path' : 'floor')
 }
 
 function spawnCrop(context: NonPhysicsContext, sprite: Phaser.GameObjects.Sprite, args: NonPhysicsArgs): void {

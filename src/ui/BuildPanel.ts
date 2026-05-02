@@ -13,7 +13,7 @@ const TOOL_H = 58
 const TYPE_W = 110
 const TYPE_H = 34
 
-export type BuildTool = 'lot' | 'wall'
+export type BuildTool = 'lot' | 'wall' | 'path'
 
 const TYPE_OPTIONS: { type: LotType; label: string }[] = [
   { type: 'residential', label: 'Residential' },
@@ -29,7 +29,7 @@ export class BuildPanel {
   private readonly typeButtons = new Map<LotType, { bg: Phaser.GameObjects.Graphics; label: Phaser.GameObjects.Text }>()
   private readonly mergeDialog: LotMergeDialog
 
-  constructor(scene: Phaser.Scene) {
+  constructor(scene: Phaser.Scene, private readonly gameEvents: Phaser.Events.EventEmitter) {
     this.container = scene.add.container(0, -BUILD_BAR_HEIGHT - 6)
     this.container.setVisible(false)
     this.mergeDialog = new LotMergeDialog(scene)
@@ -66,6 +66,7 @@ export class BuildPanel {
   private buildToolButtons(scene: Phaser.Scene): void {
     this.buildToolButton(scene, 'lot', 'Lot', -BUILD_PANEL_WIDTH / 2 + 70, -BUILD_PANEL_HEIGHT + 58)
     this.buildToolButton(scene, 'wall', 'Wall', -BUILD_PANEL_WIDTH / 2 + 174, -BUILD_PANEL_HEIGHT + 58)
+    this.buildToolButton(scene, 'path', 'Path', -BUILD_PANEL_WIDTH / 2 + 278, -BUILD_PANEL_HEIGHT + 58)
   }
 
   private buildToolButton(scene: Phaser.Scene, tool: BuildTool, labelText: string, x: number, y: number): void {
@@ -81,11 +82,16 @@ export class BuildPanel {
       icon.fillRect(2, -8, 12, 12)
       icon.fillStyle(LOT_COLORS.public, 0.8)
       icon.fillRect(-6, 8, 12, 12)
-    } else {
+    } else if (tool === 'wall') {
       icon.lineStyle(5, 0x8b7355, 1)
       icon.lineBetween(-18, 0, 18, 0)
       icon.lineStyle(2, 0xd8c3a5, 0.85)
       icon.lineBetween(-18, -3, 18, -3)
+    } else {
+      icon.fillStyle(0xb88245, 0.95)
+      icon.fillRect(-18, -8, 36, 16)
+      icon.lineStyle(2, 0x7a4f2a, 0.9)
+      icon.strokeRect(-18, -8, 36, 16)
     }
 
     const label = scene.add.text(x, y + 18, labelText, {
@@ -97,6 +103,7 @@ export class BuildPanel {
     zone.on('pointerdown', () => {
       this.selectedTool = tool
       this.refreshToolButtons()
+      this.gameEvents.emit('build:tool-select', tool)
     })
     this.container.add([bg, icon, label, zone])
     this.toolButtons.set(tool, { bg, label })

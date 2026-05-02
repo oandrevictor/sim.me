@@ -37,7 +37,7 @@ export function createObjectGhost(
     return sprite
   }
 
-  if (type === 'floor_yellow') {
+  if (isTileType(type)) {
     const sprite = scene.add.sprite(0, 0, config.textureKey)
     sprite.setDisplaySize(TILE_W, TILE_H)
     sprite.setAlpha(0.55)
@@ -78,6 +78,10 @@ export function createObjectGhost(
   sprite.setAlpha(0.55)
   sprite.setDepth(DEPTH_UI + 10)
   return sprite
+}
+
+function isTileType(type: ObjectType): boolean {
+  return type === 'floor_yellow' || type === 'path'
 }
 
 export function createBuildingGhost(scene: Phaser.Scene): Phaser.GameObjects.Graphics {

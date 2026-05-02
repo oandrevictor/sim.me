@@ -90,7 +90,7 @@ function unregisterObject(
   x: number,
   y: number,
 ): void {
-  if (type === 'floor_yellow') removeFloorTile(context, x, y)
+  if (type === 'floor_yellow' || type === 'path') removeTile(context, type, x, y)
   else if (type === 'chair') context.restaurantSystem.unregisterChair(sprite as Phaser.GameObjects.Sprite)
   else if (type === 'drinking_water') {
     context.hydrationSystem.unregisterStation(sprite as Phaser.Physics.Arcade.Sprite)
@@ -114,7 +114,10 @@ function unregisterObject(
   }
 }
 
-function removeFloorTile(context: ObjectRemovalContext, x: number, y: number): void {
+function removeTile(context: ObjectRemovalContext, type: ObjectType, x: number, y: number): void {
   const g = screenToGrid(x, y)
-  context.getFloorLayer().remove(Math.round(g.gx), Math.round(g.gy))
+  const gx = Math.round(g.gx)
+  const gy = Math.round(g.gy)
+  if (type === 'path') context.pathfinder.unpreferCell(gx, gy)
+  context.getFloorLayer().remove(gx, gy, type === 'path' ? 'path' : 'floor')
 }

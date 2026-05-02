@@ -35,7 +35,7 @@ export class MenuUI {
     this.gameEvents = gameEvents
     this.container = scene.add.container(0, 0)
 
-    this.buildPanel = new BuildPanel(scene)
+    this.buildPanel = new BuildPanel(scene, gameEvents)
     this.container.add(this.buildPanel.container)
 
     this.shopPanel = new ShopPanel(scene, gameEvents)

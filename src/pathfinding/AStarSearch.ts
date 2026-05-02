@@ -9,6 +9,8 @@ interface Node {
   parent: Node | null
 }
 
+type CellCostProvider = (gx: number, gy: number) => number
+
 class MinHeap {
   private data: Node[] = []
 
@@ -63,17 +65,23 @@ export class AStarSearch {
   private readonly cols: number
   private readonly rows: number
   private readonly cellWalls: Map<string, Set<WallSide>>
+  private readonly cellCost: CellCostProvider
+  private readonly minCellCost: number
 
   constructor(
     blocked: boolean[][],
     cols: number,
     rows: number,
     cellWalls: Map<string, Set<WallSide>>,
+    cellCost: CellCostProvider = () => 1,
+    minCellCost = 1,
   ) {
     this.blocked = blocked
     this.cols = cols
     this.rows = rows
     this.cellWalls = cellWalls
+    this.cellCost = cellCost
+    this.minCellCost = minCellCost
   }
 
   search(
@@ -91,7 +99,7 @@ export class AStarSearch {
 
     const startNode: Node = {
       gx: startGX, gy: startGY, g: 0,
-      h: Math.abs(endGX - startGX) + Math.abs(endGY - startGY),
+      h: this.heuristic(startGX, startGY, endGX, endGY),
       f: 0, parent: null,
     }
     startNode.f = startNode.h
@@ -136,12 +144,10 @@ export class AStarSearch {
               this.isCellWallBlocked(current.gx, current.gy, current.gx, current.gy + dy)) continue
         }
 
-        const g = current.g + cost
+        const g = current.g + cost * Math.max(this.minCellCost, this.cellCost(nx, ny))
         const existing = openMap.get(nKey)
         if (!existing || g < existing.g) {
-          const hdx = Math.abs(endGX - nx)
-          const hdy = Math.abs(endGY - ny)
-          const h = Math.max(hdx, hdy) + 0.414 * Math.min(hdx, hdy)
+          const h = this.heuristic(nx, ny, endGX, endGY)
           const node: Node = { gx: nx, gy: ny, g, h, f: g + h, parent: current }
           openMap.set(nKey, node)
           heap.push(node)
@@ -214,6 +220,12 @@ export class AStarSearch {
   }
 
   private key(gx: number, gy: number): string { return `${gx},${gy}` }
+
+  private heuristic(fromGX: number, fromGY: number, toGX: number, toGY: number): number {
+    const hdx = Math.abs(toGX - fromGX)
+    const hdy = Math.abs(toGY - fromGY)
+    return (Math.max(hdx, hdy) + 0.414 * Math.min(hdx, hdy)) * this.minCellCost
+  }
 
   private reconstructPath(node: Node): { gx: number; gy: number }[] {
     const path: { gx: number; gy: number }[] = []

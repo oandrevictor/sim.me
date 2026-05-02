@@ -15,6 +15,7 @@ export const CATEGORIES: { key: Category; label: string }[] = [
 export const CATEGORY_MAP: Record<string, Category> = {
   obstacle: 'build',
   floor_yellow: 'build',
+  path: 'build',
   portable_toilet: 'build',
   crop: 'farm',
   table2: 'dine',

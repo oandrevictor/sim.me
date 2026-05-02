@@ -3,6 +3,8 @@ import { getGridRect } from '../utils/isoGrid'
 import { AStarSearch } from './AStarSearch'
 import { NavMesh } from './NavMesh'
 
+const PREFERRED_CELL_COST = 0.65
+
 /** Stage platform tile range — used so blocked perform goals re-home inside the deck, not in front of it */
 export type StageInteriorBounds = {
   minGX: number
@@ -20,6 +22,7 @@ export class GridPathfinder {
   private blocked: boolean[][]
   /** Per-cell wall sides: key = "nx,ny", value = set of sides with walls. */
   private cellWalls = new Map<string, Set<WallSide>>()
+  private preferredCells = new Set<string>()
   private cols: number
   private rows: number
   private astar: AStarSearch
@@ -30,7 +33,14 @@ export class GridPathfinder {
     this.cols = cols
     this.rows = rows
     this.blocked = Array.from({ length: cols }, () => Array(rows).fill(false))
-    this.astar = new AStarSearch(this.blocked, cols, rows, this.cellWalls)
+    this.astar = new AStarSearch(
+      this.blocked,
+      cols,
+      rows,
+      this.cellWalls,
+      (gx, gy) => this.cellCost(gx, gy),
+      PREFERRED_CELL_COST,
+    )
   }
 
   // -------------------------------------------------------------------
@@ -48,6 +58,18 @@ export class GridPathfinder {
   isBlocked(nx: number, ny: number): boolean {
     if (!this.inBounds(nx, ny)) return true
     return this.blocked[nx][ny]
+  }
+
+  preferCell(nx: number, ny: number): void {
+    if (this.inBounds(nx, ny)) this.preferredCells.add(this.key(nx, ny))
+  }
+
+  unpreferCell(nx: number, ny: number): void {
+    this.preferredCells.delete(this.key(nx, ny))
+  }
+
+  isPreferredCell(nx: number, ny: number): boolean {
+    return this.preferredCells.has(this.key(nx, ny))
   }
 
   // -------------------------------------------------------------------
@@ -173,8 +195,13 @@ export class GridPathfinder {
     if (!this.inBounds(endNX, endNY)) return null
 
     const los = this.astar.hasLineOfSight.bind(this.astar)
+    const hasPreferredCells = this.preferredCells.size > 0
 
     for (const end of this.goalCandidates(startNX, startNY, endNX, endNY)) {
+      if (hasPreferredCells) {
+        const weightedPath = this.astar.search(startNX, startNY, end.gx, end.gy, maxIterations)
+        if (weightedPath) return { path: weightedPath, end }
+      }
       // NavMesh: fast long-range pathfinding via visibility graph
       if (this.navMesh) {
         const navPath = this.navMesh.findPath(startNX, startNY, end.gx, end.gy, los)
@@ -184,7 +211,7 @@ export class GridPathfinder {
       const gridPath = this.astar.search(startNX, startNY, end.gx, end.gy, maxIterations)
       if (gridPath) {
         const full = [{ gx: startNX, gy: startNY }, ...gridPath]
-        const smoothed = this.astar.smoothPath(full)
+        const smoothed = hasPreferredCells ? full : this.astar.smoothPath(full)
         smoothed.shift()
         return { path: smoothed, end }
       }
@@ -281,6 +308,10 @@ export class GridPathfinder {
 
   private inBounds(gx: number, gy: number): boolean {
     return gx >= 0 && gy >= 0 && gx < this.cols && gy < this.rows
+  }
+
+  private cellCost(gx: number, gy: number): number {
+    return this.isPreferredCell(gx, gy) ? PREFERRED_CELL_COST : 1
   }
 
   private key(gx: number, gy: number): string { return `${gx},${gy}` }
