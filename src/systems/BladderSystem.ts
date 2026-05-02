@@ -13,6 +13,7 @@ import type { RelationshipSystem } from './RelationshipSystem'
 import { debugLog } from '../debug/DebugLogger'
 import { playerDebugFields } from '../debug/debugActor'
 import { logBotStation } from '../debug/stationDebug'
+import { topCriticalNeed } from './botNeedPriority'
 
 const CHECK_INTERVAL_MS = 2000
 const STATION_REACH_PX = 32
@@ -274,7 +275,9 @@ export class BladderSystem {
       const t = bot.nirv.bladderLevelThreshold
       if (level > t) continue
 
-      const urgent = level <= 0 || level <= t - 10
+      const priorityNeed = topCriticalNeed(bot)
+      if (priorityNeed && priorityNeed !== 'bladder') continue
+      const urgent = priorityNeed === 'bladder'
       const stBot = bot.state
       if (
         stBot === 'walking_to_toilet' ||
@@ -284,7 +287,6 @@ export class BladderSystem {
       ) {
         continue
       }
-      if (stBot === 'walking_to_perform' || stBot === 'performing_on_stage') continue
       if (stBot === 'drinking_water') continue
 
       if (this.findStationForBot(bot)) continue

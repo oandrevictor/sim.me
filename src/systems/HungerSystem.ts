@@ -33,6 +33,7 @@ import {
   type SnackStation,
 } from './snackStationRuntime'
 import type { RelationshipSystem } from './RelationshipSystem'
+import { topCriticalNeed } from './botNeedPriority'
 
 const CHECK_INTERVAL_MS = 2000
 
@@ -182,6 +183,8 @@ export class HungerSystem {
       const mealWindow = this.schedule?.isMealWindow(bot) ?? false
       const effectiveThreshold = mealWindow ? Math.max(bot.nirv.hungerThreshold, 80) : bot.nirv.hungerThreshold
       if (sat > effectiveThreshold) continue
+      const priorityNeed = topCriticalNeed(bot)
+      if (priorityNeed && priorityNeed !== 'hunger') continue
 
       const stBot = bot.state
       if (
@@ -204,12 +207,11 @@ export class HungerSystem {
       ) {
         continue
       }
-      if (stBot === 'walking_to_perform' || stBot === 'performing_on_stage') continue
       if (stBot === 'drinking_water') continue
 
       if (this.findAnyStationForBot(bot)) continue
 
-      const critical = sat <= CRITICAL_SATIATION
+      const critical = priorityNeed === 'hunger'
       if (!critical) {
         if (stBot === 'walking_to_bed' || stBot === 'sleeping') continue
         if (isWorkJobState(stBot)) continue

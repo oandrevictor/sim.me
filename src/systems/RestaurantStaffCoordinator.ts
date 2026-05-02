@@ -1,5 +1,5 @@
 import type { Building } from '../entities/Building'
-import type { BotNirv } from '../entities/BotNirv'
+import { isRestaurantStaffState, type BotNirv } from '../entities/BotNirv'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import type { ObjectType } from '../objects/objectTypes'
 import type { CookingSystem } from './CookingSystem'
@@ -8,6 +8,7 @@ import { RestaurantWaiterFlow } from './RestaurantWaiterFlow'
 import type { RestaurantSystem } from './RestaurantSystem'
 import type { RestaurantStaffAssignments } from './RestaurantStaffAssignments'
 import type { PlateEntry } from '../world/ObjectSpawner'
+import { topCriticalNeed } from './botNeedPriority'
 
 export class RestaurantStaffCoordinator {
   private readonly chefs: RestaurantChefFlow
@@ -32,15 +33,19 @@ export class RestaurantStaffCoordinator {
     this.waiters = new RestaurantWaiterFlow(restaurant, pathfinder, spawnObject, removePlateEntry, getPlateEntries)
   }
 
-  /** Off-shift soft gate: skip non-job-state bots; bots already mid-task continue. */
-  private skipOffShift(bot: BotNirv, _role: 'chef' | 'waiter'): boolean {
+  private shouldSkipWork(bot: BotNirv): boolean {
+    if (topCriticalNeed(bot)) {
+      this.releaseAllForBot(bot)
+      bot.abortWorkDuty()
+      return true
+    }
     if (!this.schedule) return false
     if (this.schedule.isOnShift(bot)) return false
-    // If already in a restaurant-staff state, let them finish.
-    const s = bot.state
-    const inJob = s === 'chef_idle' || s === 'chef_to_stove' || s === 'chef_cooking' || s === 'chef_to_counter'
-      || s === 'waiter_idle' || s === 'waiter_to_counter' || s === 'waiter_to_table'
-    return !inJob
+    if (isRestaurantStaffState(bot.state)) {
+      this.releaseAllForBot(bot)
+      bot.abortWorkDuty()
+    }
+    return true
   }
 
   releaseAllForBot(bot: BotNirv): void {
@@ -66,7 +71,7 @@ export class RestaurantStaffCoordinator {
       for (const id of staff.chefBotIds) {
         const bot = this.bots.find(b => b.id === id)
         if (!bot) continue
-        if (this.skipOffShift(bot, 'chef')) continue
+        if (this.shouldSkipWork(bot)) continue
         this.chefs.tick(bot, building)
       }
       for (const id of staff.waiterBotIds) {
@@ -75,7 +80,7 @@ export class RestaurantStaffCoordinator {
         const previous = this.waiterBuildings.get(bot.id)
         if (previous && previous !== building) this.waiters.releaseAllForBot(bot, previous)
         this.waiterBuildings.set(bot.id, building)
-        if (this.skipOffShift(bot, 'waiter')) continue
+        if (this.shouldSkipWork(bot)) continue
         this.waiters.tick(bot, building)
       }
     }

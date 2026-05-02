@@ -2,12 +2,11 @@ import Phaser from 'phaser'
 import { TILE_W } from '../utils/isoGrid'
 import { isHouseState, isWorkJobState, type BotNirv } from '../entities/BotNirv'
 import type { Nirv } from '../entities/Nirv'
-import { CRITICAL_REST_THRESHOLD } from '../entities/nirvSleep'
-import { CRITICAL_HYDRATION_THRESHOLD } from '../entities/nirvHydration'
 import type { RestaurantSystem } from './RestaurantSystem'
 import { debugLog } from '../debug/DebugLogger'
 import { playerDebugFields } from '../debug/debugActor'
 import { logBotStation } from '../debug/stationDebug'
+import { topCriticalNeed } from './botNeedPriority'
 
 const CHECK_INTERVAL_MS = 2000
 const STATION_REACH_PX = 32
@@ -282,19 +281,15 @@ export class SleepSystem {
       const sleepWindow = this.schedule?.isSleepWindow(bot) ?? false
       const effectiveThreshold = sleepWindow ? Math.max(bot.nirv.restThreshold, 80) : bot.nirv.restThreshold
       if (r > effectiveThreshold) continue
+      const priorityNeed = topCriticalNeed(bot)
+      if (priorityNeed && priorityNeed !== 'rest') continue
       if (this.findBedForBot(bot)) continue
 
       const stBot = bot.state
       if (stBot === 'walking_to_bed' || stBot === 'sleeping') continue
-      if (stBot === 'walking_to_perform' || stBot === 'performing_on_stage') continue
       if (stBot === 'drinking_water') continue
 
-      if (bot.nirv.getHydrationLevel() <= CRITICAL_HYDRATION_THRESHOLD) continue
-      const bladder = bot.nirv.getBladderLevel()
-      const bt = bot.nirv.bladderLevelThreshold
-      if (bladder <= 0 || bladder <= bt - 10) continue
-
-      const critical = r <= CRITICAL_REST_THRESHOLD
+      const critical = priorityNeed === 'rest'
       if (!critical) {
         if (stBot !== 'walking' && stBot !== 'waiting' && stBot !== 'inside_house' && stBot !== 'walking_into_house') continue
       } else {

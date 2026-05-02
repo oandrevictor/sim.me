@@ -9,7 +9,7 @@ import type { NirvProfession } from '../data/professions'
 import { type BotState } from './botStates'
 
 export type { BotState } from './botStates'
-export { isFarmerState, isHouseState, isRestaurantStaffState, isStockerState, isWorkJobState } from './botStates'
+export { isFarmerState, isHouseState, isPerformerWorkState, isRestaurantStaffState, isStockerState, isWorkJobState } from './botStates'
 
 const FUN_WATCH_TICK_MS = 10_000
 const FUN_GAIN_MATCH = 10

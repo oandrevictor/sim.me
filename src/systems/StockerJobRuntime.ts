@@ -1,6 +1,7 @@
 import Phaser from 'phaser'
 import { isStockerState, type BotNirv, type BotState } from '../entities/BotNirv'
 import { stockerApproachPoint, type FoodStockStation } from './foodStockTypes'
+import { topCriticalNeed } from './botNeedPriority'
 
 const STOCKER_REACH_PX = 64
 const RESTOCK_MS = 3500
@@ -31,13 +32,22 @@ export class StockerJobRuntime {
     for (const botId of this.getStockerIds()) {
       const bot = this.bots.find(b => b.id === botId)
       if (!bot) continue
+      if (topCriticalNeed(bot)) {
+        this.releaseTask(bot.id)
+        if (isStockerState(bot.state)) bot.abortWorkDuty()
+        continue
+      }
       if (!isStockerState(bot.state)) {
         if (!canStartStockerWork(bot.state)) continue
         bot.enterStockerIdle()
       }
+      const onShift = this.schedule?.isOnShift(bot) ?? true
+      if (!onShift) {
+        this.releaseTask(bot.id)
+        bot.abortWorkDuty()
+        continue
+      }
       if (bot.state === 'stocker_idle') {
-        const onShift = this.schedule?.isOnShift(bot) ?? true
-        if (!onShift && !this.hasUrgentEmpty()) continue
         this.assignTask(bot)
       }
       else if (bot.state === 'stocker_to_station') this.tickWalk(bot)
@@ -47,10 +57,6 @@ export class StockerJobRuntime {
 
   releaseAllForBot(bot: BotNirv): void {
     this.releaseTask(bot.id)
-  }
-
-  private hasUrgentEmpty(): boolean {
-    return this.getStations().some(s => s.stock <= 0 && !s.reservedByStockerBotId)
   }
 
   private assignTask(bot: BotNirv): void {

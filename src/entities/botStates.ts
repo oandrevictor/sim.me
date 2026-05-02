@@ -75,8 +75,12 @@ export function isStockerState(s: BotState): boolean {
   return s === 'stocker_idle' || s === 'stocker_to_station' || s === 'stocker_restocking'
 }
 
+export function isPerformerWorkState(s: BotState): boolean {
+  return s === 'walking_to_perform' || s === 'performing_on_stage'
+}
+
 export function isWorkJobState(s: BotState): boolean {
-  return isRestaurantStaffState(s) || isFarmerState(s) || isStockerState(s)
+  return isRestaurantStaffState(s) || isFarmerState(s) || isStockerState(s) || isPerformerWorkState(s)
 }
 
 export function isHouseState(s: BotState): boolean {

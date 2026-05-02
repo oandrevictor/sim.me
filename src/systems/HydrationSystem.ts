@@ -13,6 +13,7 @@ import type { RelationshipSystem } from './RelationshipSystem'
 import { debugLog } from '../debug/DebugLogger'
 import { playerDebugFields } from '../debug/debugActor'
 import { resolveReachableQueueSlot } from './stationApproach'
+import { topCriticalNeed } from './botNeedPriority'
 import {
   checkWaterQueueSlotArrivals,
   checkWaterTapArrivalsWithAccess,
@@ -173,6 +174,8 @@ export class HydrationSystem {
       const h = bot.nirv.getHydrationLevel()
       if (h > THIRST_THRESHOLD) continue
       const stBot = bot.state
+      const priorityNeed = topCriticalNeed(bot)
+      if (priorityNeed && priorityNeed !== 'hydration') continue
       if (
         stBot === 'walking_to_water' ||
         stBot === 'drinking_water' ||
@@ -183,11 +186,9 @@ export class HydrationSystem {
         stBot === 'walking_to_toilet_queue' ||
         stBot === 'waiting_at_toilet_queue'
       ) continue
-      if (stBot === 'walking_to_perform' || stBot === 'performing_on_stage') continue
-
       if (findWaterStationForBot(this.stations, bot)) continue
 
-      const critical = h <= CRITICAL_HYDRATION_THRESHOLD
+      const critical = priorityNeed === 'hydration'
       if (!critical) {
         if (stBot === 'walking_to_bed' || stBot === 'sleeping') continue
         if (isWorkJobState(stBot)) continue

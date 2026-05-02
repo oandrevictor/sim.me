@@ -5,7 +5,7 @@ import { rollLeaveEarly } from '../systems/stageAffinity'
 import { DEPTH_UI } from '../config/world'
 import { EARLY_LEAVE_CHECK_INTERVAL_MS } from '../systems/stagePerformanceRuntime'
 import { fruitSlotWorldPosition } from '../systems/fruitCrateLayout'
-import { isFarmerState, isHouseState, isRestaurantStaffState, isStockerState } from './botStates'
+import { isFarmerState, isHouseState, isPerformerWorkState, isRestaurantStaffState, isStockerState } from './botStates'
 
 const FUN_WATCH_TICK_MS = 10_000
 const FUN_GAIN_MATCH = 10
@@ -218,6 +218,8 @@ class BotNirvWorkActionMethods {
     if (isRestaurantStaffState(this._state)) this.abortRestaurantStaffDuty()
     else if (isFarmerState(this._state)) this.abortFarmerDuty()
     else if (isStockerState(this._state)) this.abortStockerDuty()
+    else if (this._state === 'walking_to_perform') this.abortStageApproach()
+    else if (isPerformerWorkState(this._state)) this.leaveStage()
   }
 
   /** Start eating food */

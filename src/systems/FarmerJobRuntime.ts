@@ -7,6 +7,7 @@ import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import type { CropPlot } from './farmingTypes'
 import { resolveCropApproach } from './cropApproach'
 import type { StationApproach } from './stationApproach'
+import { topCriticalNeed } from './botNeedPriority'
 
 const FARMER_APPROACH_REACH_PX = 32
 const FARMER_FOOTPRINT_REACH_PX = 28
@@ -51,14 +52,23 @@ export class FarmerJobRuntime {
     for (const botId of this.getFarmerIds()) {
       const bot = this.bots.find(b => b.id === botId)
       if (!bot) continue
+      if (topCriticalNeed(bot)) {
+        this.releaseTask(bot.id)
+        if (isFarmerState(bot.state)) bot.abortWorkDuty()
+        continue
+      }
       if (!isFarmerState(bot.state)) {
         if (!canStartFarmerWork(bot.state)) continue
         bot.enterFarmerIdle()
       }
+      const onShift = this.schedule?.isOnShift(bot) ?? true
+      if (!onShift) {
+        this.releaseTask(bot.id)
+        bot.abortWorkDuty()
+        continue
+      }
       if (bot.state === 'farmer_idle') {
         if (this.tasks.has(bot.id)) this.releaseTask(bot.id)
-        const onShift = this.schedule?.isOnShift(bot) ?? true
-        if (!onShift && !this.hasUrgentHarvest()) continue
         this.assignTask(bot)
       }
       else if (bot.state === 'farmer_to_crop') this.tickWalk(bot)
@@ -109,10 +119,6 @@ export class FarmerJobRuntime {
     else this.plant(task.plot, CORN_SEED)
     this.releaseTask(bot.id)
     bot.enterFarmerIdle()
-  }
-
-  private hasUrgentHarvest(): boolean {
-    return this.getPlots().some(p => p.stage === 'ready' && !p.reservedBy)
   }
 
   private pickTask(bot: BotNirv): FarmerTask | null {
