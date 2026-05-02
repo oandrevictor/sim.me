@@ -129,6 +129,15 @@ export class StageSystem {
     return this.runtimeByStageId.get(stageId)?.attraction ?? null
   }
 
+  isPerformerAssigned(botId: string): boolean {
+    for (const runtime of this.runtimeByStageId.values()) {
+      const attraction = runtime.attraction
+      if (!attraction) continue
+      if (getPerformerBotIdsForAttraction(attraction, this.getBands).includes(botId)) return true
+    }
+    return false
+  }
+
   getPerformanceView(stageId: string): StagePerformanceView | null {
     this.ensureRuntimeForStage(stageId)
     const st = this.runtimeByStageId.get(stageId)

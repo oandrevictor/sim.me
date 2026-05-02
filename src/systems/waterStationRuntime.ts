@@ -6,6 +6,7 @@ import {
   resolveStationApproach,
   type StationApproach,
 } from './stationApproach'
+import { logBotStation } from '../debug/stationDebug'
 
 const STATION_REACH_PX = 32
 export type WaterApproach = StationApproach
@@ -44,7 +45,10 @@ export function checkWaterTapArrivals(stations: readonly WaterStation[]): void {
       st.activeApproach.x,
       st.activeApproach.y,
     )
-    if (d < STATION_REACH_PX) st.active.arriveAtWaterStation()
+    if (d < STATION_REACH_PX) {
+      logBotStation('interaction.water_start', st.active, 'drinking_water', st.x, st.y, 'arrived', 'info')
+      st.active.arriveAtWaterStation()
+    }
   }
 }
 
@@ -83,7 +87,10 @@ export function checkWaterQueueSlotArrivals(
         continue
       }
       const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, slot.x, slot.y)
-      if (d < STATION_REACH_PX) bot.arriveAtWaterQueueSlot()
+      if (d < STATION_REACH_PX) {
+        logBotStation('interaction.queue_arrived', bot, 'drinking_water', st.x, st.y, 'water_queue', 'debug', { queueIndex: lineIndex })
+        bot.arriveAtWaterQueueSlot()
+      }
     }
   }
 }
@@ -96,6 +103,7 @@ export function releaseFinishedWaterStations(
     if (!st.active) continue
     const s = st.active.state
     if (s === 'walking_to_water' || s === 'drinking_water') continue
+    logBotStation('interaction.water_finish', st.active, 'drinking_water', st.x, st.y, 'released', 'info')
     st.active = null
     st.activeApproach = null
     promoteNextInLine(pathfinder, st)
@@ -117,12 +125,14 @@ function promoteNextInLine(pathfinder: GridPathfinder, st: WaterStation): void {
   if (!next) return
   const approach = resolveWaterStationApproach(pathfinder, st, next)
   if (!approach) {
+    logBotStation('interaction.object_blocked', next, 'drinking_water', st.x, st.y, 'no_water_approach', 'warn')
     next.cancelWaterQueue()
     promoteNextInLine(pathfinder, st)
     return
   }
   st.active = next
   st.activeApproach = approach
+  logBotStation('interaction.queue_promoted', next, 'drinking_water', st.x, st.y, 'water_queue', 'debug')
   next.redirectToWater(approach.x, approach.y)
   syncQueueSlots(pathfinder, st)
 }
@@ -133,6 +143,7 @@ function syncQueueSlots(pathfinder: GridPathfinder, st: WaterStation): void {
     if (bot.state !== 'waiting_at_water_queue' && bot.state !== 'walking_to_water_queue') continue
     const p = resolveReachableQueueSlot(pathfinder, st.x, st.y, bot, kept.length)
     if (!p) {
+      logBotStation('interaction.object_blocked', bot, 'drinking_water', st.x, st.y, 'no_water_queue_slot', 'warn')
       bot.cancelWaterQueue()
       continue
     }

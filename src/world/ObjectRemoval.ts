@@ -17,6 +17,7 @@ import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import { screenToGrid } from '../utils/isoGrid'
 import type { FloorTileLayer } from './FloorTileLayer'
 import type { SpawnerState } from './ObjectSpawner'
+import { findPlacedObjectAt } from './placedObjectHitTest'
 import { removeStockableProp } from './stockablePropPlacement'
 import { unblockNavCellsForArcadeBody } from './footprintBlocker'
 
@@ -32,21 +33,19 @@ interface ObjectRemovalContext {
   farmingSystem: FarmingSystem
   lightSystem?: LightSystem
   getFloorLayer: () => FloorTileLayer
+  spawnObject: (type: ObjectType, x: number, y: number, rotation?: number) => boolean
 }
 
 export function removePlacedObjectAt(
   context: ObjectRemovalContext,
-  snapped: { x: number; y: number },
-  menuIsInventory: boolean,
+  pointer: { worldX: number; worldY: number },
   menuRefreshInventory: () => void,
   placementManager: PlacementManager,
 ): void {
-  const idx = context.state.placedSprites.findIndex(
-    p => Math.abs(p.x - snapped.x) < 2 && Math.abs(p.y - snapped.y) < 2,
-  )
+  const entry = findPlacedObjectAt(context.state.placedSprites, pointer.worldX, pointer.worldY)
+  if (!entry) return
+  const idx = context.state.placedSprites.indexOf(entry)
   if (idx === -1) return
-
-  const entry = context.state.placedSprites[idx]
   const { sprite, type, x, y, rotation } = entry
   entry.footprintBlocker?.destroy()
   sprite.destroy()
@@ -65,12 +64,13 @@ export function removePlacedObjectAt(
     unblockNavCellsForArcadeBody(context.pathfinder, sprite.body as any)
   }
 
-  if (menuIsInventory) {
-    addToInventory(type)
-    menuRefreshInventory()
-  } else {
-    placementManager.enterReposition(type, snapped.x, snapped.y, rotation)
-  }
+  placementManager.enterReposition(type, x, y, rotation, {
+    restore: () => { context.spawnObject(type, x, y, rotation) },
+    store: () => {
+      addToInventory(type)
+      menuRefreshInventory()
+    },
+  })
 }
 
 function removeDependentPlates(context: ObjectRemovalContext, type: ObjectType, x: number, y: number): void {

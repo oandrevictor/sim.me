@@ -1,14 +1,7 @@
 import type { WallSide } from '../storage/wallPersistence'
 import { getGridRect } from '../utils/isoGrid'
-
-interface Node {
-  gx: number
-  gy: number
-  g: number
-  h: number
-  f: number
-  parent: Node | null
-}
+import { AStarSearch } from './AStarSearch'
+import { NavMesh } from './NavMesh'
 
 /** Stage platform tile range — used so blocked perform goals re-home inside the deck, not in front of it */
 export type StageInteriorBounds = {
@@ -29,12 +22,15 @@ export class GridPathfinder {
   private cellWalls = new Map<string, Set<WallSide>>()
   private cols: number
   private rows: number
+  private astar: AStarSearch
+  private navMesh: NavMesh | null = null
 
   /** Cols / rows are in NAV-grid units (16 px cells). */
   constructor(cols: number, rows: number) {
     this.cols = cols
     this.rows = rows
     this.blocked = Array.from({ length: cols }, () => Array(rows).fill(false))
+    this.astar = new AStarSearch(this.blocked, cols, rows, this.cellWalls)
   }
 
   // -------------------------------------------------------------------
@@ -113,10 +109,6 @@ export class GridPathfinder {
   //  Goal resolution helpers
   // -------------------------------------------------------------------
 
-  /**
-   * If the ideal tile is blocked, pick the closest unblocked tile inside the stage interior
-   * (Manhattan). Avoids `nearestUnblocked` ring picking the audience row (gy+1) first.
-   */
   resolveStagePerformGoal(
     goalGX: number,
     goalGY: number,
@@ -128,7 +120,6 @@ export class GridPathfinder {
     return this.nearestUnblocked(goalGX, goalGY)
   }
 
-  /** Walk goal clamped inside the rectangle only — avoids routing staff outside a building (cf. resolveStagePerformGoal). */
   resolveGoalInsideRect(
     goalGX: number,
     goalGY: number,
@@ -157,13 +148,13 @@ export class GridPathfinder {
   }
 
   // -------------------------------------------------------------------
-  //  A* pathfinding (all coords in nav-grid units)
+  //  Pathfinding API
   // -------------------------------------------------------------------
 
   findPath(
     startNX: number, startNY: number,
     endNX: number, endNY: number,
-    maxIterations = 4000,
+    maxIterations = 20000,
   ): { gx: number; gy: number }[] | null {
     return this.findPathResult(startNX, startNY, endNX, endNY, maxIterations)?.path ?? null
   }
@@ -171,7 +162,7 @@ export class GridPathfinder {
   findPathResult(
     startNX: number, startNY: number,
     endNX: number, endNY: number,
-    maxIterations = 4000,
+    maxIterations = 20000,
   ): GridPathResult | null {
     startNX = Math.round(startNX)
     startNY = Math.round(startNY)
@@ -181,196 +172,54 @@ export class GridPathfinder {
     if (!this.inBounds(startNX, startNY)) return null
     if (!this.inBounds(endNX, endNY)) return null
 
+    const los = this.astar.hasLineOfSight.bind(this.astar)
+
     for (const end of this.goalCandidates(startNX, startNY, endNX, endNY)) {
-      const path = this.searchPath(startNX, startNY, end.gx, end.gy, maxIterations)
-      if (path) {
-        const fullPath = [{ gx: startNX, gy: startNY }, ...path]
-        const smoothed = this.smoothPath(fullPath)
-        smoothed.shift() // Remove start node to maintain API contract
+      // NavMesh: fast long-range pathfinding via visibility graph
+      if (this.navMesh) {
+        const navPath = this.navMesh.findPath(startNX, startNY, end.gx, end.gy, los)
+        if (navPath) return { path: navPath, end }
+      }
+      // Grid A* fallback: handles short/indoor paths and cases NavMesh can't resolve
+      const gridPath = this.astar.search(startNX, startNY, end.gx, end.gy, maxIterations)
+      if (gridPath) {
+        const full = [{ gx: startNX, gy: startNY }, ...gridPath]
+        const smoothed = this.astar.smoothPath(full)
+        smoothed.shift()
         return { path: smoothed, end }
       }
     }
     return null
   }
 
-  private searchPath(
-    startGX: number,
-    startGY: number,
-    endGX: number,
-    endGY: number,
-    maxIterations: number,
-  ): { gx: number; gy: number }[] | null {
-    if (startGX === endGX && startGY === endGY) return []
-
-    const openSet = new Map<string, Node>()
-    const closedSet = new Set<string>()
-
-    const startNode: Node = {
-      gx: startGX, gy: startGY,
-      g: 0,
-      h: Math.abs(endGX - startGX) + Math.abs(endGY - startGY),
-      f: 0,
-      parent: null,
-    }
-    startNode.f = startNode.g + startNode.h
-    const startKey = this.key(startGX, startGY)
-    openSet.set(startKey, startNode)
-
-    // 8-directional movement (cardinal + diagonal)
-    const dirs = [
-      { dx: 0, dy: -1, cost: 1 },
-      { dx: 0, dy: 1, cost: 1 },
-      { dx: -1, dy: 0, cost: 1 },
-      { dx: 1, dy: 0, cost: 1 },
-      { dx: -1, dy: -1, cost: 1.414 },
-      { dx: 1, dy: -1, cost: 1.414 },
-      { dx: -1, dy: 1, cost: 1.414 },
-      { dx: 1, dy: 1, cost: 1.414 },
-    ]
-
-    let iterations = 0
-    while (openSet.size > 0) {
-      if (++iterations > maxIterations) return null
-
-      // Find node with lowest f
-      let current: Node | null = null
-      for (const node of openSet.values()) {
-        if (!current || node.f < current.f || (node.f === current.f && node.h < current.h)) {
-          current = node
-        }
-      }
-      if (!current) return null
-
-      if (current.gx === endGX && current.gy === endGY) {
-        return this.reconstructPath(current)
-      }
-
-      openSet.delete(this.key(current.gx, current.gy))
-      closedSet.add(this.key(current.gx, current.gy))
-
-      for (const { dx, dy, cost } of dirs) {
-        const nx = current.gx + dx
-        const ny = current.gy + dy
-        const nKey = this.key(nx, ny)
-
-        if (!this.inBounds(nx, ny)) continue
-        if (this.blocked[nx][ny]) continue
-        if (closedSet.has(nKey)) continue
-
-        // Prevent corner-cutting: both adjacent cardinal cells must be open
-        if (dx !== 0 && dy !== 0) {
-          if (this.isBlocked(current.gx + dx, current.gy) ||
-              this.isBlocked(current.gx, current.gy + dy)) continue
-        }
-
-        // Check cell walls block movement
-        if (this.isCellWallBlocked(current.gx, current.gy, nx, ny)) continue
-
-        // For diagonal moves, also check both intermediate cardinal steps
-        if (dx !== 0 && dy !== 0) {
-          if (this.isCellWallBlocked(current.gx, current.gy, current.gx + dx, current.gy) ||
-              this.isCellWallBlocked(current.gx, current.gy, current.gx, current.gy + dy)) continue
-        }
-
-        const g = current.g + cost
-        const existing = openSet.get(nKey)
-
-        if (!existing) {
-          // Chebyshev heuristic for 8-directional
-          const hdx = Math.abs(endGX - nx)
-          const hdy = Math.abs(endGY - ny)
-          const h = Math.max(hdx, hdy) + 0.414 * Math.min(hdx, hdy)
-          openSet.set(nKey, { gx: nx, gy: ny, g, h, f: g + h, parent: current })
-        } else if (g < existing.g) {
-          existing.g = g
-          existing.f = g + existing.h
-          existing.parent = current
-        }
-      }
-    }
-
-    return null
-  }
-
-  smoothPath(path: { gx: number; gy: number }[]): { gx: number; gy: number }[] {
-    if (path.length <= 2) return path
-
-    const smoothed: { gx: number; gy: number }[] = []
-    smoothed.push(path[0])
-
-    let currentIdx = 0
-    while (currentIdx < path.length - 1) {
-      let furthestVisibleIdx = currentIdx + 1
-      for (let i = currentIdx + 2; i < path.length; i++) {
-        if (this.hasLineOfSight(path[currentIdx].gx, path[currentIdx].gy, path[i].gx, path[i].gy)) {
-          furthestVisibleIdx = i
-        } else {
-          break
-        }
-      }
-      smoothed.push(path[furthestVisibleIdx])
-      currentIdx = furthestVisibleIdx
-    }
-
-    return smoothed
-  }
-
-  private hasLineOfSight(x0: number, y0: number, x1: number, y1: number): boolean {
-    let dx = Math.abs(x1 - x0)
-    let dy = Math.abs(y1 - y0)
-    let sx = x0 < x1 ? 1 : -1
-    let sy = y0 < y1 ? 1 : -1
-    let err = dx - dy
-
-    let x = x0
-    let y = y0
-
-    while (true) {
-      if (this.isBlocked(x, y)) return false
-      
-      if (x === x1 && y === y1) break
-
-      let e2 = 2 * err
-      let nextX = x
-      let nextY = y
-
-      if (e2 > -dy) {
-        err -= dy
-        nextX += sx
-      }
-      if (e2 < dx) {
-        err += dx
-        nextY += sy
-      }
-
-      // Check corner cutting to match A* movement rules
-      if (nextX !== x && nextY !== y) {
-        if (this.isBlocked(nextX, y) || this.isBlocked(x, nextY)) return false
-        if (this.isCellWallBlocked(x, y, nextX, nextY)) return false
-        if (this.isCellWallBlocked(x, y, nextX, y) || this.isCellWallBlocked(x, y, x, nextY)) return false
-      } else {
-        if (this.isCellWallBlocked(x, y, nextX, nextY)) return false
-      }
-
-      x = nextX
-      y = nextY
-    }
-
-    return true
-  }
-
   /**
-   * Check if movement from one cell to an adjacent cell is blocked by a
-   * cell-internal wall on either side. Only handles cardinal (dx+dy=1) moves.
+   * Rebuild the visibility-graph NavMesh from the current blocked grid.
+   * Pass door-threshold cells (or other key waypoints) as `extra` so
+   * narrow building entrances are included in the graph.
    */
-  private isCellWallBlocked(fromGX: number, fromGY: number, toGX: number, toGY: number): boolean {
-    const dx = toGX - fromGX
-    const dy = toGY - fromGY
-    if (dx === 1) return this.hasCellWall(fromGX, fromGY, 'e') || this.hasCellWall(toGX, toGY, 'w')
-    if (dx === -1) return this.hasCellWall(fromGX, fromGY, 'w') || this.hasCellWall(toGX, toGY, 'e')
-    if (dy === 1) return this.hasCellWall(fromGX, fromGY, 's') || this.hasCellWall(toGX, toGY, 'n')
-    if (dy === -1) return this.hasCellWall(fromGX, fromGY, 'n') || this.hasCellWall(toGX, toGY, 's')
-    return false
+  rebuildNavMesh(extra: { gx: number; gy: number }[] = []): void {
+    const los = this.astar.hasLineOfSight.bind(this.astar)
+    const mesh = new NavMesh()
+    mesh.build(this.blocked, this.cols, this.rows, los, extra)
+    this.navMesh = mesh
+  }
+
+  findNearestUnblocked(nx: number, ny: number, maxRadius = 16): { gx: number; gy: number } | null {
+    return this.nearestUnblocked(nx, ny, maxRadius)
+  }
+
+  private nearestUnblocked(gx: number, gy: number, maxRadius = 8): { gx: number; gy: number } | null {
+    for (let r = 1; r <= maxRadius; r++) {
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dy = -r; dy <= r; dy++) {
+          if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue
+          const nx = gx + dx
+          const ny = gy + dy
+          if (this.inBounds(nx, ny) && !this.blocked[nx][ny]) return { gx: nx, gy: ny }
+        }
+      }
+    }
+    return null
   }
 
   private goalCandidates(
@@ -388,9 +237,7 @@ export class GridPathfinder {
       seen.add(key)
       out.push({ gx, gy })
     }
-
     add(endGX, endGY)
-    // Wider fallback ring for nav grid (each world cell = 4 nav cells)
     for (let r = 1; r <= 24; r++) {
       for (let dx = -r; dx <= r; dx++) {
         for (let dy = -r; dy <= r; dy++) {
@@ -399,7 +246,6 @@ export class GridPathfinder {
         }
       }
     }
-
     out.sort((a, b) => {
       const ad = Math.abs(a.gx - endGX) + Math.abs(a.gy - endGY)
       const bd = Math.abs(b.gx - endGX) + Math.abs(b.gy - endGY)
@@ -411,41 +257,8 @@ export class GridPathfinder {
     return out
   }
 
-  findNearestUnblocked(nx: number, ny: number, maxRadius = 16): { gx: number; gy: number } | null {
-    return this.nearestUnblocked(nx, ny, maxRadius)
-  }
-
-  private nearestUnblocked(gx: number, gy: number, maxRadius = 8): { gx: number; gy: number } | null {
-    for (let r = 1; r <= maxRadius; r++) {
-      for (let dx = -r; dx <= r; dx++) {
-        for (let dy = -r; dy <= r; dy++) {
-          if (Math.abs(dx) !== r && Math.abs(dy) !== r) continue
-          const nx = gx + dx
-          const ny = gy + dy
-          if (this.inBounds(nx, ny) && !this.blocked[nx][ny]) {
-            return { gx: nx, gy: ny }
-          }
-        }
-      }
-    }
-    return null
-  }
-
-  private reconstructPath(node: Node): { gx: number; gy: number }[] {
-    const path: { gx: number; gy: number }[] = []
-    let current: Node | null = node
-    while (current?.parent) {
-      path.push({ gx: current.gx, gy: current.gy })
-      current = current.parent
-    }
-    path.reverse()
-    return path
-  }
-
   debugDraw(graphics: Phaser.GameObjects.Graphics): void {
     graphics.clear()
-    
-    // draw full blocks
     graphics.fillStyle(0xff0000, 0.4)
     for (let x = 0; x < this.cols; x++) {
       for (let y = 0; y < this.rows; y++) {
@@ -455,8 +268,6 @@ export class GridPathfinder {
         }
       }
     }
-
-    // draw cell walls
     graphics.lineStyle(2, 0xffaa00, 0.8)
     for (const [key, sides] of this.cellWalls.entries()) {
       const [sx, sy] = key.split(',').map(Number)
@@ -472,8 +283,5 @@ export class GridPathfinder {
     return gx >= 0 && gy >= 0 && gx < this.cols && gy < this.rows
   }
 
-  private key(gx: number, gy: number): string {
-    return `${gx},${gy}`
-  }
-
+  private key(gx: number, gy: number): string { return `${gx},${gy}` }
 }

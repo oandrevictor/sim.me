@@ -6,6 +6,8 @@ import * as Phaser from 'phaser';
 
 /* START-USER-IMPORTS */
 import { MenuUI } from '../ui/MenuUI'
+import { StuckNirvsOverlay } from '../ui/StuckNirvsOverlay'
+import { ActiveProfessionStrip } from '../ui/ActiveProfessionStrip'
 import type { StageWorkBridge } from '../ui/WorkPanelStageSection'
 import type GameScene from './GameScene'
 /* END-USER-IMPORTS */
@@ -29,6 +31,8 @@ export default class UIScene extends Phaser.Scene {
 	menuUI!: MenuUI
 	private helpText!: Phaser.GameObjects.Text
 	private clockText!: Phaser.GameObjects.Text
+	private stuckOverlay!: StuckNirvsOverlay
+	private professionStrip!: ActiveProfessionStrip
 	private gameScene!: GameScene
 
 	create(): void {
@@ -91,6 +95,10 @@ export default class UIScene extends Phaser.Scene {
 			padding: { x: 8, y: 4 },
 		}).setOrigin(1, 0)
 
+		this.stuckOverlay = new StuckNirvsOverlay(this, 10, 40)
+		this.professionStrip = new ActiveProfessionStrip(this)
+		this.positionUI()
+
 		this.scale.on('resize', () => this.positionUI())
 	}
 
@@ -98,6 +106,8 @@ export default class UIScene extends Phaser.Scene {
 		this.menuUI.updateWorkPanel()
 		this.clockText.setText(this.gameScene.getClockLabel())
 		this.clockText.setColor(this.gameScene.getDayNightSystem().getClockColor())
+		this.stuckOverlay.refresh(this.gameScene.getBotNirvs())
+		this.professionStrip.refresh(this.gameScene.getBotNirvs())
 	}
 
 	private positionUI(): void {
@@ -106,6 +116,7 @@ export default class UIScene extends Phaser.Scene {
 			this.scale.height,
 		)
 		this.clockText?.setPosition(this.scale.width - 12, 10)
+		this.professionStrip?.setPosition(this.scale.width - 12, 42)
 	}
 
 	/* END-USER-CODE */

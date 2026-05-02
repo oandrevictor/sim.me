@@ -151,8 +151,8 @@ export class ObjectSpawner {
     return true
   }
 
-  removeAt(_pointer: Phaser.Input.Pointer, snapped: { x: number; y: number },
-    menuIsInventory: boolean, menuRefreshInventory: () => void,
+  removeAt(pointer: Phaser.Input.Pointer,
+    menuRefreshInventory: () => void,
     placementManager: PlacementManager,
   ): void {
     removePlacedObjectAt({
@@ -167,6 +167,7 @@ export class ObjectSpawner {
       farmingSystem: this.farmingSystem,
       lightSystem: this.lightSystem ?? undefined,
       getFloorLayer: () => this.getFloorLayer(),
-    }, snapped, menuIsInventory, menuRefreshInventory, placementManager)
+      spawnObject: (type, x, y, rotation) => this.spawn(type, x, y, true, undefined, rotation),
+    }, pointer, menuRefreshInventory, placementManager)
   }
 }

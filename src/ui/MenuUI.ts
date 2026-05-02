@@ -2,19 +2,19 @@ import Phaser from 'phaser'
 import type { BotNirv } from '../entities/BotNirv'
 import type { Stage } from '../entities/Stage'
 import type { StageWorkBridge } from './WorkPanelStageSection'
-import { BuildPanel, BUILD_BAR_HEIGHT, BUILD_PANEL_HEIGHT, BUILD_PANEL_WIDTH, type BuildTool } from './BuildPanel'
+import { BuildPanel, type BuildTool } from './BuildPanel'
 import { ShopPanel } from './ShopPanel'
-import { WorkPanel, WORK_PANEL_HEIGHT, WORK_PANEL_WIDTH, type RestaurantStaffBridge } from './WorkPanel'
+import { WorkPanel, type RestaurantStaffBridge } from './WorkPanel'
 import type { FarmWorkBridge } from './WorkPanelFarmSection'
 import type { StockWorkBridge } from './WorkPanelStockSection'
-import { BAR_HEIGHT, BAR_WIDTH, buildMenuDock, refreshMenuDock, type MenuTab, type TabButton } from './MenuDock'
-import { SHOP_BAR_HEIGHT, SHOP_PANEL_HEIGHT, SHOP_PANEL_WIDTH } from './ShopPanelLayout'
-import { RelationshipsPanel, RELATIONSHIPS_PANEL_HEIGHT, RELATIONSHIPS_PANEL_WIDTH } from './RelationshipsPanel'
-import { NirvsPanel, NIRVS_PANEL_HEIGHT, NIRVS_PANEL_WIDTH } from './NirvsPanel'
+import { buildMenuDock, refreshMenuDock, type MenuTab, type TabButton } from './MenuDock'
+import { RelationshipsPanel } from './RelationshipsPanel'
+import { NirvsPanel } from './NirvsPanel'
 import type { RelationshipSystem } from '../systems/RelationshipSystem'
 import type { Nirv } from '../entities/Nirv'
 import type { LotType } from '../storage/lotPersistence'
 import type { HomeSpace } from '../systems/HomeSpace'
+import { getInventoryDropBounds, getMenuBarBounds, getMenuPanelBounds } from './menuHitTargets'
 
 export class MenuUI {
   private scene: Phaser.Scene
@@ -70,35 +70,19 @@ export class MenuUI {
     // Use screen-space position; pointer.x/y can follow the last camera hit (world space).
     const px = pointer.position.x
     const py = pointer.position.y
-    const barBounds = new Phaser.Geom.Rectangle(
-      this.container.x - BAR_WIDTH / 2, this.container.y - BAR_HEIGHT, BAR_WIDTH, BAR_HEIGHT,
-    )
-    if (barBounds.contains(px, py)) return true
-    if (this.activeTab === 'build' || this.activeTab === 'shop' || this.activeTab === 'work' || this.activeTab === 'social' || this.activeTab === 'nirvs') {
-      const panelH =
-        this.activeTab === 'build' ? BUILD_PANEL_HEIGHT
-        : this.activeTab === 'work' ? WORK_PANEL_HEIGHT
-        : this.activeTab === 'social' ? RELATIONSHIPS_PANEL_HEIGHT
-        : this.activeTab === 'nirvs' ? NIRVS_PANEL_HEIGHT
-        : SHOP_PANEL_HEIGHT
-      const panelW =
-        this.activeTab === 'build' ? BUILD_PANEL_WIDTH
-        : this.activeTab === 'work' ? WORK_PANEL_WIDTH
-        : this.activeTab === 'social' ? RELATIONSHIPS_PANEL_WIDTH
-        : this.activeTab === 'nirvs' ? NIRVS_PANEL_WIDTH
-        : SHOP_PANEL_WIDTH
-      const barHeight =
-        this.activeTab === 'build' ? BUILD_BAR_HEIGHT
-        : this.activeTab === 'shop' ? SHOP_BAR_HEIGHT
-        : BAR_HEIGHT
-      const panelBounds = new Phaser.Geom.Rectangle(
-        this.container.x - panelW / 2,
-        this.container.y - barHeight - panelH - 6,
-        panelW, panelH,
-      )
-      if (panelBounds.contains(px, py)) return true
-    }
-    return false
+    if (getMenuBarBounds(this.container.x, this.container.y).contains(px, py)) return true
+    return getMenuPanelBounds(this.activeTab, this.container.x, this.container.y)?.contains(px, py) ?? false
+  }
+
+  isPointerOverInventoryDropTarget(pointer: Phaser.Input.Pointer): boolean {
+    const px = pointer.position.x
+    const py = pointer.position.y
+    return getInventoryDropBounds(
+      this.activeTab,
+      this.shopPanel.isInventoryMode(),
+      this.container.x,
+      this.container.y,
+    )?.contains(px, py) ?? false
   }
 
   isShopMode(): boolean { return this.activeTab === 'shop' }

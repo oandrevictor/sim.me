@@ -10,7 +10,7 @@ import { isPerformerProfession } from '../data/professions'
 import { generateDefaultSchedules } from '../entities/NirvSchedule'
 import { NirvVariant } from '../entities/Nirv'
 import { BotNirv, isRestaurantStaffState } from '../entities/BotNirv'
-import { Building } from '../entities/Building'
+import { Building, BUILDING_GRID_H } from '../entities/Building'
 import { Stage } from '../entities/Stage'
 import { PlacementManager } from '../placement/PlacementManager'
 import { LotPlacementManager } from '../world/LotPlacementManager'
@@ -19,6 +19,7 @@ import { BuildOverlayLayer } from '../world/BuildOverlayLayer'
 import { countRestaurantEquipment } from '../world/restaurantBuildingCounts'
 import { maxChefs, maxWaiters } from '../systems/restaurantStaffCaps'
 import { installStageBarrier } from '../world/stageBarrier'
+import { debugLog } from '../debug/DebugLogger'
 
 function installMethods(target: any, source: any): void {
 	for (const name of Object.getOwnPropertyNames(source.prototype)) {
@@ -52,6 +53,23 @@ class GameSceneSetupMethods {
 				stock: r.stock,
 			}),
 		)
+		this.buildNavMesh()
+		debugLog.log('world.restore_complete', {
+			buildingCount: this.buildings.length,
+			stageCount: this.stages.length,
+			objectCount: this.spawnerState.placedSprites.length,
+		}, 'info')
+	}
+	private buildNavMesh(): void {
+		const extra: { gx: number; gy: number }[] = []
+		for (const b of this.buildings) {
+			// Waypoints at each door threshold: one cell inside and one outside
+			const x1 = b.gridX + 3, x2 = b.gridX + 4
+			const inside = b.gridY + BUILDING_GRID_H - 2
+			const outside = b.gridY + BUILDING_GRID_H
+			extra.push({ gx: x1, gy: inside }, { gx: x2, gy: inside }, { gx: x1, gy: outside }, { gx: x2, gy: outside })
+		}
+		this.pathfinder.rebuildNavMesh(extra)
 	}
 	private launchUI(): void {
 		this.scene.launch('UIScene')
@@ -116,6 +134,16 @@ class GameSceneSetupMethods {
 				if (!this.menuUI.isShopMode()) this.lotPlacementManager.setSignsVisible(false)
 			})
 			this.events.on('world:walls-changed', () => {
+				debugLog.log('world.walls_changed', {
+					botCount: this.botNirvs.length,
+				}, 'info')
+				for (const bot of this.botNirvs) bot.refreshNavigationPath?.()
+			})
+			this.events.on('world:nav-changed', () => {
+				debugLog.log('world.nav_changed', {
+					botCount: this.botNirvs.length,
+				}, 'info')
+				this.buildNavMesh()
 				for (const bot of this.botNirvs) bot.refreshNavigationPath?.()
 			})
 			this.menuUI.setRelationshipProviders(

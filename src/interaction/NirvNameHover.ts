@@ -4,6 +4,7 @@ import { DEPTH_UI } from '../config/world'
 export type NirvHoverSubject = {
   sprite: Phaser.GameObjects.Sprite
   name: string
+  botId?: string
   hydrationLevel: number
   restLevel: number
   satiation: number
@@ -28,10 +29,10 @@ export class NirvNameHover {
     this.label.setVisible(false)
   }
 
-  update(pointer: Phaser.Input.Pointer, subjects: NirvHoverSubject[], hide: boolean): void {
+  update(pointer: Phaser.Input.Pointer, subjects: NirvHoverSubject[], hide: boolean): NirvHoverSubject | null {
     if (hide) {
       this.label.setVisible(false)
-      return
+      return null
     }
 
     const wx = pointer.worldX
@@ -52,7 +53,7 @@ export class NirvNameHover {
 
     if (!best) {
       this.label.setVisible(false)
-      return
+      return null
     }
 
     this.label.setText(
@@ -60,5 +61,6 @@ export class NirvNameHover {
     )
     this.label.setPosition(best.sprite.x, best.sprite.y - 58)
     this.label.setVisible(true)
+    return best
   }
 }

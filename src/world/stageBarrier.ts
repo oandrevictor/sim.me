@@ -50,7 +50,7 @@ export function installStageBarrier(
   scene: Phaser.Scene,
   obstacleGroup: Phaser.Physics.Arcade.StaticGroup,
 ): void {
-  removeStageBarrier(stage, pathfinder)
+  removeStageBarrier(stage, pathfinder)  // no scene — caller handles the nav-changed event
 
   const bodies: Phaser.Physics.Arcade.Sprite[] = []
 
@@ -60,9 +60,10 @@ export function installStageBarrier(
   }
 
   barrierBodiesByStage.set(stage, bodies)
+  scene.events.emit('world:nav-changed')
 }
 
-export function removeStageBarrier(stage: Stage, pathfinder: GridPathfinder): void {
+export function removeStageBarrier(stage: Stage, pathfinder: GridPathfinder, scene?: Phaser.Scene): void {
   for (const c of getStageBorderCellsToBlock(stage)) {
     pathfinder.unblockWorldCell(c.gx, c.gy)
   }
@@ -70,4 +71,5 @@ export function removeStageBarrier(stage: Stage, pathfinder: GridPathfinder): vo
     w.destroy()
   }
   barrierBodiesByStage.set(stage, [])
+  scene?.events.emit('world:nav-changed')
 }

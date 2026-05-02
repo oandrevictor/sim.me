@@ -134,12 +134,7 @@ function spawnCrop(context: NonPhysicsContext, sprite: Phaser.GameObjects.Sprite
   sprite.setDisplaySize(w, h)
   sprite.setOrigin(0.5, 1)
   sprite.setInteractive({ useHandCursor: true, pixelPerfect: false })
-  const blocker = context.obstacleGroup.create(args.x, args.y - OBJECT_SIZE / 4, '__DEFAULT') as Phaser.Physics.Arcade.Sprite
-  blocker.setVisible(false)
-  blocker.body!.setSize(OBJECT_SIZE, OBJECT_SIZE / 2)
-  blocker.body!.setOffset(-OBJECT_SIZE / 2, -OBJECT_SIZE / 4)
-  blocker.refreshBody()
-  blockNavCellsForArcadeBody(context.pathfinder, blocker.body as Phaser.Physics.Arcade.Body | Phaser.Physics.Arcade.StaticBody)
+  const blocker = createFootprintBlocker(context.obstacleGroup, context.pathfinder, args.x, args.y, OBJECT_SIZE)
   context.state.placedSprites.push({ sprite, type: args.type, x: args.x, y: args.y, rotation: args.rotation, footprintBlocker: blocker })
   context.farmingSystem.registerCrop(sprite, args.x, args.y, args.objectState)
 }

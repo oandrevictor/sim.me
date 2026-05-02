@@ -1,22 +1,16 @@
 // @ts-nocheck
 import Phaser from 'phaser'
 import { gridToScreen, screenToGrid } from '../utils/isoGrid'
-import { rollLeaveEarly } from '../systems/stageAffinity'
-import { DEPTH_UI } from '../config/world'
-import { EARLY_LEAVE_CHECK_INTERVAL_MS } from '../systems/stagePerformanceRuntime'
-import { fruitSlotWorldPosition } from '../systems/fruitCrateLayout'
+import { debugLog } from '../debug/DebugLogger'
+import { botDebugFields } from '../debug/debugActor'
 import { isRedirectPathState } from './botNavigationStates'
 
-const FUN_WATCH_TICK_MS = 10_000
-const FUN_GAIN_MATCH = 10
-const FUN_GAIN_NO_MATCH = 5
 const BOT_SPEED = 120
 const ARRIVAL_THRESHOLD = 12
-const CHAIR_ARRIVAL_THRESHOLD = 20
 /** How many no-movement frames before the first stuck recovery attempt. */
 const STUCK_FRAME_THRESHOLD = 15
 /** Pixels to nudge away from blockers when escaping a corner wedge. */
-const CORNER_ESCAPE_PX = 20
+const CORNER_ESCAPE_PX = 48
 
 function installMethods(target: any, source: any): void {
   for (const name of Object.getOwnPropertyNames(source.prototype)) {
@@ -34,100 +28,30 @@ class BotNirvMovementMethods {
     this.recomputeActivePath()
   }
 
-  /** A* toward a station tile; when `interior` is set, goal is clamped inside the building footprint first. */
-  private startRestaurantStaffWalk(screenX: number, screenY: number, interior: StageInteriorBounds | null): void {
-    if (!interior) {
-      this.restaurantInteriorBounds = null
-      this.computePathToPixel(screenX, screenY)
-      return
+  private ensureFreshStuckCells(targetKey: string): void {
+    if (this.stuckAtCellsTarget !== targetKey) {
+      this.stuckAtCells = []
+      this.stuckAtCellsTarget = targetKey
     }
-    this.restaurantInteriorBounds = interior
-    const nav = screenToGrid(screenX, screenY)
-    const endCell = { gx: Math.round(nav.gx), gy: Math.round(nav.gy) }
-    this.computePathToPixel(screenX, screenY, endCell)
-    if (this.path.length > 0) return
-    this.restaurantInteriorBounds = null
-    this.pathEndCell = null
-    this.redirectTarget = { x: screenX, y: screenY }
-    this.computePathToPixel(screenX, screenY)
   }
 
-  private computePathToWaypoint(): void {
-    const target = this.waypoints[this.currentIndex]
-    const sprite = this.nirv.sprite
-    const start = screenToGrid(sprite.x, sprite.y)
-    this.pathEndCell = null
-    // Waypoint coords are world-grid; convert to nav-grid
-    const result = this.pathfinder.findPathResult(
-      Math.round(start.gx), Math.round(start.gy), target.gridX, target.gridY
-    )
-    this.path = result?.path ?? []
-    this.pathResolvedEndCell = result?.end ?? null
-    this.pathFailed = result === null
-    this.pathNodeIndex = 0
+  private pushStuckCell(c: { gx: number; gy: number }): void {
+    if (!this.stuckAtCells) this.stuckAtCells = []
+    const key = `${c.gx},${c.gy}`
+    if (!this.stuckAtCells.some((x: any) => `${x.gx},${x.gy}` === key)) {
+      this.stuckAtCells.push({ gx: c.gx, gy: c.gy })
+      if (this.stuckAtCells.length > 8) this.stuckAtCells.shift()
+    }
   }
 
-  private computePathToPixel(
-    px: number,
-    py: number,
-    endCell: { gx: number; gy: number } | null = null,
-  ): void {
+  /** Records bot position + the current path node (the cell that couldn't be reached). */
+  private recordStuckAtNode(): void {
     const sprite = this.nirv.sprite
-    const start = screenToGrid(sprite.x, sprite.y)
-    let endGX: number
-    let endGY: number
-
-    if (endCell && this.restaurantInteriorBounds) {
-      const r = this.pathfinder.resolveGoalInsideRect(
-        endCell.gx, endCell.gy, this.restaurantInteriorBounds,
-      )
-      if (!r) {
-        this.path = []
-        this.pathFailed = true
-        this.pathResolvedEndCell = null
-        this.pathNodeIndex = 0
-        return
-      }
-      this.pathEndCell = r
-      this.redirectTarget = gridToScreen(r.gx, r.gy)
-      endGX = r.gx
-      endGY = r.gy
-    } else if (endCell && this.performInterior) {
-      const r = this.pathfinder.resolveStagePerformGoal(
-        endCell.gx, endCell.gy, this.performInterior,
-      )
-      if (!r) {
-        this.path = []
-        this.pathFailed = true
-        this.pathResolvedEndCell = null
-        this.pathNodeIndex = 0
-        return
-      }
-      this.pathEndCell = r
-      this.redirectTarget = gridToScreen(r.gx, r.gy)
-      endGX = r.gx
-      endGY = r.gy
-    } else if (endCell) {
-      this.pathEndCell = endCell
-      endGX = endCell.gx
-      endGY = endCell.gy
-    } else {
-      this.pathEndCell = null
-      const end = screenToGrid(px, py)
-      endGX = Math.round(end.gx)
-      endGY = Math.round(end.gy)
+    const sg = screenToGrid(sprite.x, sprite.y)
+    this.pushStuckCell({ gx: Math.round(sg.gx), gy: Math.round(sg.gy) })
+    if (this.pathNodeIndex < this.path.length) {
+      this.pushStuckCell(this.path[this.pathNodeIndex])
     }
-
-    const result = this.pathfinder.findPathResult(
-      Math.round(start.gx),
-      Math.round(start.gy),
-      endGX,
-      endGY
-    )
-    this.path = result?.path ?? []
-    this.pathResolvedEndCell = result?.end ?? null
-    this.pathFailed = result === null
-    this.pathNodeIndex = 0
   }
 
   private followPath(): void {
@@ -149,6 +73,14 @@ class BotNirvMovementMethods {
       const recent = this.lastStuckTickMs != null && now - this.lastStuckTickMs < 2000
       this.lastStuckTickMs = now
       this.stuckRecoveries = recent ? (this.stuckRecoveries ?? 0) + 1 : 1
+      this.recordStuckAtNode()
+      debugLog.log('nirv.path_stuck', {
+        ...botDebugFields(this),
+        reason: 'no_movement',
+        stuckRecoveries: this.stuckRecoveries,
+        pathNodeIndex: this.pathNodeIndex,
+      }, 'warn')
+
       const body = sprite.body as Phaser.Physics.Arcade.Body | null
       const wedged = !!body && (
         body.blocked.up || body.blocked.down || body.blocked.left || body.blocked.right ||
@@ -206,6 +138,13 @@ class BotNirvMovementMethods {
     if ((this.noProgressFrames ?? 0) > STUCK_FRAME_THRESHOLD) {
       this.noProgressFrames = 0
       this.lastNodeDist = null
+      this.recordStuckAtNode()
+      debugLog.log('nirv.path_stuck', {
+        ...botDebugFields(this),
+        reason: 'no_progress',
+        pathNodeIndex: this.pathNodeIndex,
+        nodeDistance: dist,
+      }, 'warn')
       this.escapeStuckBlocker()
       return
     }
@@ -222,6 +161,12 @@ class BotNirvMovementMethods {
   private handleUnreachableTarget(): void {
     const state = this._state
     this.nirv.sprite.setVelocity(0, 0)
+    debugLog.log('nirv.path_unreachable', {
+      ...botDebugFields(this),
+      pathFailed: this.pathFailed,
+      pathNodeIndex: this.pathNodeIndex,
+      pathLength: this.path.length,
+    }, 'warn')
     if (state === 'walking') {
       this.finishWalkingAtResolvedFallback()
       return
@@ -265,6 +210,14 @@ class BotNirvMovementMethods {
       const ty = sprite.y + (nudgeY / len) * CORNER_ESCAPE_PX
       if (body && typeof body.reset === 'function') body.reset(tx, ty)
       else { sprite.x = tx; sprite.y = ty; sprite.setVelocity(0, 0) }
+      debugLog.log('nirv.path_recovery', {
+        ...botDebugFields(this),
+        method: 'nudge',
+        fromGX: gx,
+        fromGY: gy,
+        toX: Math.round(tx * 100) / 100,
+        toY: Math.round(ty * 100) / 100,
+      }, 'warn')
     } else {
       const free = !this.pathfinder.isBlocked(gx, gy)
         ? { gx, gy }
@@ -273,8 +226,21 @@ class BotNirvMovementMethods {
         const px = gridToScreen(free.gx, free.gy)
         if (body && typeof body.reset === 'function') body.reset(px.x, px.y)
         else { sprite.x = px.x; sprite.y = px.y; sprite.setVelocity(0, 0) }
+        debugLog.log('nirv.path_recovery', {
+          ...botDebugFields(this),
+          method: 'nearest_unblocked',
+          fromGX: gx,
+          fromGY: gy,
+          toGX: free.gx,
+          toGY: free.gy,
+        }, 'warn')
       } else {
         sprite.setVelocity(0, 0)
+        debugLog.log('nirv.path_recovery_failed', {
+          ...botDebugFields(this),
+          fromGX: gx,
+          fromGY: gy,
+        }, 'error')
       }
     }
 
@@ -287,39 +253,6 @@ class BotNirvMovementMethods {
     this.recomputeActivePath()
   }
 
-  private recomputeActivePath(): void {
-    this.lastNodeDist = null
-    this.noProgressFrames = 0
-    if (this._state === 'walking') {
-      this.computePathToWaypoint()
-      return
-    }
-    if (isRedirectPathState(this._state) && this.redirectTarget) {
-      this.computePathToPixel(this.redirectTarget.x, this.redirectTarget.y, this.pathEndCell)
-      return
-    }
-    this.nirv.sprite.setVelocity(0, 0)
-  }
-
-  private canMoveDirectlyToRequestedTarget(): boolean {
-    if (
-      this._state === 'walking_to_bed' ||
-      this._state === 'farmer_to_crop' ||
-      this._state === 'stocker_to_station' ||
-      this._state === 'chef_to_stove' ||
-      this._state === 'chef_to_counter' ||
-      this._state === 'waiter_to_counter' ||
-      this._state === 'waiter_to_table' ||
-      this._state === 'waiter_returning_plate'
-    ) {
-      return true
-    }
-    const end = this.expectedTargetCell()
-    if (!end || !this.pathResolvedEndCell) return true
-    if (this.pathResolvedEndCell.gx === end.gx && this.pathResolvedEndCell.gy === end.gy) return true
-    return false
-  }
-
   private finishWalkingAtResolvedFallback(): void {
     const target = this.waypoints[this.currentIndex]
     this.nirv.updateAnimation(0, 0)
@@ -329,17 +262,6 @@ class BotNirvMovementMethods {
     this.pathNodeIndex = 0
     this.pathEndCell = null
     this.pathResolvedEndCell = null
-  }
-
-  private expectedTargetCell(): { gx: number; gy: number } | null {
-    if (this.pathEndCell) return this.pathEndCell
-    if (this._state === 'walking') {
-      const target = this.waypoints[this.currentIndex]
-      return { gx: target.gridX, gy: target.gridY }
-    }
-    if (!this.redirectTarget) return null
-    const g = screenToGrid(this.redirectTarget.x, this.redirectTarget.y)
-    return { gx: Math.round(g.gx), gy: Math.round(g.gy) }
   }
 
 

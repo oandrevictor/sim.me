@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import type { BotNirv } from '../entities/BotNirv'
 import type { Nirv } from '../entities/Nirv'
 import { type CropSeed, type CropStage } from '../data/crops'
+import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import { addCorn, loadFarmRecord, saveFarmerBotIds } from '../storage/farmPersistence'
 import { FarmerJobRuntime } from './FarmerJobRuntime'
 import { advanceCropGrowth, applyCropTexture, countCropStages, persistCropPlot } from './cropGrowth'
@@ -17,6 +18,7 @@ export class FarmingSystem {
 
   constructor(
     private readonly bots: BotNirv[],
+    pathfinder: GridPathfinder,
     private readonly getPlayer: () => Nirv,
     private readonly openSeedPicker: (onSelect: (seed: CropSeed) => void) => void,
     private readonly canBotUsePlot: (bot: BotNirv, x: number, y: number) => boolean = () => true,
@@ -27,6 +29,7 @@ export class FarmingSystem {
     for (const id of loadFarmRecord().farmerBotIds) this.farmerBotIds.add(id)
     this.farmerJobs = new FarmerJobRuntime(
       bots,
+      pathfinder,
       () => this.plots,
       () => this.farmerBotIds,
       (plot, seed) => this.plant(plot, seed),

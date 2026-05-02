@@ -24,6 +24,7 @@ import { installBotNirvWorkActions } from './BotNirvWorkActions'
 import { installBotNirvFoodActions } from './BotNirvFoodActions'
 import { installBotNirvUpdate } from './BotNirvUpdate'
 import { installBotNirvMovement } from './BotNirvMovement'
+import { installBotNirvPathPlanning } from './BotNirvPathPlanning'
 import { installBotNirvStatusIcon } from './BotNirvStatusIcon'
 import { installBotNirvSatiationActions } from './BotNirvSatiationActions'
 
@@ -84,6 +85,9 @@ export class BotNirv {
 
   get state(): BotState { return this._state }
 
+  /** Number of distinct cells the bot has gotten stuck at on the current journey (0 = not stuck). */
+  getStuckCellCount(): number { return (this as any).stuckAtCells?.length ?? 0 }
+
   /** Active path goal for walking_* / staff job states (read-only for coordinators). */
   getWalkRedirectTarget(): { x: number; y: number } | null {
     return this.redirectTarget
@@ -140,6 +144,7 @@ installBotNirvNeedActions(BotNirv)
 installBotNirvFoodActions(BotNirv)
 installBotNirvWorkActions(BotNirv)
 installBotNirvUpdate(BotNirv)
+installBotNirvPathPlanning(BotNirv)
 installBotNirvMovement(BotNirv)
 installBotNirvStatusIcon(BotNirv)
 installBotNirvSatiationActions(BotNirv)

@@ -2,17 +2,30 @@ import Phaser from 'phaser'
 import type { BotNirv, BotState } from '../entities/BotNirv'
 import { isFarmerState } from '../entities/BotNirv'
 import { CORN_SEED } from '../data/crops'
-import { cropApproachPoint, type CropPlot } from './farmingTypes'
+import { OBJECT_SIZE } from '../objects/objectTypes'
+import type { GridPathfinder } from '../pathfinding/GridPathfinder'
+import type { CropPlot } from './farmingTypes'
+import { resolveCropApproach } from './cropApproach'
+import type { StationApproach } from './stationApproach'
 
-const FARMER_REACH_PX = 64
 const FARMER_APPROACH_REACH_PX = 32
+const FARMER_FOOTPRINT_REACH_PX = 28
 const FARMER_WORK_MS = 1600
+const CROP_FOOTPRINT_H = OBJECT_SIZE / 2
+
+interface Rect {
+  left: number
+  right: number
+  top: number
+  bottom: number
+}
 
 type CropAction = 'plant' | 'harvest'
 
 interface FarmerTask {
   plot: CropPlot
   action: CropAction
+  approach: StationApproach
   remainingMs: number
 }
 
@@ -24,6 +37,7 @@ export class FarmerJobRuntime {
 
   constructor(
     private readonly bots: BotNirv[],
+    private readonly pathfinder: GridPathfinder,
     private readonly getPlots: () => CropPlot[],
     private readonly getFarmerIds: () => Set<string>,
     private readonly plant: (plot: CropPlot, seed: typeof CORN_SEED) => void,
@@ -61,8 +75,7 @@ export class FarmerJobRuntime {
     if (!task) return
     task.plot.reservedBy = bot.id
     this.tasks.set(bot.id, task)
-    const p = cropApproachPoint(task.plot.x, task.plot.y)
-    bot.enterFarmerWalkToCrop(p.x, p.y)
+    bot.enterFarmerWalkToCrop(task.approach.x, task.approach.y)
   }
 
   private tickWalk(bot: BotNirv): void {
@@ -74,10 +87,11 @@ export class FarmerJobRuntime {
     }
     const sprite = bot.nirv.sprite
     if (!this.canInteractWithPlot(bot, task.plot.x, task.plot.y)) return
-    const plotDist = Phaser.Math.Distance.Between(sprite.x, sprite.y, task.plot.x, task.plot.y)
-    const approach = cropApproachPoint(task.plot.x, task.plot.y)
-    const approachDist = Phaser.Math.Distance.Between(sprite.x, sprite.y, approach.x, approach.y)
-    if (plotDist > FARMER_REACH_PX && approachDist > FARMER_APPROACH_REACH_PX) return
+    const approachDist = Phaser.Math.Distance.Between(sprite.x, sprite.y, task.approach.x, task.approach.y)
+    if (
+      approachDist > FARMER_APPROACH_REACH_PX &&
+      rectDistance(farmerBodyRect(sprite), cropFootprintRect(task.plot)) > FARMER_FOOTPRINT_REACH_PX
+    ) return
     task.remainingMs = FARMER_WORK_MS * bot.nirv.getMoodWorkModifier()
     bot.enterFarmerWorking()
   }
@@ -103,19 +117,26 @@ export class FarmerJobRuntime {
 
   private pickTask(bot: BotNirv): FarmerTask | null {
     const plots = this.getPlots()
-    const rank = (p: CropPlot) =>
-      this.distanceToBot(bot, p) + (p.reservedBy && p.reservedBy !== bot.id ? 1e6 : 0)
+    const rank = (task: FarmerTask) =>
+      this.distanceToApproach(bot, task.approach)
     const candidates = plots
       .filter(p => p.stage === 'ready' || p.stage === 'empty')
+      .filter(p => !p.reservedBy || p.reservedBy === bot.id)
       .filter(p => this.canUsePlot(bot, p.x, p.y))
+      .map(p => this.createTaskForReachablePlot(bot, p))
+      .filter((task): task is FarmerTask => task !== null)
       .sort((a, b) => {
-        if ((a.stage === 'ready') !== (b.stage === 'ready')) return a.stage === 'ready' ? -1 : 1
+        if ((a.plot.stage === 'ready') !== (b.plot.stage === 'ready')) return a.plot.stage === 'ready' ? -1 : 1
         return rank(a) - rank(b)
       })
-    const plot = candidates[0]
-    if (!plot) return null
+    return candidates[0] ?? null
+  }
+
+  private createTaskForReachablePlot(bot: BotNirv, plot: CropPlot): FarmerTask | null {
+    const approach = resolveCropApproach(this.pathfinder, plot, bot)
+    if (!approach) return null
     const action = plot.stage === 'ready' ? 'harvest' : 'plant'
-    return { plot, action, remainingMs: 0 }
+    return { plot, action, approach, remainingMs: 0 }
   }
 
   private taskStillValid(task: FarmerTask): boolean {
@@ -151,12 +172,38 @@ export class FarmerJobRuntime {
     this.tasks.delete(botId)
   }
 
-  private distanceToBot(bot: BotNirv, plot: CropPlot): number {
+  private distanceToApproach(bot: BotNirv, approach: StationApproach): number {
     const sprite = bot.nirv.sprite
-    return Phaser.Math.Distance.Between(sprite.x, sprite.y, plot.x, plot.y)
+    return Phaser.Math.Distance.Between(sprite.x, sprite.y, approach.x, approach.y)
   }
 }
 
 function canStartFarmerWork(state: BotState): boolean {
   return state === 'walking' || state === 'waiting'
+}
+
+function farmerBodyRect(sprite: Phaser.Physics.Arcade.Sprite): Rect {
+  const body = sprite.body as Phaser.Physics.Arcade.Body | null
+  if (!body) return { left: sprite.x, right: sprite.x, top: sprite.y, bottom: sprite.y }
+  return {
+    left: body.x,
+    right: body.x + body.width,
+    top: body.y,
+    bottom: body.y + body.height,
+  }
+}
+
+function cropFootprintRect(plot: CropPlot): Rect {
+  return {
+    left: plot.x - OBJECT_SIZE / 2,
+    right: plot.x + OBJECT_SIZE / 2,
+    top: plot.y - CROP_FOOTPRINT_H,
+    bottom: plot.y,
+  }
+}
+
+function rectDistance(a: Rect, b: Rect): number {
+  const dx = a.right < b.left ? b.left - a.right : b.right < a.left ? a.left - b.right : 0
+  const dy = a.bottom < b.top ? b.top - a.bottom : b.bottom < a.top ? a.top - b.bottom : 0
+  return Math.sqrt(dx * dx + dy * dy)
 }

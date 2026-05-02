@@ -55,6 +55,7 @@ import { PlayerInput } from '../input/PlayerInput'
 import { InteractionManager } from '../interaction/InteractionManager'
 import { FoodHandler } from '../interaction/FoodHandler'
 import { NirvNameHover } from '../interaction/NirvNameHover'
+import { NirvWorkCueOverlay } from '../interaction/NirvWorkCueOverlay'
 import { ObjectStockHover } from '../interaction/ObjectStockHover'
 import { buildNirvHoverSubjects } from '../interaction/buildNirvHoverSubjects'
 import { removeObjectByType } from '../storage/persistence'
@@ -70,6 +71,8 @@ import { DayNightSystem } from '../systems/DayNightSystem'
 import { ConcertSpotlightSystem } from '../systems/ConcertSpotlightSystem'
 import { LightSystem } from '../systems/LightSystem'
 import { GroupActivitySystem } from '../systems/GroupActivitySystem'
+import { debugLog } from '../debug/DebugLogger'
+import { NirvNeedDebugTracker } from '../debug/NirvNeedDebugTracker'
 /* END-USER-IMPORTS */
 export interface GameScene { [key: string]: any }
 export default class GameScene extends Phaser.Scene {
@@ -117,6 +120,7 @@ export default class GameScene extends Phaser.Scene {
 	private interactionManager!: InteractionManager
 	private foodHandler!: FoodHandler
 	private nirvNameHover!: NirvNameHover
+	private nirvWorkCueOverlay!: NirvWorkCueOverlay
 	private objectStockHover!: ObjectStockHover
 	private dayNightSystem!: DayNightSystem
 	private concertSpotlights!: ConcertSpotlightSystem
@@ -125,6 +129,7 @@ export default class GameScene extends Phaser.Scene {
 	private buildOverlay!: import('../world/BuildOverlayLayer').BuildOverlayLayer
 	private lotPlacementManager!: import('../world/LotPlacementManager').LotPlacementManager
 	private wallPlacementManager!: import('../world/WallPlacementManager').WallPlacementManager
+	private needDebugTracker!: NirvNeedDebugTracker
 	private physicsDebugGraphics!: Phaser.GameObjects.Graphics
 	private isBuildModePaused = false
 	preload(): void {
@@ -164,6 +169,12 @@ export default class GameScene extends Phaser.Scene {
 		this.cookingSystem = new CookingSystem(this)
 		this.pathfinder = new GridPathfinder(GRID_COLS, GRID_ROWS)
 		this.worldClock = new WorldClock()
+		this.needDebugTracker = new NirvNeedDebugTracker()
+		debugLog.setGameTimeProvider(() => ({
+			gameDay: this.worldClock?.getDayCount?.() ?? 0,
+			minuteOfDay: this.worldClock?.getMinuteOfDay?.() ?? 0,
+			sceneTimeMs: Math.round(this.time.now),
+		}))
 		this.stageSystem = new StageSystem(this.stages, this.botNirvs, () => loadBands())
 		this.stageSystem.setDayNight(this.dayNightSystem)
 		this.groupActivitySystem = new GroupActivitySystem(
@@ -235,6 +246,7 @@ export default class GameScene extends Phaser.Scene {
 		this.bladderSystem.setRelationshipSystem(this.relationshipSystem)
 		this.farmingSystem = new FarmingSystem(
 			this.botNirvs,
+			this.pathfinder,
 			() => this.playerNirv,
 			onSelect => this.seedSelectUI.open(onSelect),
 			(bot, x, y) => this.houseSystem?.canBotUseObjectAt(bot, x, y) ?? true,
@@ -333,6 +345,11 @@ export default class GameScene extends Phaser.Scene {
 
 		this.input.on('pointerdown', (pointer: Phaser.Input.Pointer) => this.onWorldClicked(pointer))
 		this.spawnBots()
+		debugLog.log('game.scene_start', {
+			botCount: this.botNirvs.length,
+			buildingCount: this.buildings.length,
+			stageCount: this.stages.length,
+		}, 'info')
 		this.stageSystem.syncPerformersAfterBotsSpawned()
 		this.staffCoordinator = new RestaurantStaffCoordinator(
 			this.buildings,
@@ -358,6 +375,7 @@ export default class GameScene extends Phaser.Scene {
 			this.stockSystem.releaseAllForBot(bot)
 		})
 		this.nirvNameHover = new NirvNameHover(this)
+		this.nirvWorkCueOverlay = new NirvWorkCueOverlay(this, bot => this.getAssignedWorkRoleForBot(bot))
 		this.objectStockHover = new ObjectStockHover(this)
 	}
 

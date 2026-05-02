@@ -27,6 +27,7 @@
         "@phaserjs/editor-scripts-base": "^2.0.1",
         "idb-keyval": "^6.2.2",
         "lz-string": "^1.5.0",
-        "phaser": "^4.1.0"
+        "phaser": "^4.1.0",
+        "posthog-js": "^1.372.6"
     }
 }

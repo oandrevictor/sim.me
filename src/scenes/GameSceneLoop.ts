@@ -2,8 +2,7 @@
 import { applyNirvSeparation } from '../entities/nirvSeparation'
 import { buildNirvHoverSubjects } from '../interaction/buildNirvHoverSubjects'
 import { tickWorldNeeds } from '../systems/tickWorldNeeds'
-import { GRID_COLS, GRID_ROWS, WORLD_OFFSET_X, WORLD_OFFSET_Y } from '../config/world'
-import { TILE_W, TILE_H } from '../utils/isoGrid'
+import { drawPhysicsDebugOverlay } from './PhysicsDebugOverlay'
 function installMethods(target: any, source: any): void {
 	for (const name of Object.getOwnPropertyNames(source.prototype)) {
 		if (name === 'constructor') continue
@@ -18,6 +17,7 @@ class GameSceneLoopMethods {
 		if (this.isBuildModePaused) {
 			this.stopBuildModeActors()
 			this.playerInput?.updateBuildCamera(delta)
+			this.nirvWorkCueOverlay?.update(this.botNirvs, null, true)
 			return
 		}
 		this.hydrationSystem.updatePlayerDrinking(delta)
@@ -26,6 +26,7 @@ class GameSceneLoopMethods {
 			tickWorldNeeds(this.playerNirv, this.botNirvs, this.sleepSystem.isPlayerSleeping())
 			this.sleepSystem.tickRestMinute()
 		}
+		this.needDebugTracker?.update(this.playerNirv, this.botNirvs)
 		this.dayNightSystem.update(this.worldClock.getMinuteOfDay(), delta)
 		this.lightSystem.update(delta, this.dayNightSystem.getCurrentPhase())
 		this.groupActivitySystem.update(delta, this.dayNightSystem.getCurrentPhase())
@@ -117,9 +118,15 @@ class GameSceneLoopMethods {
 			this.hungerSystem.getFoodStockStations(),
 			hideNameHover,
 		)
-		this.nirvNameHover.update(
+		const hoverSubjects = buildNirvHoverSubjects(this.playerNirv, this.botNirvs)
+		const hoveredNirv = this.nirvNameHover.update(
 			ptr,
-			buildNirvHoverSubjects(this.playerNirv, this.botNirvs),
+			hoverSubjects,
+			hideNameHover || stockHoverActive,
+		)
+		this.nirvWorkCueOverlay.update(
+			this.botNirvs,
+			hoveredNirv?.botId ?? null,
 			hideNameHover || stockHoverActive,
 		)
 		if (this.menuUI?.isShopMode() && !this.placementManager?.isActive()) {
@@ -131,41 +138,6 @@ class GameSceneLoopMethods {
 			this.game.canvas.style.cursor = ''
 		}
 
-		if (this.menuUI?.isPhysicsMode()) {
-			this.physicsDebugGraphics.clear()
-			this.pathfinder.debugDraw(this.physicsDebugGraphics)
-
-			this.physicsDebugGraphics.lineStyle(1, 0xffffff, 0.3)
-			for (let x = 0; x <= GRID_COLS; x++) {
-				const px = x * TILE_W + WORLD_OFFSET_X
-				this.physicsDebugGraphics.lineBetween(px, WORLD_OFFSET_Y, px, GRID_ROWS * TILE_H + WORLD_OFFSET_Y)
-			}
-			for (let y = 0; y <= GRID_ROWS; y++) {
-				const py = y * TILE_H + WORLD_OFFSET_Y
-				this.physicsDebugGraphics.lineBetween(WORLD_OFFSET_X, py, GRID_COLS * TILE_W + WORLD_OFFSET_X, py)
-			}
-			
-			this.physicsDebugGraphics.lineStyle(2, 0x00ff00, 0.8)
-			this.physicsDebugGraphics.fillStyle(0x00ff00, 0.2)
-			this.obstacleGroup.getChildren().forEach((child: any) => {
-				const body = child.body
-				if (body) {
-					this.physicsDebugGraphics.fillRect(body.x, body.y, body.width, body.height)
-					this.physicsDebugGraphics.strokeRect(body.x, body.y, body.width, body.height)
-				}
-			})
-
-			this.physicsDebugGraphics.lineStyle(2, 0x00ffff, 0.8)
-			this.physicsDebugGraphics.fillStyle(0x00ffff, 0.2)
-			this.nirvGroup.getChildren().forEach((child: any) => {
-				const body = child.body
-				if (body) {
-					this.physicsDebugGraphics.fillRect(body.x, body.y, body.width, body.height)
-					this.physicsDebugGraphics.strokeRect(body.x, body.y, body.width, body.height)
-				}
-			})
-		} else {
-			this.physicsDebugGraphics.clear()
-		}
+		drawPhysicsDebugOverlay(this)
 	}
 }

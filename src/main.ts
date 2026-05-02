@@ -4,6 +4,7 @@ import UIScene from "./scenes/UIScene";
 import Preload from "./scenes/Preload";
 import { hydrateSaveCache } from "./storage/saveCache";
 import { SaveStore } from "./storage/SaveStore";
+import { debugLog } from "./debug/DebugLogger";
 
 class Boot extends Phaser.Scene {
 
@@ -23,6 +24,12 @@ class Boot extends Phaser.Scene {
 }
 
 window.addEventListener('load', async function () {
+	debugLog.init();
+	debugLog.log('debug.session_start', {
+		width: window.innerWidth,
+		height: window.innerHeight,
+		userAgent: navigator.userAgent,
+	}, 'info');
 
 	await hydrateSaveCache();
 
@@ -52,5 +59,6 @@ window.addEventListener('visibilitychange', () => {
 	}
 });
 window.addEventListener('beforeunload', () => {
+	debugLog.log('debug.session_end', {}, 'info');
 	void SaveStore.flush();
 });

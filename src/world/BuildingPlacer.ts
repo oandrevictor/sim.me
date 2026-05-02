@@ -48,6 +48,7 @@ export class BuildingPlacer {
 
   blockCells(building: Building): void {
     for (const cell of building.getWallCells()) this.pathfinder.blockWorldCell(cell.gx, cell.gy)
+    this.scene.events.emit('world:nav-changed')
   }
 
   private onSignClicked(buildingId: string): void {

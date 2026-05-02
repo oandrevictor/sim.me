@@ -10,6 +10,7 @@ import { isPerformerProfession } from '../data/professions'
 import { generateDefaultSchedules } from '../entities/NirvSchedule'
 import { NirvVariant } from '../entities/Nirv'
 import { BotNirv, isRestaurantStaffState } from '../entities/BotNirv'
+import type { BotWorkRole } from '../entities/botWorkRoles'
 import { Building } from '../entities/Building'
 import { Stage } from '../entities/Stage'
 import { PlacementManager } from '../placement/PlacementManager'
@@ -27,6 +28,14 @@ function installMethods(target: any, source: any): void {
 export function installGameSceneBridge(target: any): void { installMethods(target, GameSceneBridgeMethods) }
 class GameSceneBridgeMethods {
 	getBotNirvs(): BotNirv[] { return this.botNirvs }
+	getAssignedWorkRoleForBot(bot: BotNirv): BotWorkRole | null {
+		const staffRole = this.staffAssignments.roleForBot(bot.id)
+		if (staffRole) return staffRole
+		if (this.farmingSystem.isFarmerBot(bot)) return 'farmer'
+		if (this.stockSystem.isStockerBot(bot)) return 'stocker'
+		if (this.stageSystem.isPerformerAssigned(bot.id)) return 'performer'
+		return null
+	}
 	getPerformerBotsForUI(): { id: string; label: string }[] {
 		return this.botNirvs
 			.filter(b => isPerformerProfession(b.profession))

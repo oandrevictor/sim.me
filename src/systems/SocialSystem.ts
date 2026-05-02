@@ -3,6 +3,9 @@ import type { BotNirv, BotState } from '../entities/BotNirv'
 import type { MusicTag } from '../data/musicTags'
 import type { RelationshipSystem } from './RelationshipSystem'
 import { getMoodSocialModifier } from './MoodSystem'
+import { debugLog } from '../debug/DebugLogger'
+import { botPairDebugFields } from '../debug/debugActor'
+import { pickSocialChatLines } from './socialChatLines'
 
 const SOCIAL_SCAN_INTERVAL_MS = 2000
 const CHAT_TICK_MS = 2000
@@ -42,46 +45,6 @@ export type ChatTickListener = (
   ctx: { sharedInterest: MusicTag | null; sharedInterestCount: number; firstMeeting: boolean },
 ) => void
 
-const GENERIC_LINES: [string, string][] = [
-  ['Nice crowd today.', 'Yeah, it is packed.'],
-  ['How is your day going?', 'Better now.'],
-  ['Good to catch up.', 'Same here.'],
-  ['How are you doing?', 'I am doing great, thank you.'],
-  ['Nice weather today.', 'Yes, it is perfect for a concert.']
-  
-]
-
-const QUEUE_LINES: [string, string][] = [
-  ['This line is moving slowly.', 'At least we have company.'],
-  ['Worth the wait?', 'Probably.'],
-  ['Why is this line so long?', 'I think there is a concert tonight.']
-]
-
-const STAGE_LINES: [string, string][] = [
-  ['Great show, right?', 'Best set so far.'],
-  ['That stage sounds good.', 'I could watch all night.'],
-  ['Wow, that was a great show!', 'I agree, it was amazing.'],
-  ['That was a great show!', 'I agree, it was amazing.'],
-  ['What is the setlist for tonight?', 'I am not sure, but I heard they are playing some new songs.']
-
-]
-
-const STRESSED_LINES: [string, string][] = [
-  ['I am exhausted.', 'Me too, honestly.'],
-  ['Not feeling great today.', 'Sorry to hear that.'],
-  ['This is a lot.', 'Tell me about it.'],
-  ['I need a break.', 'Yeah, same here.'],
-  ['Everything feels off today.', 'I know that feeling.'],
-]
-
-const MISERABLE_LINES: [string, string][] = [
-  ['I can barely keep going.', 'Hang in there.'],
-  ['This is too much.', 'You okay?'],
-  ['I need to sit down.', 'Let me know if you need anything.'],
-  ['I am not okay.', 'I am sorry.'],
-  ['Why does everything feel so hard?', 'It will pass.'],
-]
-
 export class SocialSystem {
   private scanAccum = 0
   private chats = new Map<string, ChatSession>()
@@ -109,7 +72,7 @@ export class SocialSystem {
   private advanceChats(delta: number): void {
     for (const [key, chat] of this.chats) {
       if (!this.canContinue(chat.a, chat.b)) {
-        this.endChat(key, chat)
+        this.endChat(key, chat, this.endReason(chat.a, chat.b))
         continue
       }
       chat.a.nirv.syncChatBubblePosition()
@@ -126,6 +89,13 @@ export class SocialSystem {
           firstMeeting: chat.firstMeeting,
         }
         for (const listener of this.chatTickListeners) listener(chat.a, chat.b, ctx)
+        debugLog.log('social.chat_tick', {
+          ...botPairDebugFields(chat.a, chat.b),
+          sharedInterest: chat.sharedInterest ?? '',
+          sharedInterestCount: chat.sharedInterestCount,
+          firstMeeting: chat.firstMeeting,
+          reliefPerTick: chat.reliefPerTick,
+        })
         this.relationshipSystem?.registerJealousyExposure(chat.a.id, chat.b.id, 0.35)
         this.relationshipSystem?.registerJealousyExposure(chat.b.id, chat.a.id, 0.35)
         // novelty bonus only fires on the first tick after meeting
@@ -183,51 +153,31 @@ export class SocialSystem {
     }
     this.chats.set(this.chatKey(a, b), chat)
     this.applyChatLines(chat)
+    debugLog.log('social.chat_start', {
+      ...botPairDebugFields(a, b),
+      sharedInterest: sharedInterest ?? '',
+      sharedInterestCount,
+      firstMeeting: !alreadyKnown,
+      reliefPerTick: chat.reliefPerTick,
+    }, 'info')
   }
 
   private applyChatLines(chat: ChatSession): void {
-    const [lineA, lineB] = this.pickLines(chat)
+    const [lineA, lineB] = pickSocialChatLines(chat)
     chat.a.nirv.showChatBubble(lineA)
     chat.b.nirv.showChatBubble(lineB)
   }
 
-  private pickLines(chat: ChatSession): [string, string] {
-    // Mood-driven lines take priority over context lines
-    const moodA = chat.a.nirv.getMood()
-    const moodB = chat.b.nirv.getMood()
-    const worstMood = (moodA === 'miserable' || moodB === 'miserable') ? 'miserable'
-      : (moodA === 'stressed' || moodB === 'stressed') ? 'stressed'
-      : moodA
-
-    if (worstMood === 'miserable') return Phaser.Utils.Array.GetRandom(MISERABLE_LINES)
-    if (worstMood === 'stressed') return Phaser.Utils.Array.GetRandom(STRESSED_LINES)
-
-    if (chat.sharedInterest) {
-      return chat.firstMeeting
-        ? [`You like ${chat.sharedInterest}?`, `Yeah, I love ${chat.sharedInterest}.`]
-        : [`Still into ${chat.sharedInterest}?`, `Always into ${chat.sharedInterest}.`]
-    }
-    if (worstMood === 'happy') {
-      if (chat.a.state === 'watching_stage' || chat.b.state === 'watching_stage') {
-        return Phaser.Utils.Array.GetRandom(STAGE_LINES)
-      }
-      if (this.isQueueState(chat.a.state) || this.isQueueState(chat.b.state)) {
-        return Phaser.Utils.Array.GetRandom(QUEUE_LINES)
-      }
-    }
-    if (chat.a.state === 'watching_stage' || chat.b.state === 'watching_stage') {
-      return Phaser.Utils.Array.GetRandom(STAGE_LINES)
-    }
-    if (this.isQueueState(chat.a.state) || this.isQueueState(chat.b.state)) {
-      return Phaser.Utils.Array.GetRandom(QUEUE_LINES)
-    }
-    return Phaser.Utils.Array.GetRandom(GENERIC_LINES)
-  }
-
-  private endChat(key: string, chat: ChatSession): void {
+  private endChat(key: string, chat: ChatSession, reason: string): void {
     this.chats.delete(key)
     chat.a.nirv.hideChatBubble()
     chat.b.nirv.hideChatBubble()
+    debugLog.log('social.chat_end', {
+      ...botPairDebugFields(chat.a, chat.b),
+      reason,
+      sharedInterest: chat.sharedInterest ?? '',
+      sharedInterestCount: chat.sharedInterestCount,
+    }, 'info')
   }
 
   private canStartChat(bot: BotNirv): boolean {
@@ -267,11 +217,13 @@ export class SocialSystem {
     return count
   }
 
-  private isQueueState(state: BotState): boolean {
-    return state === 'waiting_at_water_queue' || state === 'waiting_at_snack_queue' || state === 'waiting_at_fruit_queue' || state === 'waiting_at_toilet_queue'
-  }
-
   private chatKey(a: BotNirv, b: BotNirv): string {
     return [a.id, b.id].sort().join(':')
+  }
+
+  private endReason(a: BotNirv, b: BotNirv): string {
+    if (!this.canStartChat(a) || !this.canStartChat(b)) return 'ineligible_state'
+    if (!this.isWithinDistance(a, b, KEEP_CHAT_DISTANCE_PX)) return 'distance'
+    return 'unknown'
   }
 }

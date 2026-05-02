@@ -7,6 +7,7 @@ import type { SleepSystem } from '../systems/SleepSystem'
 import type { FarmingSystem } from '../systems/FarmingSystem'
 import { TILE_W } from '../utils/isoGrid'
 import type { PlacedSpriteEntry } from './ObjectSpawner'
+import { debugLog } from '../debug/DebugLogger'
 
 /** Extra tolerance when world coords are awkward (tall sprites, zoom). */
 const NEAR_STATION_PX = TILE_W * 1.5
@@ -49,7 +50,11 @@ export function tryStationsAtPointer(
     const { sprite, type, x, y } = entry
     if (!sprite.active || !sprite.visible) continue
     if (!pointerHitsPlaced(wx, wy, sprite, x, y)) continue
-    if (!canPlayerUseObjectAt(x, y)) return true
+    logStationClick(type, x, y, playerNirv)
+    if (!canPlayerUseObjectAt(x, y)) {
+      logStationBlocked(type, x, y, playerNirv, 'access_denied')
+      return true
+    }
     if (type === 'drinking_water') {
       hydrationSystem.tryInteractWaterStation(x, y, playerNirv.sprite, setWalkTarget)
       return true
@@ -66,4 +71,35 @@ export function tryStationsAtPointer(
     }
   }
   return false
+}
+
+function logStationClick(type: string, x: number, y: number, playerNirv: Nirv): void {
+  debugLog.log('interaction.object_click', {
+    actorId: 'player',
+    actorName: playerNirv.name,
+    state: 'player',
+    actorX: round(playerNirv.sprite.x),
+    actorY: round(playerNirv.sprite.y),
+    objectType: type,
+    objectX: round(x),
+    objectY: round(y),
+  })
+}
+
+function logStationBlocked(type: string, x: number, y: number, playerNirv: Nirv, reason: string): void {
+  debugLog.log('interaction.object_blocked', {
+    actorId: 'player',
+    actorName: playerNirv.name,
+    state: 'player',
+    actorX: round(playerNirv.sprite.x),
+    actorY: round(playerNirv.sprite.y),
+    objectType: type,
+    objectX: round(x),
+    objectY: round(y),
+    reason,
+  }, 'warn')
+}
+
+function round(value: number): number {
+  return Math.round(value * 100) / 100
 }

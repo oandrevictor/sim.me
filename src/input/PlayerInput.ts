@@ -1,5 +1,6 @@
 import Phaser from 'phaser'
 import { BuildCameraController } from './BuildCameraController'
+import { debugLog } from '../debug/DebugLogger'
 
 export interface InputResult {
   vx: number
@@ -21,6 +22,7 @@ export class PlayerInput {
   private prevX = 0
   private prevY = 0
   private stuckFrames = 0
+  private pendingTargetLog = false
 
   constructor(scene: Phaser.Scene, private readonly speed: number) {
     this.buildCamera = new BuildCameraController(scene)
@@ -44,11 +46,29 @@ export class PlayerInput {
   setWalkTarget(x: number, y: number): void {
     this.walkTarget = { x, y }
     this.stuckFrames = 0
+    this.pendingTargetLog = true
+    debugLog.log('player.path_target_set', {
+      actorId: 'player',
+      actorName: 'Player',
+      state: 'player',
+      targetX: round(x),
+      targetY: round(y),
+    })
   }
 
   clearWalkTarget(): void {
+    if (this.walkTarget) {
+      debugLog.log('player.path_target_clear', {
+        actorId: 'player',
+        actorName: 'Player',
+        state: 'player',
+        targetX: round(this.walkTarget.x),
+        targetY: round(this.walkTarget.y),
+      })
+    }
     this.walkTarget = null
     this.stuckFrames = 0
+    this.pendingTargetLog = false
   }
 
   getWalkTarget(): { x: number; y: number } | null {
@@ -61,15 +81,46 @@ export class PlayerInput {
     const hasInput = dx !== 0 || dy !== 0
 
     if (hasInput) {
+      if (this.walkTarget) {
+        debugLog.log('player.path_target_cancel', {
+          actorId: 'player',
+          actorName: 'Player',
+          state: 'player',
+          reason: 'keyboard_input',
+          targetX: round(this.walkTarget.x),
+          targetY: round(this.walkTarget.y),
+        })
+      }
       this.walkTarget = null
       this.stuckFrames = 0
+      this.pendingTargetLog = false
       const len = Math.sqrt(dx * dx + dy * dy)
       return { vx: (dx / len) * this.speed, vy: (dy / len) * this.speed, hasInput, arrivedAtTarget: false }
     }
 
     if (this.walkTarget) {
+      if (this.pendingTargetLog) {
+        debugLog.log('player.path_attempt', {
+          actorId: 'player',
+          actorName: 'Player',
+          state: 'player',
+          fromX: round(playerSprite.x),
+          fromY: round(playerSprite.y),
+          toX: round(this.walkTarget.x),
+          toY: round(this.walkTarget.y),
+        })
+        this.pendingTargetLog = false
+      }
       const dist = Phaser.Math.Distance.Between(playerSprite.x, playerSprite.y, this.walkTarget.x, this.walkTarget.y)
       if (dist < 18) {
+        debugLog.log('player.path_arrived', {
+          actorId: 'player',
+          actorName: 'Player',
+          state: 'player',
+          targetX: round(this.walkTarget.x),
+          targetY: round(this.walkTarget.y),
+          distance: round(dist),
+        }, 'info')
         this.walkTarget = null
         return { vx: 0, vy: 0, hasInput: false, arrivedAtTarget: true }
       }
@@ -78,6 +129,14 @@ export class PlayerInput {
       this.prevX = playerSprite.x
       this.prevY = playerSprite.y
       if (this.stuckFrames > 24) {
+        debugLog.log('player.path_stuck', {
+          actorId: 'player',
+          actorName: 'Player',
+          state: 'player',
+          targetX: round(this.walkTarget.x),
+          targetY: round(this.walkTarget.y),
+          stuckFrames: this.stuckFrames,
+        }, 'warn')
         this.walkTarget = null
         this.stuckFrames = 0
         return { vx: 0, vy: 0, hasInput: false, arrivedAtTarget: false }
@@ -105,4 +164,8 @@ export class PlayerInput {
     if (this.cursors.right.isDown || this.wasd.right.isDown) dx += 1
     return { dx, dy }
   }
+}
+
+function round(value: number): number {
+  return Math.round(value * 100) / 100
 }

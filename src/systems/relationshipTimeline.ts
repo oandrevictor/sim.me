@@ -8,6 +8,7 @@ import type {
 } from '../storage/relationshipPersistence'
 import { buildRelationshipEvent, relationshipEventTypeForStage } from './relationshipEventUtils'
 import { pairKey, type Relationship } from './relationshipTypes'
+import { debugLog } from '../debug/DebugLogger'
 
 const MAX_INTERACTIONS_TOTAL = 500
 const MAX_INTERACTIONS_PER_PAIR = 30
@@ -25,7 +26,7 @@ export function recordFirstInteractionEvent(
   dayCount: number,
 ): boolean {
   if (events.some(e => e.pairKey === rel.pairKey && e.type === 'first_interaction')) return false
-  events.push(buildRelationshipEvent({
+  const event = buildRelationshipEvent({
     pairKey: rel.pairKey,
     idA: rel.idA,
     idB: rel.idB,
@@ -34,7 +35,9 @@ export function recordFirstInteractionEvent(
     toStage: rel.stage,
     dayCount,
     source: 'first_interaction',
-  }))
+  })
+  events.push(event)
+  logRelationshipEvent(event)
   return true
 }
 
@@ -48,7 +51,7 @@ export function recordStageTransitionEvent(
 ): void {
   const type = relationshipEventTypeForStage(toStage)
   if (!type) return
-  events.push(buildRelationshipEvent({
+  const event = buildRelationshipEvent({
     pairKey: rel.pairKey,
     idA: rel.idA,
     idB: rel.idB,
@@ -57,7 +60,9 @@ export function recordStageTransitionEvent(
     toStage,
     dayCount,
     source: 'stage_transition',
-  }))
+  })
+  events.push(event)
+  logRelationshipEvent(event)
   recordNirvInteraction(interactions, rel.idA, rel.idB, 'relationship_stage_change', dayCount, {
     eventType: type,
     fromStage,
@@ -72,7 +77,7 @@ export function recordCohabitingEvent(
   dayCount: number,
 ): boolean {
   if (events.some(e => e.pairKey === rel.pairKey && e.type === 'moved_in_together')) return false
-  events.push(buildRelationshipEvent({
+  const event = buildRelationshipEvent({
     pairKey: rel.pairKey,
     idA: rel.idA,
     idB: rel.idB,
@@ -81,7 +86,9 @@ export function recordCohabitingEvent(
     toStage: rel.stage,
     dayCount,
     source,
-  }))
+  })
+  events.push(event)
+  logRelationshipEvent(event)
   return true
 }
 
@@ -108,6 +115,7 @@ export function recordRelationshipTensionEvent(
     affinityDelta,
   })
   if (isRelationshipHistoryEvent(event)) events.push(event)
+  logRelationshipEvent(event, type === 'relationship_decayed' ? 'warn' : 'info')
   recordNirvInteraction(interactions, rel.idA, rel.idB, type === 'relationship_decayed' ? 'decay' : 'conflict', dayCount, {
     source,
     eventType: type,
@@ -128,7 +136,7 @@ export function recordNirvInteraction(
 ): void {
   const key = pairKey(idA, idB)
   const [firstId, secondId] = key.split(':') as [string, string]
-  interactions.push({
+  const interaction = {
     id: `${key}:${kind}:${Date.now()}`,
     pairKey: key,
     idA: firstId,
@@ -138,7 +146,22 @@ export function recordNirvInteraction(
     timestamp: Date.now(),
     strength,
     meta,
-  })
+  }
+  interactions.push(interaction)
+  debugLog.log('relationship.interaction_recorded', {
+    pairKey: key,
+    idA: firstId,
+    idB: secondId,
+    interactionKind: kind,
+    dayCount,
+    strength,
+    source: meta?.source ?? '',
+    relationshipEventType: meta?.eventType ?? '',
+    sharedInterestCount: meta?.sharedInterestCount,
+    affinityDelta: meta?.affinityDelta,
+    fromStage: meta?.fromStage ?? '',
+    toStage: meta?.toStage ?? '',
+  }, kind === 'conflict' || kind === 'decay' ? 'warn' : 'debug')
   trimInteractions(interactions)
 }
 
@@ -207,4 +230,18 @@ function trimInteractions(interactions: NirvInteractionRecord[]): void {
 
 function sortNewestFirst(a: { timestamp: number }, b: { timestamp: number }): number {
   return b.timestamp - a.timestamp
+}
+
+function logRelationshipEvent(event: RelationshipEventRecord, level: 'info' | 'warn' = 'info'): void {
+  debugLog.log('relationship.event_recorded', {
+    pairKey: event.pairKey,
+    idA: event.idA,
+    idB: event.idB,
+    relationshipEventType: event.type,
+    source: event.source,
+    dayCount: event.dayCount,
+    fromStage: event.fromStage ?? '',
+    toStage: event.toStage ?? '',
+    affinityDelta: event.affinityDelta,
+  }, level)
 }

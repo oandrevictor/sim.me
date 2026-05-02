@@ -1,6 +1,6 @@
 import Phaser from 'phaser'
-import { snapToIsoGrid } from '../utils/isoGrid'
 import type { PlacedSpriteEntry } from '../world/ObjectSpawner'
+import { findPlacedObjectAt } from '../world/placedObjectHitTest'
 
 const INTERACTION_RADIUS = 64 // TILE_W
 
@@ -46,8 +46,7 @@ export class InteractionManager {
     isOverStage: (wx: number, wy: number) => boolean,
   ): void {
     const pointer = scene.input.activePointer
-    const snapped = snapToIsoGrid(pointer.worldX, pointer.worldY)
-    const overObject = placedSprites.some(p => Math.abs(p.x - snapped.x) < 2 && Math.abs(p.y - snapped.y) < 2)
+    const overObject = findPlacedObjectAt(placedSprites, pointer.worldX, pointer.worldY) !== null
     const overStage = isOverStage(pointer.worldX, pointer.worldY)
     scene.game.canvas.style.cursor = (overObject || overStage) ? 'grab' : ''
   }

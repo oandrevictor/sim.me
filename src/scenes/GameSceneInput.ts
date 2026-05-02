@@ -1,7 +1,7 @@
 // @ts-nocheck
-import { snapToIsoGrid } from '../utils/isoGrid'
 import { tryStationsAtPointer } from '../world/stationWorldClick'
 import { actorInsideObjectBuilding } from '../world/buildingInteractionAccess'
+import { debugLog } from '../debug/DebugLogger'
 
 function installMethods(target: any, source: any): void {
 	for (const name of Object.getOwnPropertyNames(source.prototype)) {
@@ -15,6 +15,12 @@ export function installGameSceneInput(target: any): void { installMethods(target
 class GameSceneInputMethods {
 	private onWorldClicked(pointer: Phaser.Input.Pointer): void {
 		if (!this.menuUI || !this.placementManager) return
+		debugLog.log('input.world_click', {
+			screenX: Math.round(pointer.position.x),
+			screenY: Math.round(pointer.position.y),
+			worldX: Math.round(pointer.worldX),
+			worldY: Math.round(pointer.worldY),
+		})
 		if (this.menuUI.isBuildMode()) return
 		if (this.placementManager.isActive()) return
 		const cx = pointer.position.x
@@ -25,8 +31,6 @@ class GameSceneInputMethods {
 			if (this.stagePlacer.tryPickUp(pointer)) return
 			this.objectSpawner.removeAt(
 				pointer,
-				snapToIsoGrid(pointer.worldX, pointer.worldY),
-				this.menuUI.isInventoryMode(),
 				() => this.menuUI.refreshInventoryGrid(),
 				this.placementManager,
 			)

@@ -10,6 +10,8 @@ import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import type { RestaurantSystem } from './RestaurantSystem'
 import { SocialSystem } from './SocialSystem'
 import type { RelationshipSystem } from './RelationshipSystem'
+import { debugLog } from '../debug/DebugLogger'
+import { playerDebugFields } from '../debug/debugActor'
 import { resolveReachableQueueSlot } from './stationApproach'
 import {
   checkWaterQueueSlotArrivals,
@@ -89,21 +91,35 @@ export class HydrationSystem {
   }
 
   tryInteractWaterStation(stationX: number, stationY: number, playerSprite: Phaser.Physics.Arcade.Sprite, setWalkTarget: (x: number, y: number) => void): void {
-    if (this.playerDrinkRemaining > 0) return
-    if (!this.canPlayerUseStation(stationX, stationY)) return
-    if (this.isPlayerSleeping()) this.wakePlayerFromSleep()
     const player = this.getPlayer()
+    if (this.playerDrinkRemaining > 0) {
+      this.logPlayerWater('interaction.object_blocked', player, stationX, stationY, 'already_drinking', 'debug')
+      return
+    }
+    if (!this.canPlayerUseStation(stationX, stationY)) {
+      this.logPlayerWater('interaction.object_blocked', player, stationX, stationY, 'access_denied', 'warn')
+      return
+    }
+    if (this.isPlayerSleeping()) this.wakePlayerFromSleep()
     // Allow topping up whenever not full (THIRST_THRESHOLD only applies to bot auto-assign).
-    if (player.getHydrationLevel() >= 100) return
+    if (player.getHydrationLevel() >= 100) {
+      this.logPlayerWater('interaction.object_blocked', player, stationX, stationY, 'hydration_full', 'debug')
+      return
+    }
 
     const dist = Phaser.Math.Distance.Between(playerSprite.x, playerSprite.y, stationX, stationY)
     if (dist > PLAYER_STATION_INTERACT_PX) {
       setWalkTarget(stationX, stationY)
+      this.logPlayerWater('interaction.object_walk_queued', player, stationX, stationY, 'needs_approach', 'debug', { distance: round(dist) })
       return
     }
-    if (!this.canPlayerInteractWithStation(stationX, stationY)) return
+    if (!this.canPlayerInteractWithStation(stationX, stationY)) {
+      this.logPlayerWater('interaction.object_blocked', player, stationX, stationY, 'not_inside_access_area', 'warn')
+      return
+    }
     this.playerDrinkRemaining = DRINK_DURATION_MS
     playerSprite.setVelocity(0, 0)
+    this.logPlayerWater('interaction.water_start', player, stationX, stationY, 'started', 'info')
   }
 
   updatePlayerDrinking(delta: number): void {
@@ -112,8 +128,29 @@ export class HydrationSystem {
       if (this.playerDrinkRemaining <= 0) {
         this.playerDrinkRemaining = 0
         this.getPlayer().addHydration(30)
+        this.logPlayerWater('interaction.water_finish', this.getPlayer(), 0, 0, 'finished', 'info')
       }
     }
+  }
+
+  private logPlayerWater(
+    type: string,
+    player: Nirv,
+    stationX: number,
+    stationY: number,
+    reason: string,
+    level: 'debug' | 'info' | 'warn',
+    extra: Record<string, number> = {},
+  ): void {
+    debugLog.log(type, {
+      ...playerDebugFields(player),
+      objectType: 'drinking_water',
+      objectX: round(stationX),
+      objectY: round(stationY),
+      hydration: round(player.getHydrationLevel()),
+      reason,
+      ...extra,
+    }, level)
   }
 
   updateStations(delta: number): void {
@@ -204,4 +241,8 @@ export class HydrationSystem {
       }
     }
   }
+}
+
+function round(value: number): number {
+  return Math.round(value * 100) / 100
 }

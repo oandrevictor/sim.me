@@ -9,6 +9,7 @@ import {
   resolveReachableQueueSlot,
   type StationApproach,
 } from './stationApproach'
+import { logBotStation } from '../debug/stationDebug'
 
 const STATION_REACH_PX = 32
 
@@ -52,8 +53,13 @@ export function checkFruitSlotArrivals(
       }
       const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, pos.x, pos.y)
       if (d < STATION_REACH_PX) {
-        if (consumeStock(st)) bot.arriveAtFruitStation()
-        else bot.cancelSatiationQueue()
+        if (consumeStock(st)) {
+          bot.arriveAtFruitStation()
+          logBotStation('interaction.fruit_start', bot, st.type, st.x, st.y, 'arrived', 'info', { slotIndex: i })
+        } else {
+          logBotStation('interaction.object_blocked', bot, st.type, st.x, st.y, 'stock_empty', 'warn', { slotIndex: i })
+          bot.cancelSatiationQueue()
+        }
       }
     }
   }
@@ -71,7 +77,10 @@ export function checkFruitQueueArrivals(pathfinder: GridPathfinder, stations: Fr
         continue
       }
       const d = Phaser.Math.Distance.Between(bot.nirv.sprite.x, bot.nirv.sprite.y, slot.x, slot.y)
-      if (d < STATION_REACH_PX) bot.arriveAtFruitQueueSlot()
+      if (d < STATION_REACH_PX) {
+        logBotStation('interaction.queue_arrived', bot, st.type, st.x, st.y, 'fruit_queue', 'debug', { queueIndex: lineIndex })
+        bot.arriveAtFruitQueueSlot()
+      }
     }
   }
 }
@@ -86,6 +95,7 @@ export function releaseFruitSlotsAfterInteract(stations: FruitCrateStation[], pr
       if (s === 'walking_to_fruit' || s === 'fruit_interact') continue
       st.slots[i] = null
       st.slotApproaches[i] = null
+      logBotStation('interaction.fruit_finish', bot, st.type, st.x, st.y, 'released', 'info', { slotIndex: i })
       promote(st)
     }
   }
@@ -96,12 +106,14 @@ export function promoteFruitQueue(pathfinder: GridPathfinder, st: FruitCrateStat
   if (!next) return
   const free = firstReachableFruitSlot(pathfinder, st, next)
   if (!free) {
+    logBotStation('interaction.object_blocked', next, st.type, st.x, st.y, 'no_fruit_slot', 'warn')
     next.cancelSatiationQueue()
     promoteFruitQueue(pathfinder, st)
     return
   }
   st.slots[free.index] = next
   st.slotApproaches[free.index] = free.approach
+  logBotStation('interaction.queue_promoted', next, st.type, st.x, st.y, 'fruit_queue', 'debug', { slotIndex: free.index })
   next.redirectToFruit(st.x, st.y, free.index, free.approach.x, free.approach.y)
   syncFruitQueueSlots(pathfinder, st)
 }
@@ -111,6 +123,7 @@ export function syncFruitQueueSlots(pathfinder: GridPathfinder, st: FruitCrateSt
   for (const bot of st.queue) {
     const p = resolveReachableQueueSlot(pathfinder, st.x, st.y, bot, kept.length)
     if (!p) {
+      logBotStation('interaction.object_blocked', bot, st.type, st.x, st.y, 'no_fruit_queue_slot', 'warn')
       bot.cancelSatiationQueue()
       continue
     }
@@ -136,12 +149,14 @@ export function assignBotToFruitCrate(pathfinder: GridPathfinder, st: FruitCrate
   if (free) {
     st.slots[free.index] = bot
     st.slotApproaches[free.index] = free.approach
+    logBotStation('interaction.object_assigned', bot, st.type, st.x, st.y, 'fruit_slot', 'debug', { slotIndex: free.index })
     bot.redirectToFruit(st.x, st.y, free.index, free.approach.x, free.approach.y)
     return true
   }
   const p = resolveReachableQueueSlot(pathfinder, st.x, st.y, bot, st.queue.length)
   if (!p) return false
   st.queue.push(bot)
+  logBotStation('interaction.object_assigned', bot, st.type, st.x, st.y, 'fruit_queue', 'debug', { queueIndex: st.queue.length - 1 })
   bot.redirectToFruitQueueSlot(p.x, p.y)
   return true
 }
