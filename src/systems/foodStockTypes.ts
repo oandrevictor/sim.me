@@ -23,7 +23,7 @@ export interface StockStationView {
 
 export interface StockWorkView {
   totalStations: number
-  cornCount: number
+  foodCount: number
   stockerBotIds: string[]
   bots: BotNirv[]
   stations: StockStationView[]

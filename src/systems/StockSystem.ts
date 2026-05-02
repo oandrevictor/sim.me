@@ -1,5 +1,5 @@
 import type { BotNirv } from '../entities/BotNirv'
-import { loadFarmRecord, saveStockerBotIds, spendCorn } from '../storage/farmPersistence'
+import { loadFarmRecord, saveStockerBotIds, spendAnyCrop, totalCropCount } from '../storage/farmPersistence'
 import { foodStockLabel, type FoodStockStation, type StockWorkView } from './foodStockTypes'
 import { StockerJobRuntime } from './StockerJobRuntime'
 
@@ -19,7 +19,7 @@ export class StockSystem {
       bots,
       getStations,
       () => this.stockerBotIds,
-      () => loadFarmRecord().cornCount,
+      () => totalCropCount(),
       station => this.restockStation(station),
       this.canBotUseStation,
       this.canBotInteractWithStation,
@@ -31,9 +31,10 @@ export class StockSystem {
   }
 
   getStockWorkView(): StockWorkView {
+    const farmRecord = loadFarmRecord()
     return {
       totalStations: this.getStations().length,
-      cornCount: loadFarmRecord().cornCount,
+      foodCount: totalCropCount(farmRecord),
       stockerBotIds: [...this.stockerBotIds],
       bots: this.bots,
       stations: this.getStations().map(station => ({
@@ -76,7 +77,7 @@ export class StockSystem {
   private restockStation(station: FoodStockStation): number {
     const missing = station.maxStock - station.stock
     if (missing <= 0) return 0
-    const spent = spendCorn(missing)
+    const spent = spendAnyCrop(missing)
     if (spent > 0) this.setStationStock(station, station.stock + spent)
     return spent
   }

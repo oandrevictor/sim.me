@@ -1,4 +1,4 @@
-import { CROP_GROWTH_MS, CROP_TEXTURE_KEY, type CropStage } from '../data/crops'
+import { CROP_GROWTH_MS, CROP_TEXTURE_KEY, DEFAULT_CROP_SEED, cropTextureKey, type CropStage } from '../data/crops'
 import { updatePlacedObjectAt } from '../storage/persistence'
 import type { CropPlot } from './farmingTypes'
 
@@ -20,7 +20,11 @@ export function advanceCropGrowth(plot: CropPlot, now: number): boolean {
 }
 
 export function applyCropTexture(plot: CropPlot): void {
-  plot.sprite.setTexture(CROP_TEXTURE_KEY[plot.stage])
+  plot.sprite.setTexture(CROP_TEXTURE_KEY.empty)
+  plot.overlaySprite.setVisible(plot.stage !== 'empty')
+  if (plot.stage !== 'empty') {
+    plot.overlaySprite.setTexture(cropTextureKey(plot.stage, plot.seed ?? DEFAULT_CROP_SEED))
+  }
 }
 
 export function persistCropPlot(plot: CropPlot): void {

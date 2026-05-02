@@ -17,7 +17,7 @@ export function emptyFarmBridge(): FarmWorkBridge {
   return {
     getFarmView: () => ({
       totalCrops: 0,
-      cornCount: 0,
+      cropCounts: {},
       farmerBotIds: [],
       bots: [],
       counts: { empty: 0, seeded: 0, early: 0, ready: 0 },
@@ -30,7 +30,7 @@ export function emptyStockBridge(): StockWorkBridge {
   return {
     getStockView: () => ({
       totalStations: 0,
-      cornCount: 0,
+      foodCount: 0,
       stockerBotIds: [],
       bots: [],
       stations: [],

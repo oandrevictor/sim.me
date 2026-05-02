@@ -1,8 +1,11 @@
 import Phaser from 'phaser'
-import { CORN_SEED, type CropSeed } from '../data/crops'
+import { CROP_SEED_DEFINITIONS, type CropSeed, type CropSeedDefinition } from '../data/crops'
 
-const PANEL_WIDTH = 200
-const PANEL_HEIGHT = 112
+const PANEL_WIDTH = 360
+const PANEL_HEIGHT = 292
+const COLUMN_COUNT = 3
+const CELL_W = 106
+const ROW_H = 30
 
 export class SeedSelectUI extends Phaser.GameObjects.Container {
   private onSelect: ((seed: CropSeed) => void) | null = null
@@ -53,22 +56,35 @@ export class SeedSelectUI extends Phaser.GameObjects.Container {
       fontStyle: 'bold',
     }).setOrigin(0.5, 0)
 
-    const label = this.scene.add.text(-48, 22, 'Corn', {
-      fontSize: '14px',
+    panel.add([bg, title])
+    CROP_SEED_DEFINITIONS.forEach((seed, index) => {
+      panel.add(this.createSeedOption(seed, index))
+    })
+    this.add(panel)
+  }
+
+  private createSeedOption(seed: CropSeedDefinition, index: number): Phaser.GameObjects.GameObject[] {
+    const col = index % COLUMN_COUNT
+    const row = Math.floor(index / COLUMN_COUNT)
+    const x = -PANEL_WIDTH / 2 + 22 + col * CELL_W
+    const y = -PANEL_HEIGHT / 2 + 54 + row * ROW_H
+
+    const dot = this.scene.add.graphics()
+    dot.fillStyle(seed.previewColor)
+    dot.fillCircle(x + 8, y + 11, 6)
+
+    const label = this.scene.add.text(x + 20, y + 11, seed.label, {
+      fontSize: '11px',
       color: '#ffffff',
     }).setOrigin(0, 0.5)
-    const dot = this.scene.add.graphics()
-    dot.fillStyle(0xf2c94c)
-    dot.fillCircle(-64, 22, 7)
 
-    const hitZone = this.scene.add.zone(0, 22, PANEL_WIDTH - 28, 38)
+    const hitZone = this.scene.add.zone(x + CELL_W / 2 - 2, y + 11, CELL_W - 6, 24)
     hitZone.setInteractive({ useHandCursor: true })
     hitZone.on('pointerdown', () => {
-      this.onSelect?.(CORN_SEED)
+      this.onSelect?.(seed.seed)
       this.close()
     })
 
-    panel.add([bg, title, dot, label, hitZone])
-    this.add(panel)
+    return [dot, label, hitZone]
   }
 }

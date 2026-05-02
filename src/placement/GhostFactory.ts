@@ -66,7 +66,7 @@ export function createObjectGhost(
   if (type === 'crop' && scene.textures.exists(config.textureKey)) {
     const sprite = scene.add.sprite(0, 0, config.textureKey)
     const { w, h } = getFramedObjectDisplaySize(type, 2.5)
-    sprite.setDisplaySize(w, h)
+    sprite.setDisplaySize(w / 2, h / 2)
     sprite.setOrigin(0.5, 1)
     sprite.setAlpha(0.65)
     sprite.setDepth(DEPTH_UI + 10)

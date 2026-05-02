@@ -58,6 +58,7 @@ import { FoodHandler } from '../interaction/FoodHandler'
 import { NirvNameHover } from '../interaction/NirvNameHover'
 import { NirvWorkCueOverlay } from '../interaction/NirvWorkCueOverlay'
 import { ObjectStockHover } from '../interaction/ObjectStockHover'
+import { CropPlotHover } from '../interaction/CropPlotHover'
 import { buildNirvHoverSubjects } from '../interaction/buildNirvHoverSubjects'
 import { removeObjectByType } from '../storage/persistence'
 import { applyNirvSeparation } from '../entities/nirvSeparation'
@@ -124,6 +125,7 @@ export default class GameScene extends Phaser.Scene {
 	private nirvNameHover!: NirvNameHover
 	private nirvWorkCueOverlay!: NirvWorkCueOverlay
 	private objectStockHover!: ObjectStockHover
+	private cropPlotHover!: CropPlotHover
 	private dayNightSystem!: DayNightSystem
 	private concertSpotlights!: ConcertSpotlightSystem
 	private lightSystem!: LightSystem
@@ -381,6 +383,7 @@ export default class GameScene extends Phaser.Scene {
 		this.nirvNameHover = new NirvNameHover(this)
 		this.nirvWorkCueOverlay = new NirvWorkCueOverlay(this, bot => this.getAssignedWorkRoleForBot(bot))
 		this.objectStockHover = new ObjectStockHover(this)
+		this.cropPlotHover = new CropPlotHover(this)
 	}
 
 	/* END-USER-CODE */

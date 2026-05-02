@@ -4,7 +4,7 @@ import type { StagePanelHitTarget } from './WorkPanelStageSection'
 import {
   LEFT_X,
   addBotName,
-  addMetricChip,
+  addMetricChipRows,
   addRolePill,
   addSectionLabel,
 } from './components/WorkPanelControls'
@@ -42,12 +42,11 @@ function addStockMetrics(
   view: StockWorkView,
   y: number,
 ): number {
-  let x = LEFT_X
-  x += addMetricChip(scene, parent, x, y, `Corn ${view.cornCount}`, '#f5d469') + 6
+  const chips: { label: string; color?: string }[] = [{ label: `Food ${view.foodCount}`, color: '#f5d469' }]
   for (const group of stockGroups(view)) {
-    x += addMetricChip(scene, parent, x, y, `${group.label} ${group.stock}/${group.max}`) + 6
+    chips.push({ label: `${group.label} ${group.stock}/${group.max}` })
   }
-  return y + 30
+  return addMetricChipRows(scene, parent, chips, y)
 }
 
 function addStockerRows(

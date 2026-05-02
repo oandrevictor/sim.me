@@ -21,7 +21,7 @@ export class StockerJobRuntime {
     private readonly bots: BotNirv[],
     private readonly getStations: () => FoodStockStation[],
     private readonly getStockerIds: () => Set<string>,
-    private readonly getCornCount: () => number,
+    private readonly getFoodCount: () => number,
     private readonly restock: (station: FoodStockStation) => number,
     private readonly canUseStation: (bot: BotNirv, x: number, y: number) => boolean = () => true,
     private readonly canInteractWithStation: (bot: BotNirv, x: number, y: number) => boolean = () => true,
@@ -60,7 +60,7 @@ export class StockerJobRuntime {
   }
 
   private assignTask(bot: BotNirv): void {
-    if (this.getCornCount() <= 0) return
+    if (this.getFoodCount() <= 0) return
     const station = this.pickStation(bot)
     if (!station) return
     station.reservedByStockerBotId = bot.id
@@ -118,7 +118,7 @@ export class StockerJobRuntime {
     if (task.station.reservedByStockerBotId !== botId) return false
     const bot = this.bots.find(b => b.id === botId)
     if (!bot || !this.canUseStation(bot, task.station.x, task.station.y)) return false
-    return task.station.stock < task.station.maxStock && this.getCornCount() > 0
+    return task.station.stock < task.station.maxStock && this.getFoodCount() > 0
   }
 
   private cleanupStaleReservations(): void {

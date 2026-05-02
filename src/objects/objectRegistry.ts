@@ -95,8 +95,8 @@ export const OBJECT_TYPE_REGISTRY = {
     previewColor: 0x9a9aaa, depth: 2, hasPhysicsBody: false, isInteractable: true,
   },
   crop: {
-    type: 'crop', label: 'Crop', description: 'Plant and harvest corn',
-    textureKey: 'crop_empty', displayAspectWidthOverHeight: 384 / 390,
+    type: 'crop', label: 'Crop', description: 'Plant and harvest food',
+    textureKey: 'crop_empty', displayAspectWidthOverHeight: 1,
     previewColor: 0xd69a35, depth: 2, hasPhysicsBody: false, isInteractable: true,
   },
   lamp_post: {

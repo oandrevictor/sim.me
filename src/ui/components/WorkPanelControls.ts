@@ -6,6 +6,7 @@ import type { WorkContext } from '../workPanelTypes'
 export const PANEL_W = 560
 export const PANEL_H = 292
 export const LEFT_X = -PANEL_W / 2 + 18
+export const RIGHT_X = PANEL_W / 2 - 18
 
 export function addContextTabs(
   scene: Phaser.Scene,
@@ -58,6 +59,25 @@ export function addMetricChip(
   bg.strokeRoundedRect(x, y, w, 18, 5)
   parent.add([bg, text])
   return w
+}
+
+export function addMetricChipRows(
+  scene: Phaser.Scene,
+  parent: Phaser.GameObjects.Container,
+  chips: { label: string; color?: string }[],
+  startY: number,
+): number {
+  let x = LEFT_X
+  let y = startY
+  for (const chip of chips) {
+    const estimatedW = Math.max(52, chip.label.length * 6 + 20)
+    if (x + estimatedW > RIGHT_X && x > LEFT_X) {
+      x = LEFT_X
+      y += 22
+    }
+    x += addMetricChip(scene, parent, x, y, chip.label, chip.color) + 6
+  }
+  return y + 30
 }
 
 export function addSectionLabel(

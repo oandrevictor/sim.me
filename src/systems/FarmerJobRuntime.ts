@@ -1,7 +1,7 @@
 import Phaser from 'phaser'
 import type { BotNirv, BotState } from '../entities/BotNirv'
 import { isFarmerState } from '../entities/BotNirv'
-import { CORN_SEED } from '../data/crops'
+import { randomCropSeed, type CropSeed } from '../data/crops'
 import { OBJECT_SIZE } from '../objects/objectTypes'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
 import type { CropPlot } from './farmingTypes'
@@ -41,7 +41,7 @@ export class FarmerJobRuntime {
     private readonly pathfinder: GridPathfinder,
     private readonly getPlots: () => CropPlot[],
     private readonly getFarmerIds: () => Set<string>,
-    private readonly plant: (plot: CropPlot, seed: typeof CORN_SEED) => void,
+    private readonly plant: (plot: CropPlot, seed: CropSeed) => void,
     private readonly harvest: (plot: CropPlot) => void,
     private readonly canUsePlot: (bot: BotNirv, x: number, y: number) => boolean = () => true,
     private readonly canInteractWithPlot: (bot: BotNirv, x: number, y: number) => boolean = () => true,
@@ -116,7 +116,7 @@ export class FarmerJobRuntime {
     task.remainingMs -= delta
     if (task.remainingMs > 0) return
     if (task.action === 'harvest') this.harvest(task.plot)
-    else this.plant(task.plot, CORN_SEED)
+    else this.plant(task.plot, randomCropSeed())
     this.releaseTask(bot.id)
     bot.enterFarmerIdle()
   }

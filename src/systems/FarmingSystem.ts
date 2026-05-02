@@ -1,9 +1,9 @@
 import Phaser from 'phaser'
 import type { BotNirv } from '../entities/BotNirv'
 import type { Nirv } from '../entities/Nirv'
-import { type CropSeed, type CropStage } from '../data/crops'
+import { DEFAULT_CROP_SEED, type CropSeed, type CropStage } from '../data/crops'
 import type { GridPathfinder } from '../pathfinding/GridPathfinder'
-import { addCorn, loadFarmRecord, saveFarmerBotIds } from '../storage/farmPersistence'
+import { addCrop, loadFarmRecord, saveFarmerBotIds } from '../storage/farmPersistence'
 import { FarmerJobRuntime } from './FarmerJobRuntime'
 import { advanceCropGrowth, applyCropTexture, countCropStages, persistCropPlot } from './cropGrowth'
 import { cropApproachPoint, type CropPlot, type FarmWorkView } from './farmingTypes'
@@ -41,12 +41,14 @@ export class FarmingSystem {
 
   registerCrop(
     sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite,
+    overlaySprite: Phaser.GameObjects.Sprite,
     x: number,
     y: number,
     saved?: { cropStage?: CropStage; cropSeed?: CropSeed; cropStageStartedAt?: number },
   ): void {
     const plot: CropPlot = {
       sprite,
+      overlaySprite,
       x,
       y,
       stage: saved?.cropStage ?? 'empty',
@@ -65,6 +67,7 @@ export class FarmingSystem {
     const plot = this.plots[idx]!
     if (plot.reservedBy) this.farmerJobs.releaseTask(plot.reservedBy)
     if (this.pendingPlayerPlot === plot) this.pendingPlayerPlot = null
+    plot.overlaySprite.destroy()
     this.plots.splice(idx, 1)
   }
 
@@ -103,13 +106,18 @@ export class FarmingSystem {
   }
 
   getFarmWorkView(): FarmWorkView {
+    const farmRecord = loadFarmRecord()
     return {
       totalCrops: this.plots.length,
-      cornCount: loadFarmRecord().cornCount,
+      cropCounts: farmRecord.cropCounts,
       farmerBotIds: [...this.farmerBotIds],
       bots: this.bots,
       counts: countCropStages(this.plots),
     }
+  }
+
+  getCropPlots(): readonly CropPlot[] {
+    return this.plots
   }
 
   setFarmerAssigned(botId: string, assigned: boolean): void {
@@ -160,7 +168,7 @@ export class FarmingSystem {
 
   private harvest(plot: CropPlot): void {
     if (!this.plots.includes(plot) || plot.stage !== 'ready') return
-    addCorn(1)
+    addCrop(plot.seed ?? DEFAULT_CROP_SEED, 1)
     plot.stage = 'empty'
     plot.seed = undefined
     plot.stageStartedAt = undefined

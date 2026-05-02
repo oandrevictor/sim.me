@@ -131,12 +131,19 @@ function spawnFloor(context: NonPhysicsContext, sprite: Phaser.GameObjects.Sprit
 
 function spawnCrop(context: NonPhysicsContext, sprite: Phaser.GameObjects.Sprite, args: NonPhysicsArgs): void {
   const { w, h } = getFramedObjectDisplaySize(args.type, 2.5)
-  sprite.setDisplaySize(w, h)
+  const displayW = w / 2
+  const displayH = h / 2
+  sprite.setDisplaySize(displayW, displayH)
   sprite.setOrigin(0.5, 1)
+  sprite.setDepth(1)
   sprite.setInteractive({ useHandCursor: true, pixelPerfect: false })
+  const overlay = context.scene.add.sprite(args.x, args.y, typeConfig(args.type).textureKey)
+  overlay.setDisplaySize(displayW, displayH)
+  overlay.setOrigin(0.5, 1)
+  overlay.setDepth(args.y)
   const blocker = createFootprintBlocker(context.obstacleGroup, context.pathfinder, args.x, args.y, OBJECT_SIZE)
   context.state.placedSprites.push({ sprite, type: args.type, x: args.x, y: args.y, rotation: args.rotation, footprintBlocker: blocker })
-  context.farmingSystem.registerCrop(sprite, args.x, args.y, args.objectState)
+  context.farmingSystem.registerCrop(sprite, overlay, args.x, args.y, args.objectState)
 }
 
 function spawnWaterStation(

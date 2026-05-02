@@ -1,9 +1,11 @@
 import Phaser from 'phaser'
 import type { BotNirv } from '../entities/BotNirv'
 import type { CropSeed, CropStage } from '../data/crops'
+import type { CropCounts } from '../storage/farmPersistence'
 
 export interface CropPlot {
   sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite
+  overlaySprite: Phaser.GameObjects.Sprite
   x: number
   y: number
   stage: CropStage
@@ -14,7 +16,7 @@ export interface CropPlot {
 
 export interface FarmWorkView {
   totalCrops: number
-  cornCount: number
+  cropCounts: CropCounts
   farmerBotIds: string[]
   bots: BotNirv[]
   counts: Record<CropStage, number>

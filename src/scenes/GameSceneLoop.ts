@@ -119,16 +119,22 @@ class GameSceneLoopMethods {
 			this.hungerSystem.getFoodStockStations(),
 			hideNameHover,
 		)
+		const cropHoverActive = this.cropPlotHover.update(
+			ptr,
+			this.farmingSystem.getCropPlots(),
+			hideNameHover || stockHoverActive,
+			(botId) => this.botNirvs.find(bot => bot.id === botId)?.nirv.name ?? null,
+		)
 		const hoverSubjects = buildNirvHoverSubjects(this.playerNirv, this.botNirvs)
 		const hoveredNirv = this.nirvNameHover.update(
 			ptr,
 			hoverSubjects,
-			hideNameHover || stockHoverActive,
+			hideNameHover || stockHoverActive || cropHoverActive,
 		)
 		this.nirvWorkCueOverlay.update(
 			this.botNirvs,
 			hoveredNirv?.botId ?? null,
-			hideNameHover || stockHoverActive,
+			hideNameHover || stockHoverActive || cropHoverActive,
 		)
 		if (this.menuUI?.isShopMode() && !this.placementManager?.isActive()) {
 			this.interactionManager.updateShopCursor(

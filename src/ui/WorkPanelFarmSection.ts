@@ -1,11 +1,11 @@
 import Phaser from 'phaser'
-import { cropStageLabel, type CropStage } from '../data/crops'
+import { CROP_SEEDS, cropSeedLabel, cropStageLabel, type CropStage } from '../data/crops'
 import type { FarmWorkView } from '../systems/farmingTypes'
 import type { StagePanelHitTarget } from './WorkPanelStageSection'
 import {
   LEFT_X,
   addBotName,
-  addMetricChip,
+  addMetricChipRows,
   addRolePill,
   addSectionLabel,
 } from './components/WorkPanelControls'
@@ -43,12 +43,14 @@ function addFarmMetrics(
   view: FarmWorkView,
   y: number,
 ): number {
-  let x = LEFT_X
-  x += addMetricChip(scene, parent, x, y, `Corn ${view.cornCount}`, '#f5d469') + 6
+  const cropChips: { label: string; color?: string }[] = CROP_SEEDS
+    .filter(seed => (view.cropCounts[seed] ?? 0) > 0)
+    .map(seed => ({ label: `${cropSeedLabel(seed)} ${view.cropCounts[seed]}`, color: '#f5d469' }))
+  const chips = cropChips.length > 0 ? cropChips : [{ label: 'Food 0', color: '#f5d469' }]
   for (const stage of ['empty', 'seeded', 'early', 'ready'] as CropStage[]) {
-    x += addMetricChip(scene, parent, x, y, `${cropStageLabel(stage)} ${view.counts[stage]}`) + 6
+    chips.push({ label: `${cropStageLabel(stage)} ${view.counts[stage]}` })
   }
-  return y + 30
+  return addMetricChipRows(scene, parent, chips, y)
 }
 
 function addFarmerRows(
