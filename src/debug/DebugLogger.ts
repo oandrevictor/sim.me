@@ -78,7 +78,7 @@ class DebugLogger {
   log(type: string, fields: DebugFields = {}, level: DebugLogLevel = 'debug'): void {
     const record = this.createRecord(type, fields, level)
     this.writeLocal(record)
-    this.writePostHog(record)
+    //this.writePostHog(record)
   }
 
   download(filename = debugFilename()): void {
