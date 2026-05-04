@@ -2,10 +2,13 @@ import Phaser from 'phaser'
 import { getRecipe } from '../data/recipes'
 import { playStoveIdle, isSpritesheetStoveTexture, STOVE_ANIM_COOKING } from '../animations/stoveAnims'
 import { DEPTH_UI } from '../config/world'
+import type { Building } from '../entities/Building'
+import { updatePlacedObjectAt } from '../storage/persistence'
+import { clampFoodStock, type FoodStockStation } from './foodStockTypes'
 
 type StoveStatus = 'idle' | 'cooking' | 'done'
 
-interface StoveState {
+export interface StoveState {
   sprite: Phaser.Physics.Arcade.Sprite
   x: number
   y: number
@@ -16,10 +19,13 @@ interface StoveState {
   cookProgress: number
   cookDuration: number
   progressBar: Phaser.GameObjects.Graphics | null
+  /** Chef bot holding this stove until food hits the counter (or abort). */
+  reservedChefBotId: string | null
 }
 
 export class CookingSystem {
   private stoves: StoveState[] = []
+  private fridges: FoodStockStation[] = []
   private scene: Phaser.Scene
 
   constructor(scene: Phaser.Scene) {
@@ -35,8 +41,50 @@ export class CookingSystem {
       cookProgress: 0,
       cookDuration: 0,
       progressBar: null,
+      reservedChefBotId: null,
     })
     playStoveIdle(sprite, rotation)
+  }
+
+  getStovesInBuilding(building: Building): StoveState[] {
+    return this.stoves.filter(s => building.containsPixel(s.x, s.y))
+  }
+
+  registerFridge(station: FoodStockStation): void {
+    this.fridges.push(station)
+  }
+
+  unregisterFridge(sprite: Phaser.GameObjects.Sprite | Phaser.Physics.Arcade.Sprite): void {
+    const idx = this.fridges.findIndex(f => f.sprite === sprite)
+    if (idx !== -1) this.fridges.splice(idx, 1)
+  }
+
+  getFridgesInBuilding(building: Building): FoodStockStation[] {
+    return this.fridges.filter(f => building.containsPixel(f.x, f.y))
+  }
+
+  tryConsumeFridgeStock(station: FoodStockStation): boolean {
+    if (!this.fridges.includes(station) || station.stock <= 0) return false
+    station.stock = clampFoodStock(station.type, station.stock - 1)
+    updatePlacedObjectAt(station.x, station.y, station.type, { stock: station.stock })
+    return true
+  }
+
+  tryReserveStoveForChef(stove: StoveState, botId: string): boolean {
+    if (stove.status !== 'idle') return false
+    if (stove.reservedChefBotId !== null && stove.reservedChefBotId !== botId) return false
+    stove.reservedChefBotId = botId
+    return true
+  }
+
+  releaseStoveReservation(stove: StoveState, botId: string): void {
+    if (stove.reservedChefBotId === botId) stove.reservedChefBotId = null
+  }
+
+  releaseStoveReservationByBot(botId: string): void {
+    for (const s of this.stoves) {
+      if (s.reservedChefBotId === botId) s.reservedChefBotId = null
+    }
   }
 
   getStoveAt(x: number, y: number): StoveState | null {
@@ -47,14 +95,14 @@ export class CookingSystem {
     return this.stoves.find(s => s.sprite === sprite) ?? null
   }
 
-  startCooking(stove: StoveState, recipeId: string): void {
+  startCooking(stove: StoveState, recipeId: string, moodModifier = 1.0): void {
     const recipe = getRecipe(recipeId)
     if (!recipe || stove.status !== 'idle') return
 
     stove.status = 'cooking'
     stove.recipeId = recipeId
     stove.cookProgress = 0
-    stove.cookDuration = recipe.cookTimeMs
+    stove.cookDuration = recipe.cookTimeMs * moodModifier
     stove.sprite.clearTint()
     // Clay oven: single image only — never play furniture_stove cooking animation.
     if (isSpritesheetStoveTexture(stove.sprite.texture.key) && stove.sprite.scene.anims.exists(STOVE_ANIM_COOKING)) {
@@ -71,6 +119,7 @@ export class CookingSystem {
     const recipeId = stove.recipeId
     stove.status = 'idle'
     stove.recipeId = null
+    stove.reservedChefBotId = null
     stove.cookProgress = 0
     stove.cookDuration = 0
     playStoveIdle(stove.sprite, stove.rotation)

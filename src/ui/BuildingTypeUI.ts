@@ -15,6 +15,7 @@ interface TypeOption {
 const OPTIONS: TypeOption[] = [
   { type: 'empty', label: 'Empty Lot', color: 0x6b5b3a },
   { type: 'restaurant', label: 'Restaurant', color: 0x7a4a3a },
+  { type: 'house', label: 'House', color: 0x5f7650 },
 ]
 
 export class BuildingTypeUI extends Phaser.GameObjects.Container {

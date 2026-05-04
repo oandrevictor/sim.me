@@ -1,5 +1,7 @@
 import type { MusicTag } from '../data/musicTags'
 import { isMusicTag } from '../data/musicTags'
+import { cacheGet, cacheSet } from './saveCache'
+import { SAVE_KEYS } from './saveSchema'
 
 export interface BandRecord {
   id: string
@@ -8,11 +10,11 @@ export interface BandRecord {
   tags: MusicTag[]
 }
 
-const STORAGE_KEY = 'simme_bands'
+const STORAGE_KEY = SAVE_KEYS.bands
 
 export function loadBands(): BandRecord[] {
   try {
-    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]') as unknown[]
+    const raw = JSON.parse(cacheGet(STORAGE_KEY) ?? '[]') as unknown[]
     if (!Array.isArray(raw)) return []
     return raw.map(normalizeBand).filter((b): b is BandRecord => b !== null)
   } catch {
@@ -34,7 +36,7 @@ function normalizeBand(x: unknown): BandRecord | null {
 }
 
 export function saveBands(bands: BandRecord[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(bands))
+  cacheSet(STORAGE_KEY, JSON.stringify(bands))
 }
 
 export function addBand(record: BandRecord): void {

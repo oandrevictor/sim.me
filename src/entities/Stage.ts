@@ -8,8 +8,7 @@ import {
   STAGE_GRID_W,
 } from '../config/stageVariants'
 import { drawDefaultStageGraphics } from './stageDefaultGraphics'
-import { gridToScreen } from '../utils/isoGrid'
-import { isInsideQuad } from '../utils/isoQuad'
+import { getGridRect, gridToScreen } from '../utils/isoGrid'
 import { layoutSoloStageSprite } from '../utils/soloStageSpriteLayout'
 import {
   computeSoloPlatformPerformMarks,
@@ -94,12 +93,8 @@ export class Stage {
   }
 
   containsPixel(px: number, py: number): boolean {
-    const { gridX, gridY, gridW, gridH } = this
-    const tl = gridToScreen(gridX, gridY)
-    const tr = gridToScreen(gridX + gridW, gridY)
-    const br = gridToScreen(gridX + gridW, gridY + gridH)
-    const bl = gridToScreen(gridX, gridY + gridH)
-    return isInsideQuad(px, py, tl, tr, br, bl)
+    const rect = getGridRect(this.gridX, this.gridY, this.gridW, this.gridH)
+    return px >= rect.x && py >= rect.y && px <= rect.x + rect.width && py <= rect.y + rect.height
   }
 
   overlaps(otherGridX: number, otherGridY: number, w: number, h: number): boolean {

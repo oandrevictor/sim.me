@@ -2,10 +2,11 @@ import type { BotNirv } from '../entities/BotNirv'
 import type { Nirv } from '../entities/Nirv'
 import type { NirvHoverSubject } from './NirvNameHover'
 
-function toHoverSubject(nirv: Nirv): NirvHoverSubject {
+function toHoverSubject(nirv: Nirv, botId?: string): NirvHoverSubject {
   return {
     sprite: nirv.sprite,
     name: nirv.name,
+    botId,
     hydrationLevel: nirv.getHydrationLevel(),
     restLevel: nirv.getRestLevel(),
     satiation: nirv.getSatiation(),
@@ -20,5 +21,5 @@ export function buildNirvHoverSubjects(
   player: Nirv,
   bots: readonly BotNirv[],
 ): NirvHoverSubject[] {
-  return [toHoverSubject(player), ...bots.map(bot => toHoverSubject(bot.nirv))]
+  return [toHoverSubject(player), ...bots.map(bot => toHoverSubject(bot.nirv, bot.id))]
 }

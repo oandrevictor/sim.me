@@ -4,8 +4,10 @@ import { isBedType } from '../objects/bedTypes'
 import type { HydrationSystem } from '../systems/HydrationSystem'
 import type { BladderSystem } from '../systems/BladderSystem'
 import type { SleepSystem } from '../systems/SleepSystem'
+import type { FarmingSystem } from '../systems/FarmingSystem'
 import { TILE_W } from '../utils/isoGrid'
 import type { PlacedSpriteEntry } from './ObjectSpawner'
+import { debugLog } from '../debug/DebugLogger'
 
 /** Extra tolerance when world coords are awkward (tall sprites, zoom). */
 const NEAR_STATION_PX = TILE_W * 1.5
@@ -35,8 +37,10 @@ export function tryStationsAtPointer(
   hydrationSystem: HydrationSystem,
   bladderSystem: BladderSystem,
   sleepSystem: SleepSystem,
+  farmingSystem: FarmingSystem,
   playerNirv: Nirv,
   setWalkTarget: (x: number, y: number) => void,
+  canPlayerUseObjectAt: (x: number, y: number) => boolean = () => true,
 ): boolean {
   const pt = camera.getWorldPoint(pointer.x, pointer.y)
   const wx = pt.x
@@ -46,6 +50,11 @@ export function tryStationsAtPointer(
     const { sprite, type, x, y } = entry
     if (!sprite.active || !sprite.visible) continue
     if (!pointerHitsPlaced(wx, wy, sprite, x, y)) continue
+    logStationClick(type, x, y, playerNirv)
+    if (!canPlayerUseObjectAt(x, y)) {
+      logStationBlocked(type, x, y, playerNirv, 'access_denied')
+      return true
+    }
     if (type === 'drinking_water') {
       hydrationSystem.tryInteractWaterStation(x, y, playerNirv.sprite, setWalkTarget)
       return true
@@ -57,6 +66,40 @@ export function tryStationsAtPointer(
       sleepSystem.tryInteractBed(sprite, x, y, playerNirv, playerNirv.sprite, setWalkTarget)
       return true
     }
+    if (type === 'crop') {
+      return farmingSystem.tryInteractCrop(sprite, x, y, setWalkTarget)
+    }
   }
   return false
+}
+
+function logStationClick(type: string, x: number, y: number, playerNirv: Nirv): void {
+  debugLog.log('interaction.object_click', {
+    actorId: 'player',
+    actorName: playerNirv.name,
+    state: 'player',
+    actorX: round(playerNirv.sprite.x),
+    actorY: round(playerNirv.sprite.y),
+    objectType: type,
+    objectX: round(x),
+    objectY: round(y),
+  })
+}
+
+function logStationBlocked(type: string, x: number, y: number, playerNirv: Nirv, reason: string): void {
+  debugLog.log('interaction.object_blocked', {
+    actorId: 'player',
+    actorName: playerNirv.name,
+    state: 'player',
+    actorX: round(playerNirv.sprite.x),
+    actorY: round(playerNirv.sprite.y),
+    objectType: type,
+    objectX: round(x),
+    objectY: round(y),
+    reason,
+  }, 'warn')
+}
+
+function round(value: number): number {
+  return Math.round(value * 100) / 100
 }

@@ -3,11 +3,11 @@ import { getWorldBounds, setWorldOffset } from '../utils/isoGrid'
 
 export { GRID_SIZE, OBJECT_SIZE }
 
-// Grid dimensions (in cells)
-export const GRID_COLS = 52
-export const GRID_ROWS = 47
+// Grid dimensions (16 px cells)
+export const GRID_COLS = 208
+export const GRID_ROWS = 188
 
-// Isometric world bounds (in pixels)
+// Orthogonal world bounds (in pixels)
 const bounds = getWorldBounds(GRID_COLS, GRID_ROWS)
 export const WORLD_WIDTH = bounds.width
 export const WORLD_HEIGHT = bounds.height

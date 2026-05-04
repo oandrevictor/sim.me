@@ -5,6 +5,7 @@ import type { BandRecord } from '../storage/bandPersistence'
 import { computeSoloPlatformPerformPlacement, computeStagePerformPlacement } from '../utils/stagePerformLayout'
 import { gridToScreen } from '../utils/isoGrid'
 import { getPerformerBotIdsForAttraction } from './stagePerformerIds'
+import type { ScheduleSystem } from './ScheduleSystem'
 
 /**
  * Send solo/band members onto the stage platform.
@@ -16,6 +17,7 @@ export function placeBotsAsStagePerformers(
   bots: BotNirv[],
   attraction: StageAttraction,
   getBands: () => BandRecord[],
+  schedule: ScheduleSystem | null = null,
 ): void {
   const ids = getPerformerBotIdsForAttraction(attraction, getBands).slice(0, stage.maxPerformerCount)
   if (ids.length === 0) return
@@ -27,6 +29,7 @@ export function placeBotsAsStagePerformers(
   ids.forEach((id, i) => {
     const bot = bots.find(b => b.id === id)
     if (!bot) return
+    if (schedule && !schedule.isOnShift(bot)) return
     if (
       bot.state === 'eating' ||
       bot.state === 'awaiting_service' ||

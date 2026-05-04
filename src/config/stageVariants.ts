@@ -1,9 +1,9 @@
-/** Procedural isometric stage vs. sprite-based solo deck (see `furniture_stage_solo`). */
+/** Procedural grid stage vs. sprite-based solo deck (see `furniture_stage_solo`). */
 export type StageVariant = 'default' | 'solo_platform'
 
 export const STAGE_GRID_W = 4
 export const STAGE_GRID_H = 3
-/** Matches the wooden base in `stage-variant.png` (~4×4 tiles on the iso grid). */
+/** Matches the wooden base in `stage-variant.png` (~4×4 grid cells). */
 export const STAGE_SOLO_PLATFORM_W = 4
 export const STAGE_SOLO_PLATFORM_H = 4
 

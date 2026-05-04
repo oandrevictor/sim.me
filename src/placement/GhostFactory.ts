@@ -2,6 +2,7 @@ import Phaser from 'phaser'
 import { SOLO_STAGE_TEXTURE_KEY, stageFootprint, type StageVariant } from '../config/stageVariants'
 import { OBJECT_TYPE_REGISTRY, OBJECT_SIZE, getFramedObjectDisplaySize, type ObjectType } from '../objects/objectTypes'
 import { getBedTextureKey, isBedType } from '../objects/bedTypes'
+import { applyStockablePropDisplay, isStockablePropType } from '../objects/stockablePropDisplay'
 import { BUILDING_GRID_W, BUILDING_GRID_H } from '../entities/Building'
 import { TILE_W, TILE_H } from '../utils/isoGrid'
 import { DEPTH_UI } from '../config/world'
@@ -36,7 +37,7 @@ export function createObjectGhost(
     return sprite
   }
 
-  if (type === 'floor_yellow') {
+  if (isTileType(type)) {
     const sprite = scene.add.sprite(0, 0, config.textureKey)
     sprite.setDisplaySize(TILE_W, TILE_H)
     sprite.setAlpha(0.55)
@@ -44,31 +45,28 @@ export function createObjectGhost(
     return sprite
   }
 
-  if (type === 'snack_machine' && scene.textures.exists(config.textureKey)) {
+  if (isStockablePropType(type) && scene.textures.exists(config.textureKey)) {
     const sprite = scene.add.sprite(0, 0, config.textureKey)
-    const displayH = OBJECT_SIZE * 2.5
-    const displayW = displayH * (450 / 555)
-    sprite.setDisplaySize(displayW, displayH)
-    sprite.setOrigin(0.5, 1)
-    sprite.setAlpha(0.65)
-    sprite.setDepth(DEPTH_UI + 10)
-    return sprite
-  }
-
-  if (type === 'fruit_crate' && scene.textures.exists(config.textureKey)) {
-    const sprite = scene.add.sprite(0, 0, config.textureKey)
-    const { w, h } = getFramedObjectDisplaySize(type, 2.5)
-    sprite.setDisplaySize(w, h)
-    sprite.setOrigin(0.5, 1)
+    applyStockablePropDisplay(sprite, type)
     sprite.setAlpha(0.65)
     sprite.setDepth(DEPTH_UI + 10)
     return sprite
   }
 
   if (type === 'portable_toilet' && scene.textures.exists(config.textureKey)) {
-    const sprite = scene.add.sprite(0, 0, config.textureKey)
+    const sprite = scene.add.sprite(0, 0, config.textureKey, config.frame ?? 0)
     const { w, h } = getFramedObjectDisplaySize(type, 2.2)
     sprite.setDisplaySize(w, h)
+    sprite.setOrigin(0.5, 1)
+    sprite.setAlpha(0.65)
+    sprite.setDepth(DEPTH_UI + 10)
+    return sprite
+  }
+
+  if (type === 'crop' && scene.textures.exists(config.textureKey)) {
+    const sprite = scene.add.sprite(0, 0, config.textureKey)
+    const { w, h } = getFramedObjectDisplaySize(type, 2.5)
+    sprite.setDisplaySize(w / 2, h / 2)
     sprite.setOrigin(0.5, 1)
     sprite.setAlpha(0.65)
     sprite.setDepth(DEPTH_UI + 10)
@@ -82,20 +80,18 @@ export function createObjectGhost(
   return sprite
 }
 
+function isTileType(type: ObjectType): boolean {
+  return type === 'floor_yellow' || type === 'path'
+}
+
 export function createBuildingGhost(scene: Phaser.Scene): Phaser.GameObjects.Graphics {
   const gfx = scene.add.graphics()
   gfx.fillStyle(0x6b5b3a, 0.4)
   gfx.lineStyle(2, 0x4a3d28, 0.6)
-  const hw = BUILDING_GRID_W * TILE_W / 2
-  const hh = BUILDING_GRID_H * TILE_H / 2
-  gfx.beginPath()
-  gfx.moveTo(0, -hh)
-  gfx.lineTo(hw, 0)
-  gfx.lineTo(0, hh)
-  gfx.lineTo(-hw, 0)
-  gfx.closePath()
-  gfx.fillPath()
-  gfx.strokePath()
+  const hw = (BUILDING_GRID_W * TILE_W) / 2
+  const hh = (BUILDING_GRID_H * TILE_H) / 2
+  gfx.fillRect(-hw, -hh, hw * 2, hh * 2)
+  gfx.strokeRect(-hw, -hh, hw * 2, hh * 2)
   gfx.setDepth(DEPTH_UI + 10)
   return gfx
 }
@@ -114,13 +110,10 @@ export function createStageGhost(
 
   const { w: gw, h: gh } = stageFootprint(variant, stageRotation)
 
-  // Local coordinate helper: converts a grid offset from the footprint's
-  // top-left corner into screen coords relative to the footprint center.
-  const cx = (gw - gh) * TILE_W / 4
-  const cy = (gw + gh) * TILE_H / 4
+  // Local coords: footprint top-left at origin, centered on graphics (0,0).
   const lp = (dx: number, dy: number) => ({
-    x: (dx - dy) * (TILE_W / 2) - cx,
-    y: (dx + dy) * (TILE_H / 2) - cy,
+    x: dx * TILE_W - (gw * TILE_W) / 2,
+    y: dy * TILE_H - (gh * TILE_H) / 2,
   })
 
   const gfx = scene.add.graphics()

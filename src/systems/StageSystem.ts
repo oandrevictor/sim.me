@@ -18,6 +18,8 @@ import {
 } from './stageAudienceTick'
 import { getPerformerBotIdsForAttraction } from './stagePerformerIds'
 import { placeBotsAsStagePerformers } from './stagePerformerPlacement'
+import type { RelationshipSystem } from './RelationshipSystem'
+import type { DayNightSystem } from './DayNightSystem'
 
 export type { StagePerformanceView } from './stagePerformanceTypes'
 
@@ -28,6 +30,13 @@ export class StageSystem {
   private timeSinceCheck = 0
   private watchingBots = new Map<BotNirv, { stageId: string; x: number; y: number }>()
   private arrivalRegistered = new Set<string>()
+  private relationshipSystem: RelationshipSystem | null = null
+  private dayNight: DayNightSystem | null = null
+  private schedule: import('./ScheduleSystem').ScheduleSystem | null = null
+
+  setSchedule(s: import('./ScheduleSystem').ScheduleSystem): void { this.schedule = s }
+  setRelationshipSystem(system: RelationshipSystem): void { this.relationshipSystem = system }
+  setDayNight(system: DayNightSystem): void { this.dayNight = system }
 
   constructor(
     private readonly stages: Stage[],
@@ -43,6 +52,14 @@ export class StageSystem {
       runtimeByStageId: this.runtimeByStageId,
       watchingBots: this.watchingBots,
       arrivalRegistered: this.arrivalRegistered,
+      nightAttractionBonus: this.dayNight?.getNightAttractionBonus() ?? 0,
+      pairSocialBias: this.relationshipSystem
+        ? (idA: string, idB: string) => this.relationshipSystem?.getPairSocialBias(idA, idB, 'group') ?? 0
+        : undefined,
+      onCompanionExposure: this.relationshipSystem
+        ? (subjectId: string, otherId: string, weight: number) =>
+            this.relationshipSystem?.registerJealousyExposure(subjectId, otherId, weight)
+        : undefined,
     }
   }
 
@@ -82,7 +99,7 @@ export class StageSystem {
     setAttractionOnState(stageId, st, attraction, performance.now())
     if (attraction) {
       const stage = this.stages.find(s => s.id === stageId)
-      if (stage) placeBotsAsStagePerformers(stage, this.bots, attraction, this.getBands)
+      if (stage) placeBotsAsStagePerformers(stage, this.bots, attraction, this.getBands, this.schedule)
     }
   }
 
@@ -104,12 +121,21 @@ export class StageSystem {
         this.setStageAttraction(stage.id, null)
         continue
       }
-      placeBotsAsStagePerformers(stage, this.bots, att, this.getBands)
+      placeBotsAsStagePerformers(stage, this.bots, att, this.getBands, this.schedule)
     }
   }
 
   getStageAttraction(stageId: string): StageAttraction | null {
     return this.runtimeByStageId.get(stageId)?.attraction ?? null
+  }
+
+  isPerformerAssigned(botId: string): boolean {
+    for (const runtime of this.runtimeByStageId.values()) {
+      const attraction = runtime.attraction
+      if (!attraction) continue
+      if (getPerformerBotIdsForAttraction(attraction, this.getBands).includes(botId)) return true
+    }
+    return false
   }
 
   getPerformanceView(stageId: string): StagePerformanceView | null {
@@ -139,7 +165,7 @@ export class StageSystem {
     for (const [bot, meta] of [...this.watchingBots]) {
       if (meta.stageId !== stageId) continue
       this.watchingBots.delete(bot)
-      if (bot.state === 'watching_stage' || bot.state === 'walking_to_stage') bot.leaveStage()
+      if (bot.state === 'watching_stage' || bot.state === 'dancing' || bot.state === 'walking_to_stage') bot.leaveStage()
     }
     for (const bot of this.bots) {
       if (bot.stageId !== stageId) continue
@@ -166,7 +192,7 @@ export class StageSystem {
     // Pick up performers who were busy (restaurant) when line-up was set, or missed placement
     for (const stage of this.stages) {
       const att = this.getStageAttraction(stage.id)
-      if (att) placeBotsAsStagePerformers(stage, this.bots, att, this.getBands)
+      if (att) placeBotsAsStagePerformers(stage, this.bots, att, this.getBands, this.schedule)
     }
   }
 }

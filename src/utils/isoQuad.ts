@@ -1,6 +1,6 @@
-import { gridToScreen } from './isoGrid'
+import { getGridRect, TILE_H, TILE_W } from './isoGrid'
 
-/** Point-in-parallelogram (iso footprint quads). */
+/** Point-in-convex-quad (stage platform inset; axis-aligned when projection is orthogonal). */
 export function isInsideQuad(
   px: number,
   py: number,
@@ -29,10 +29,10 @@ export function platformInsetContainsPixel(
   px: number,
   py: number,
 ): boolean {
-  const pi = 0.5
-  const ptl = gridToScreen(gridX + pi, gridY + pi)
-  const ptr = gridToScreen(gridX + gridW - pi, gridY + pi)
-  const pbr = gridToScreen(gridX + gridW - pi, gridY + gridH - pi)
-  const pbl = gridToScreen(gridX + pi, gridY + gridH - pi)
-  return isInsideQuad(px, py, ptl, ptr, pbr, pbl)
+  const r = getGridRect(gridX, gridY, gridW, gridH)
+  const left = r.x + TILE_W / 2
+  const top = r.y + TILE_H / 2
+  const right = r.x + r.width - TILE_W / 2
+  const bottom = r.y + r.height - TILE_H / 2
+  return px >= left && px <= right && py >= top && py <= bottom
 }

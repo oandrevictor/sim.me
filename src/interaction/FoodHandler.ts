@@ -8,6 +8,7 @@ import type { RestaurantSystem } from '../systems/RestaurantSystem'
 import type { RecipeSelectUI } from '../ui/RecipeSelectUI'
 import type { PlateEntry } from '../world/ObjectSpawner'
 import type { ObjectType } from '../objects/objectTypes'
+import { debugLog, type DebugFields, type DebugLogLevel } from '../debug/DebugLogger'
 
 const INTERACTION_RADIUS = TILE_W
 
@@ -26,11 +27,12 @@ export class FoodHandler {
     private readonly recipeSelectUI: RecipeSelectUI,
     private readonly getPlayer: () => Phaser.Physics.Arcade.Sprite,
     private readonly setWalkTarget: (x: number, y: number) => void,
-    private readonly spawnObject: (type: ObjectType, x: number, y: number, persist: boolean, recipeId?: string) => void,
+    private readonly spawnObject: (type: ObjectType, x: number, y: number, persist: boolean, recipeId?: string) => boolean,
     private readonly getTableSprites: () => { x: number; y: number }[],
     private readonly getCounterSprites: () => { x: number; y: number }[],
     private readonly removePlateEntry: (entry: PlateEntry) => void,
     private readonly isPlacementActive: () => boolean,
+    private readonly canPlayerUseObjectAt: (x: number, y: number) => boolean = () => true,
   ) {}
 
   isCarrying(): boolean { return this.carriedPlate !== null }
@@ -44,13 +46,21 @@ export class FoodHandler {
   }
 
   onStoveClicked(sprite: Phaser.Physics.Arcade.Sprite): void {
-    if (this.isPlacementActive()) return
+    if (this.isPlacementActive()) {
+      this.logInteraction('interaction.object_blocked', { objectType: 'stove', reason: 'placement_active' }, 'warn')
+      return
+    }
+    if (!this.canPlayerUseObjectAt(sprite.x, sprite.y)) {
+      this.logInteraction('interaction.object_blocked', { objectType: 'stove', reason: 'access_denied', objectX: round(sprite.x), objectY: round(sprite.y) }, 'warn')
+      return
+    }
     const player = this.getPlayer()
     const dist = Phaser.Math.Distance.Between(player.x, player.y, sprite.x, sprite.y)
     if (dist >= INTERACTION_RADIUS * 1.5) {
       this.setWalkTarget(sprite.x, sprite.y)
       this.pendingStoveSprite = sprite
       this.pendingFoodTarget = null
+      this.logInteraction('interaction.object_walk_queued', { objectType: 'stove', objectX: round(sprite.x), objectY: round(sprite.y), distance: round(dist) })
     } else {
       this.interactWithStove(sprite)
     }
@@ -59,6 +69,10 @@ export class FoodHandler {
   onTrashClicked(sprite: Phaser.Physics.Arcade.Sprite): void {
     if (this.isPlacementActive()) return
     if (!this.carriedPlate) return
+    if (!this.canPlayerUseObjectAt(sprite.x, sprite.y)) {
+      this.logInteraction('interaction.object_blocked', { objectType: 'trash', reason: 'access_denied', objectX: round(sprite.x), objectY: round(sprite.y) }, 'warn')
+      return
+    }
     const player = this.getPlayer()
     const dist = Phaser.Math.Distance.Between(player.x, player.y, sprite.x, sprite.y)
     if (dist >= INTERACTION_RADIUS * 1.5) {
@@ -66,6 +80,7 @@ export class FoodHandler {
       this.pendingTrashSprite = sprite
       this.pendingStoveSprite = null
       this.pendingFoodTarget = null
+      this.logInteraction('interaction.object_walk_queued', { objectType: 'trash', objectX: round(sprite.x), objectY: round(sprite.y), distance: round(dist) })
     } else {
       this.discardCarriedItem()
     }
@@ -75,6 +90,10 @@ export class FoodHandler {
     if (this.isPlacementActive()) return
     if (isShopMode()) return
     if (this.carriedPlate) return
+    if (!this.canPlayerUseObjectAt(entry.tableX, entry.tableY)) {
+      this.logInteraction('interaction.object_blocked', { objectType: 'food_plate', reason: 'access_denied', objectX: round(entry.tableX), objectY: round(entry.tableY) }, 'warn')
+      return
+    }
     const player = this.getPlayer()
     const dist = Phaser.Math.Distance.Between(player.x, player.y, entry.sprite.x, entry.sprite.y)
     if (dist >= INTERACTION_RADIUS * 1.5) {
@@ -83,6 +102,7 @@ export class FoodHandler {
       this.pendingStoveSprite = null
       this.pendingTrashSprite = null
       this.pendingFoodTarget = null
+      this.logInteraction('interaction.object_walk_queued', { objectType: 'food_plate', objectX: round(entry.sprite.x), objectY: round(entry.sprite.y), distance: round(dist) })
     } else {
       this.pickUpPlate(entry)
     }
@@ -95,10 +115,12 @@ export class FoodHandler {
     let target: { x: number; y: number } | null = null
     let bestDist = TILE_W
     for (const t of this.getTableSprites()) {
+      if (!this.canPlayerUseObjectAt(t.x, t.y)) continue
       const d = Phaser.Math.Distance.Between(snapped.x, snapped.y, t.x, t.y)
       if (d < bestDist) { bestDist = d; target = t }
     }
     for (const c of this.getCounterSprites()) {
+      if (!this.canPlayerUseObjectAt(c.x, c.y)) continue
       const d = Phaser.Math.Distance.Between(snapped.x, snapped.y, c.x, c.y)
       if (d < bestDist) { bestDist = d; target = c }
     }
@@ -109,6 +131,7 @@ export class FoodHandler {
       this.setWalkTarget(target.x, target.y)
       this.pendingFoodTarget = target
       this.pendingStoveSprite = null
+      this.logInteraction('interaction.object_walk_queued', { objectType: 'food_target', objectX: round(target.x), objectY: round(target.y), distance: round(dist) })
     } else {
       this.placeFood(target.x, target.y)
     }
@@ -118,17 +141,23 @@ export class FoodHandler {
   handlePendingInteractions(): void {
     if (this.pendingStoveSprite) {
       const s = this.pendingStoveSprite; this.pendingStoveSprite = null
+      this.logInteraction('interaction.pending_resolved', { objectType: 'stove', objectX: round(s.x), objectY: round(s.y) })
       this.interactWithStove(s)
     }
     if (this.pendingTrashSprite) {
-      this.pendingTrashSprite = null; this.discardCarriedItem()
+      const s = this.pendingTrashSprite
+      this.pendingTrashSprite = null
+      this.logInteraction('interaction.pending_resolved', { objectType: 'trash', objectX: round(s.x), objectY: round(s.y) })
+      this.discardCarriedItem()
     }
     if (this.pendingPlatePickup) {
       const e = this.pendingPlatePickup; this.pendingPlatePickup = null
+      this.logInteraction('interaction.pending_resolved', { objectType: 'food_plate', objectX: round(e.sprite.x), objectY: round(e.sprite.y) })
       this.pickUpPlate(e)
     }
     if (this.pendingFoodTarget && this.carriedPlate) {
       const t = this.pendingFoodTarget; this.pendingFoodTarget = null
+      this.logInteraction('interaction.pending_resolved', { objectType: 'food_target', objectX: round(t.x), objectY: round(t.y) })
       this.placeFood(t.x, t.y)
     }
   }
@@ -150,35 +179,52 @@ export class FoodHandler {
 
   private interactWithStove(sprite: Phaser.Physics.Arcade.Sprite): void {
     const stove = this.cookingSystem.getStoveBySprite(sprite)
-    if (!stove) return
+    if (!stove) {
+      this.logInteraction('interaction.object_blocked', { objectType: 'stove', reason: 'stove_not_registered', objectX: round(sprite.x), objectY: round(sprite.y) }, 'warn')
+      return
+    }
     if (stove.status === 'idle' && !this.carriedPlate) {
+      this.logInteraction('interaction.stove_recipe_open', { objectType: 'stove', objectX: round(sprite.x), objectY: round(sprite.y), stoveStatus: stove.status }, 'info')
       this.recipeSelectUI.open((recipeId) => this.cookingSystem.startCooking(stove, recipeId))
     } else if (stove.status === 'done') {
       const recipeId = this.cookingSystem.collectFood(stove)
-      if (recipeId) { this.carriedPlate = { recipeId }; this.createCarryIndicator() }
+      if (recipeId) {
+        this.carriedPlate = { recipeId }
+        this.createCarryIndicator()
+        this.logInteraction('interaction.stove_collect_food', { objectType: 'stove', objectX: round(sprite.x), objectY: round(sprite.y), recipeId }, 'info')
+      }
+    } else {
+      this.logInteraction('interaction.object_blocked', { objectType: 'stove', reason: 'no_stove_action', objectX: round(sprite.x), objectY: round(sprite.y), stoveStatus: stove.status }, 'debug')
     }
   }
 
   private pickUpPlate(entry: PlateEntry): void {
-    this.restaurantSystem.removePlateFromTable(entry.tableX, entry.tableY, entry.sprite)
+    this.restaurantSystem.removePlateFromTableOrCounter(entry.tableX, entry.tableY, entry.sprite)
     entry.sprite.destroy()
     this.removePlateEntry(entry)
     removeObjectByType(entry.tableX, entry.tableY, 'food_plate')
     this.carriedPlate = { recipeId: entry.recipeId }
     this.createCarryIndicator()
+    this.logInteraction('interaction.plate_pickup', { objectType: 'food_plate', objectX: round(entry.tableX), objectY: round(entry.tableY), recipeId: entry.recipeId }, 'info')
   }
 
   private discardCarriedItem(): void {
+    const recipeId = this.carriedPlate?.recipeId ?? ''
     this.carriedPlate = null
     if (this.carryIndicator) { this.carryIndicator.destroy(); this.carryIndicator = null }
+    this.logInteraction('interaction.carried_item_discarded', { objectType: 'trash', recipeId }, 'info')
   }
 
   private placeFood(x: number, y: number): void {
     if (!this.carriedPlate) return
     const recipeId = this.carriedPlate.recipeId
-    this.spawnObject('food_plate', x, y, true, recipeId)
+    if (!this.spawnObject('food_plate', x, y, true, recipeId)) {
+      this.logInteraction('interaction.food_place_failed', { objectType: 'food_plate', objectX: round(x), objectY: round(y), recipeId }, 'warn')
+      return
+    }
     this.carriedPlate = null
     if (this.carryIndicator) { this.carryIndicator.destroy(); this.carryIndicator = null }
+    this.logInteraction('interaction.food_placed', { objectType: 'food_plate', objectX: round(x), objectY: round(y), recipeId }, 'info')
   }
 
   private createCarryIndicator(): void {
@@ -186,4 +232,20 @@ export class FoodHandler {
     this.carryIndicator = this.scene.add.graphics()
     this.carryIndicator.setDepth(DEPTH_UI + 5)
   }
+
+  private logInteraction(type: string, fields: DebugFields, level: DebugLogLevel = 'debug'): void {
+    const player = this.getPlayer()
+    debugLog.log(type, {
+      actorId: 'player',
+      actorName: 'Player',
+      state: 'player',
+      actorX: round(player.x),
+      actorY: round(player.y),
+      ...fields,
+    }, level)
+  }
+}
+
+function round(value: number): number {
+  return Math.round(value * 100) / 100
 }

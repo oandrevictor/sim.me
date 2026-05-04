@@ -100,7 +100,7 @@ export function generateDefaultSchedules(
   return schedules
 }
 
-/** Convert grid coordinates to screen pixel position (isometric) */
+/** Convert grid coordinates to screen pixel position */
 export function gridToPixel(gridX: number, gridY: number): { x: number; y: number } {
   return gridToScreen(gridX, gridY)
 }

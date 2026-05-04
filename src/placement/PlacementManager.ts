@@ -3,12 +3,16 @@ import { stageFootprint, type StageVariant } from '../config/stageVariants'
 import { OBJECT_TYPE_REGISTRY, type ObjectType } from '../objects/objectTypes'
 import { BUILDING_GRID_W, BUILDING_GRID_H } from '../entities/Building'
 import type { MenuUI } from '../ui/MenuUI'
-import { snapToIsoGrid, screenToGrid, gridToScreen } from '../utils/isoGrid'
+import { snapToIsoGrid, screenToCell, gridRectCenter } from '../utils/isoGrid'
 import { layoutSoloStageSprite } from '../utils/soloStageSpriteLayout'
 import { createObjectGhost, createBuildingGhost, createStageGhost, ROTATABLE_TYPES } from './GhostFactory'
 import { isBedType } from '../objects/bedTypes'
 
 type PlacementMode = 'object' | 'building' | 'stage'
+type RepositionCallbacks = {
+  restore: () => void
+  store: () => void
+}
 
 export class PlacementManager {
   private ghost: Phaser.GameObjects.GameObject | null = null
@@ -21,6 +25,7 @@ export class PlacementManager {
   private rotation = 0
   private stageRotation: 0 | 1 = 0
   private stagePlacingVariant: StageVariant = 'default'
+  private repositionCallbacks: RepositionCallbacks | null = null
 
   private boundOnPointerMove: (pointer: Phaser.Input.Pointer) => void
   private boundOnPointerDown: (pointer: Phaser.Input.Pointer, _gos: Phaser.GameObjects.GameObject[]) => void
@@ -29,7 +34,7 @@ export class PlacementManager {
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly menuUI: MenuUI,
-    private readonly onPlace: (type: ObjectType, x: number, y: number, rotation?: number) => void,
+    private readonly onPlace: (type: ObjectType, x: number, y: number, rotation?: number) => boolean,
     private readonly onPlaceBuilding: (gridX: number, gridY: number) => boolean,
     private readonly onPlaceStage: (gridX: number, gridY: number, rotation: 0 | 1, variant: StageVariant) => boolean = () => false,
   ) {
@@ -45,9 +50,16 @@ export class PlacementManager {
     this.bindInput()
   }
 
-  enterReposition(type: ObjectType, startX: number, startY: number, rotation = 0): void {
+  enterReposition(
+    type: ObjectType,
+    startX: number,
+    startY: number,
+    rotation = 0,
+    callbacks: RepositionCallbacks,
+  ): void {
     if (this.mode !== null) this.exit()
     this.mode = 'object'; this.activeType = type; this.repositionMode = true; this.rotation = rotation
+    this.repositionCallbacks = callbacks
     this.ghost = createObjectGhost(this.scene, type, rotation)
     ;(this.ghost as Phaser.GameObjects.Sprite).setPosition(startX, startY)
     this.scene.game.canvas.style.cursor = 'grabbing'
@@ -75,7 +87,8 @@ export class PlacementManager {
     this.bindInput()
   }
 
-  exit(): void {
+  exit(restoreReposition = true): void {
+    const callbacks = this.repositionMode && restoreReposition ? this.repositionCallbacks : null
     this.ghost?.destroy(); this.ghost = null
     this.scene.input.off('pointermove', this.boundOnPointerMove)
     this.scene.input.off('pointerdown', this.boundOnPointerDown)
@@ -83,9 +96,11 @@ export class PlacementManager {
     this.escKey?.removeAllListeners(); this.escKey = null
     this.rotateKey?.removeAllListeners(); this.rotateKey = null
     this.activeType = null; this.mode = null
+    this.repositionCallbacks = null
     this.repositionMode = false; this.inventoryMode = false
     this.rotation = 0; this.stageRotation = 0; this.stagePlacingVariant = 'default'
     this.scene.game.canvas.style.cursor = ''
+    callbacks?.restore()
   }
 
   isActive(): boolean { return this.mode !== null }
@@ -136,19 +151,17 @@ export class PlacementManager {
       const snapped = snapToIsoGrid(pointer.worldX, pointer.worldY)
       ;(this.ghost as Phaser.GameObjects.Sprite).setPosition(snapped.x, snapped.y)
     } else if (this.mode === 'building') {
-      const g = screenToGrid(pointer.worldX, pointer.worldY)
-      const center = gridToScreen(Math.floor(g.gx) + BUILDING_GRID_W / 2, Math.floor(g.gy) + BUILDING_GRID_H / 2)
+      const g = screenToCell(pointer.worldX, pointer.worldY)
+      const center = gridRectCenter(g.gx, g.gy, BUILDING_GRID_W, BUILDING_GRID_H)
       ;(this.ghost as Phaser.GameObjects.Graphics).setPosition(center.x, center.y)
     } else if (this.mode === 'stage') {
-      const g = screenToGrid(pointer.worldX, pointer.worldY)
-      const gx = Math.floor(g.gx)
-      const gy = Math.floor(g.gy)
+      const { gx, gy } = screenToCell(pointer.worldX, pointer.worldY)
       const gw = this.stageGW()
       const gh = this.stageGH()
       if (this.stagePlacingVariant === 'solo_platform' && this.ghost instanceof Phaser.GameObjects.Sprite) {
         layoutSoloStageSprite(this.ghost, gx, gy, gw, gh)
       } else {
-        const center = gridToScreen(gx + gw / 2, gy + gh / 2)
+        const center = gridRectCenter(gx, gy, gw, gh)
         ;(this.ghost as Phaser.GameObjects.Graphics).setPosition(center.x, center.y)
       }
     }
@@ -162,23 +175,27 @@ export class PlacementManager {
     if (this.mode === 'object' && this.activeType) {
       const snapped = snapToIsoGrid(pointer.worldX, pointer.worldY)
       const rot = ROTATABLE_TYPES.has(this.activeType) || isBedType(this.activeType) ? this.rotation : undefined
-      this.onPlace(this.activeType, snapped.x, snapped.y, rot)
-      if (this.inventoryMode) { this.exit(); return }
+      const placed = this.onPlace(this.activeType, snapped.x, snapped.y, rot)
+      if (this.inventoryMode && placed) { this.exit(false); return }
     } else if (this.mode === 'building') {
-      const g = screenToGrid(pointer.worldX, pointer.worldY)
-      if (this.onPlaceBuilding(Math.floor(g.gx), Math.floor(g.gy))) this.exit()
+      const g = screenToCell(pointer.worldX, pointer.worldY)
+      if (this.onPlaceBuilding(g.gx, g.gy)) this.exit()
     } else if (this.mode === 'stage') {
-      const g = screenToGrid(pointer.worldX, pointer.worldY)
-      if (this.onPlaceStage(Math.floor(g.gx), Math.floor(g.gy), this.stageRotation, this.stagePlacingVariant)) this.exit()
+      const g = screenToCell(pointer.worldX, pointer.worldY)
+      if (this.onPlaceStage(g.gx, g.gy, this.stageRotation, this.stagePlacingVariant)) this.exit()
     }
   }
 
   private onPointerUp(pointer: Phaser.Input.Pointer): void {
     if (!this.repositionMode || !this.activeType) return
+    if (this.menuUI.isPointerOverInventoryDropTarget(pointer)) {
+      this.repositionCallbacks?.store()
+      this.exit(false)
+      return
+    }
     if (this.menuUI.isPointerOverUI(pointer)) return
     const snapped = snapToIsoGrid(pointer.worldX, pointer.worldY)
     const rot = ROTATABLE_TYPES.has(this.activeType) || isBedType(this.activeType) ? this.rotation : undefined
-    this.onPlace(this.activeType, snapped.x, snapped.y, rot)
-    this.exit()
+    if (this.onPlace(this.activeType, snapped.x, snapped.y, rot)) this.exit(false)
   }
 }

@@ -1,13 +1,14 @@
-/** Bladder fills over time; high level = needs bathroom. */
+/** Bladder comfort decays over time; low level = needs bathroom. */
 
-export const BLADDER_START = 80
+export const BLADDER_START = 20
+const GAME_MINUTES_PER_OLD_REAL_MINUTE = 60
 
-/** Points added per game minute. */
-export function sampleBladderIncreaseStep(): number {
-  return 10 + Math.floor(Math.random() * 21)
+/** Comfort points lost per game minute, preserving the old per-real-minute pacing. */
+export function sampleBladderDecayStep(): number {
+  return (10 + Math.floor(Math.random() * 21)) / GAME_MINUTES_PER_OLD_REAL_MINUTE
 }
 
-/** When bladder_level reaches this, bots seek a toilet (non-urgent). */
+/** When comfort drops to this, bots seek a toilet (non-urgent). */
 export function sampleBladderThreshold(): number {
-  return 60 + Math.floor(Math.random() * 40)
+  return Math.max(1, 100 - (60 + Math.floor(Math.random() * 40)))
 }
